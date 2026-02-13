@@ -29,6 +29,10 @@ auth:
   reset_admin_password: true
 ```
 
+## Password guidance
+
+Constructing secure passwords and managing them properly is important. Frigate requires a minimum length of 12 characters. For guidance on password standards see [NIST SP 800-63B](https://pages.nist.gov/800-63-3/sp800-63b.html). To learn what makes a password truly secure, read this [article](https://medium.com/peerio/how-to-build-a-billion-dollar-password-3d92568d9277).
+
 ## Login failure rate limiting
 
 In order to limit the risk of brute force attacks, rate limiting is available for login failures. This is implemented with SlowApi, and the string notation for valid values is available in [the documentation](https://limits.readthedocs.io/en/stable/quickstart.html#examples).
@@ -161,6 +165,10 @@ In this example:
 - If the proxy passes a role header containing `operators`, the user is assigned the `operator` custom role.
 - If no mapping matches, Frigate falls back to `default_role` if configured.
 - If `role_map` is not defined, Frigate assumes the role header directly contains `admin`, `viewer`, or a custom role name.
+
+**Note on matching semantics:**
+
+- Admin precedence: if the `admin` mapping matches, Frigate resolves the session to `admin` to avoid accidental downgrade when a user belongs to multiple groups (for example both `admin` and `viewer` groups).
 
 #### Port Considerations
 
