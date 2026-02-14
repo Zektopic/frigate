@@ -43,6 +43,8 @@ jobs:
           platforms: linux/amd64
           target: frigate
           tags: ${{ steps.setup.outputs.image-name }}-amd64
+          cache-from: type=registry,ref=${{ steps.setup.outputs.cache-name }}-amd64
+          cache-to: type=registry,ref=${{ steps.setup.outputs.cache-name }}-amd64,mode=max
   
   amd64_extra_builds:
     runs-on: ubuntu-22.04
@@ -73,3 +75,5 @@ jobs:
           set: |
             rocm.tags=${{ steps.setup.outputs.image-name }}-${{ github.ref_name }}
             rocm.tags=${{ steps.setup.outputs.latest-name }}-${{ github.ref_name }}
+            *.cache-to=type=registry,ref=${{ steps.setup.outputs.cache-name }}-rocm,mode=max
+            *.cache-from=type=registry,ref=${{ steps.setup.outputs.cache-name }}-rocm
