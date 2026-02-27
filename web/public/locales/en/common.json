@@ -115,8 +115,10 @@
     "internalID": "The Internal ID Frigate uses in the configuration and database"
   },
   "button": {
+    "add": "Add",
     "apply": "Apply",
     "reset": "Reset",
+    "undo": "Undo",
     "done": "Done",
     "enabled": "Enabled",
     "enable": "Enable",
@@ -127,6 +129,7 @@
     "cancel": "Cancel",
     "close": "Close",
     "copy": "Copy",
+    "copiedToClipboard": "Copied to clipboard",
     "back": "Back",
     "history": "History",
     "fullscreen": "Fullscreen",
@@ -150,7 +153,14 @@
     "export": "Export",
     "deleteNow": "Delete Now",
     "next": "Next",
-    "continue": "Continue"
+    "continue": "Continue",
+    "modified": "Modified",
+    "overridden": "Overridden",
+    "resetToGlobal": "Reset to Global",
+    "resetToDefault": "Reset to Default",
+    "saveAll": "Save All",
+    "savingAll": "Saving All…",
+    "undoAll": "Undo All"
   },
   "menu": {
     "system": "System",
@@ -245,6 +255,7 @@
     "uiPlayground": "UI Playground",
     "faceLibrary": "Face Library",
     "classification": "Classification",
+    "chat": "Chat",
     "user": {
       "title": "User",
       "account": "Account",

@@ -30,22 +30,31 @@ from frigate.api.auth import (
     require_role,
 )
 from frigate.api.defs.query.app_query_parameters import AppTimelineHourlyQueryParameters
-from frigate.api.defs.request.app_body import AppConfigSetBody
+from frigate.api.defs.request.app_body import AppConfigSetBody, MediaSyncBody
 from frigate.api.defs.tags import Tags
 from frigate.config import FrigateConfig
 from frigate.config.camera.updater import (
     CameraConfigUpdateEnum,
     CameraConfigUpdateTopic,
 )
+from frigate.ffmpeg_presets import FFMPEG_HWACCEL_VAAPI, _gpu_selector
+from frigate.jobs.media_sync import (
+    get_current_media_sync_job,
+    get_media_sync_job_by_id,
+    start_media_sync_job,
+)
 from frigate.models import Event, Timeline
 from frigate.stats.prometheus import get_metrics, update_metrics
+from frigate.types import JobStatusTypesEnum
 from frigate.util.builtin import (
     clean_camera_user_pass,
     flatten_config_data,
+    load_labels,
     process_config_query_string,
     update_yaml_file_bulk,
 )
 from frigate.util.config import find_config_file
+from frigate.util.schema import get_config_schema
 from frigate.util.services import (
     get_nvidia_driver_info,
     process_logs,
@@ -70,9 +79,7 @@ def is_healthy():
 
 @router.get("/config/schema.json", dependencies=[Depends(allow_public())])
 def config_schema(request: Request):
-    return Response(
-        content=request.app.frigate_config.schema_json(), media_type="application/json"
-    )
+    return JSONResponse(content=get_config_schema(FrigateConfig))
 
 
 @router.get(
@@ -118,6 +125,10 @@ def config(request: Request):
     config: dict[str, dict[str, Any]] = config_obj.model_dump(
         mode="json", warnings="none", exclude_none=True
     )
+    config["detectors"] = {
+        name: detector.model_dump(mode="json", warnings="none", exclude_none=True)
+        for name, detector in config_obj.detectors.items()
+    }
 
     # remove the mqtt password
     config["mqtt"].pop("password", None)
@@ -186,6 +197,54 @@ def config(request: Request):
         )
 
     return JSONResponse(content=config)
+
+
+@router.get("/ffmpeg/presets", dependencies=[Depends(allow_any_authenticated())])
+def ffmpeg_presets():
+    """Return available ffmpeg preset keys for config UI usage."""
+
+    # Whitelist based on documented presets in ffmpeg_presets.md
+    hwaccel_presets = [
+        "preset-rpi-64-h264",
+        "preset-rpi-64-h265",
+        "preset-vaapi",
+        "preset-intel-qsv-h264",
+        "preset-intel-qsv-h265",
+        "preset-nvidia",
+        "preset-jetson-h264",
+        "preset-jetson-h265",
+        "preset-rkmpp",
+    ]
+    input_presets = [
+        "preset-http-jpeg-generic",
+        "preset-http-mjpeg-generic",
+        "preset-http-reolink",
+        "preset-rtmp-generic",
+        "preset-rtsp-generic",
+        "preset-rtsp-restream",
+        "preset-rtsp-restream-low-latency",
+        "preset-rtsp-udp",
+        "preset-rtsp-blue-iris",
+    ]
+    record_output_presets = [
+        "preset-record-generic",
+        "preset-record-generic-audio-copy",
+        "preset-record-generic-audio-aac",
+        "preset-record-mjpeg",
+        "preset-record-jpeg",
+        "preset-record-ubiquiti",
+    ]
+
+    return JSONResponse(
+        content={
+            "hwaccel_args": hwaccel_presets,
+            "input_args": input_presets,
+            "output_args": {
+                "record": record_output_presets,
+                "detect": [],
+            },
+        }
+    )
 
 
 @router.get("/config/raw_paths", dependencies=[Depends(require_role(["admin"]))])
@@ -425,6 +484,7 @@ def config_set(request: Request, body: AppConfigSetBody):
     if body.requires_restart == 0 or body.update_topic:
         old_config: FrigateConfig = request.app.frigate_config
         request.app.frigate_config = config
+        request.app.genai_manager.update_config(config)
 
         if body.update_topic:
             if body.update_topic.startswith("config/cameras/"):
@@ -463,7 +523,15 @@ def config_set(request: Request, body: AppConfigSetBody):
 
 @router.get("/vainfo", dependencies=[Depends(allow_any_authenticated())])
 def vainfo():
-    vainfo = vainfo_hwaccel()
+    # Use LibvaGpuSelector to pick an appropriate libva device (if available)
+    selected_gpu = ""
+    try:
+        selected_gpu = _gpu_selector.get_gpu_arg(FFMPEG_HWACCEL_VAAPI, 0) or ""
+    except Exception:
+        selected_gpu = ""
+
+    # If selected_gpu is empty, pass None to vainfo_hwaccel to run plain `vainfo`.
+    vainfo = vainfo_hwaccel(device_name=selected_gpu or None)
     return JSONResponse(
         content={
             "return_code": vainfo.returncode,
@@ -598,6 +666,98 @@ def restart():
     )
 
 
+@router.post(
+    "/media/sync",
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Start media sync job",
+    description="""Start an asynchronous media sync job to find and (optionally) remove orphaned media files.
+    Returns 202 with job details when queued, or 409 if a job is already running.""",
+)
+def sync_media(body: MediaSyncBody = Body(...)):
+    """Start async media sync job - remove orphaned files.
+
+    Syncs specified media types: event snapshots, event thumbnails, review thumbnails,
+    previews, exports, and/or recordings. Job runs in background; use /media/sync/current
+    or /media/sync/status/{job_id} to check status.
+
+    Args:
+        body: MediaSyncBody with dry_run flag and media_types list.
+              media_types can include: 'all', 'event_snapshots', 'event_thumbnails',
+              'review_thumbnails', 'previews', 'exports', 'recordings'
+
+    Returns:
+        202 Accepted with job_id, or 409 Conflict if job already running.
+    """
+    job_id = start_media_sync_job(
+        dry_run=body.dry_run, media_types=body.media_types, force=body.force
+    )
+
+    if job_id is None:
+        # A job is already running
+        current = get_current_media_sync_job()
+        return JSONResponse(
+            content={
+                "error": "A media sync job is already running",
+                "current_job_id": current.id if current else None,
+            },
+            status_code=409,
+        )
+
+    return JSONResponse(
+        content={
+            "job": {
+                "job_type": "media_sync",
+                "status": JobStatusTypesEnum.queued,
+                "id": job_id,
+            }
+        },
+        status_code=202,
+    )
+
+
+@router.get(
+    "/media/sync/current",
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Get current media sync job",
+    description="""Retrieve the current running media sync job, if any. Returns the job details
+    or null when no job is active.""",
+)
+def get_media_sync_current():
+    """Get the current running media sync job, if any."""
+    job = get_current_media_sync_job()
+
+    if job is None:
+        return JSONResponse(content={"job": None}, status_code=200)
+
+    return JSONResponse(
+        content={"job": job.to_dict()},
+        status_code=200,
+    )
+
+
+@router.get(
+    "/media/sync/status/{job_id}",
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Get media sync job status",
+    description="""Get status and results for the specified media sync job id. Returns 200 with
+    job details including results, or 404 if the job is not found.""",
+)
+def get_media_sync_status(job_id: str):
+    """Get the status of a specific media sync job."""
+    job = get_media_sync_job_by_id(job_id)
+
+    if job is None:
+        return JSONResponse(
+            content={"error": "Job not found"},
+            status_code=404,
+        )
+
+    return JSONResponse(
+        content={"job": job.to_dict()},
+        status_code=200,
+    )
+
+
 @router.get("/labels", dependencies=[Depends(allow_any_authenticated())])
 def get_labels(camera: str = ""):
     try:
@@ -645,6 +805,12 @@ def get_sub_labels(split_joined: Optional[int] = None):
 
     sub_labels.sort()
     return JSONResponse(content=sub_labels)
+
+
+@router.get("/audio_labels", dependencies=[Depends(allow_any_authenticated())])
+def get_audio_labels():
+    labels = load_labels("/audio-labelmap.txt", prefill=521)
+    return JSONResponse(content=labels)
 
 
 @router.get("/plus/models", dependencies=[Depends(allow_any_authenticated())])

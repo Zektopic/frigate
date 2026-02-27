@@ -45,7 +45,7 @@ from .camera.audio import AudioConfig
 from .camera.birdseye import BirdseyeConfig
 from .camera.detect import DetectConfig
 from .camera.ffmpeg import FfmpegConfig
-from .camera.genai import GenAIConfig
+from .camera.genai import GenAIConfig, GenAIRoleEnum
 from .camera.motion import MotionConfig
 from .camera.notification import NotificationConfig
 from .camera.objects import FilterConfig, ObjectConfig
@@ -299,116 +299,189 @@ def verify_lpr_and_face(
 
 
 class FrigateConfig(FrigateBaseModel):
-    version: Optional[str] = Field(default=None, title="Current config version.")
+    version: Optional[str] = Field(
+        default=None,
+        title="Current config version",
+        description="Numeric or string version of the active configuration to help detect migrations or format changes.",
+    )
     safe_mode: bool = Field(
-        default=False, title="If Frigate should be started in safe mode."
+        default=False,
+        title="Safe mode",
+        description="When enabled, start Frigate in safe mode with reduced features for troubleshooting.",
     )
 
     # Fields that install global state should be defined first, so that their validators run first.
     environment_vars: EnvVars = Field(
-        default_factory=dict, title="Frigate environment variables."
+        default_factory=dict,
+        title="Environment variables",
+        description="Key/value pairs of environment variables to set for the Frigate process in Home Assistant OS. Non-HAOS users must use Docker environment variable configuration instead.",
     )
     logger: LoggerConfig = Field(
         default_factory=LoggerConfig,
-        title="Logging configuration.",
+        title="Logging",
+        description="Controls default log verbosity and per-component log level overrides.",
         validate_default=True,
     )
 
     # Global config
-    auth: AuthConfig = Field(default_factory=AuthConfig, title="Auth configuration.")
+    auth: AuthConfig = Field(
+        default_factory=AuthConfig,
+        title="Authentication",
+        description="Authentication and session-related settings including cookie and rate limit options.",
+    )
     database: DatabaseConfig = Field(
-        default_factory=DatabaseConfig, title="Database configuration."
+        default_factory=DatabaseConfig,
+        title="Database",
+        description="Settings for the SQLite database used by Frigate to store tracked object and recording metadata.",
     )
     go2rtc: RestreamConfig = Field(
-        default_factory=RestreamConfig, title="Global restream configuration."
+        default_factory=RestreamConfig,
+        title="go2rtc",
+        description="Settings for the integrated go2rtc restreaming service used for live stream relaying and translation.",
     )
-    mqtt: MqttConfig = Field(title="MQTT configuration.")
+    mqtt: MqttConfig = Field(
+        title="MQTT",
+        description="Settings for connecting and publishing telemetry, snapshots, and event details to an MQTT broker.",
+    )
     notifications: NotificationConfig = Field(
-        default_factory=NotificationConfig, title="Global notification configuration."
+        default_factory=NotificationConfig,
+        title="Notifications",
+        description="Settings to enable and control notifications for all cameras; can be overridden per-camera.",
     )
     networking: NetworkingConfig = Field(
-        default_factory=NetworkingConfig, title="Networking configuration"
+        default_factory=NetworkingConfig,
+        title="Networking",
+        description="Network-related settings such as IPv6 enablement for Frigate endpoints.",
     )
     proxy: ProxyConfig = Field(
-        default_factory=ProxyConfig, title="Proxy configuration."
+        default_factory=ProxyConfig,
+        title="Proxy",
+        description="Settings for integrating Frigate behind a reverse proxy that passes authenticated user headers.",
     )
     telemetry: TelemetryConfig = Field(
-        default_factory=TelemetryConfig, title="Telemetry configuration."
+        default_factory=TelemetryConfig,
+        title="Telemetry",
+        description="System telemetry and stats options including GPU and network bandwidth monitoring.",
     )
-    tls: TlsConfig = Field(default_factory=TlsConfig, title="TLS configuration.")
-    ui: UIConfig = Field(default_factory=UIConfig, title="UI configuration.")
+    tls: TlsConfig = Field(
+        default_factory=TlsConfig,
+        title="TLS",
+        description="TLS settings for Frigate's web endpoints (port 8971).",
+    )
+    ui: UIConfig = Field(
+        default_factory=UIConfig,
+        title="UI",
+        description="User interface preferences such as timezone, time/date formatting, and units.",
+    )
 
     # Detector config
     detectors: Dict[str, BaseDetectorConfig] = Field(
         default=DEFAULT_DETECTORS,
-        title="Detector hardware configuration.",
+        title="Detector hardware",
+        description="Configuration for object detectors (CPU, GPU, ONNX backends) and any detector-specific model settings.",
     )
     model: ModelConfig = Field(
-        default_factory=ModelConfig, title="Detection model configuration."
+        default_factory=ModelConfig,
+        title="Detection model",
+        description="Settings to configure a custom object detection model and its input shape.",
     )
 
-    # GenAI config
-    genai: GenAIConfig = Field(
-        default_factory=GenAIConfig, title="Generative AI configuration."
+    # GenAI config (named provider configs: name -> GenAIConfig)
+    genai: Dict[str, GenAIConfig] = Field(
+        default_factory=dict,
+        title="Generative AI configuration (named providers).",
+        description="Settings for integrated generative AI providers used to generate object descriptions and review summaries.",
     )
 
     # Camera config
-    cameras: Dict[str, CameraConfig] = Field(title="Camera configuration.")
+    cameras: Dict[str, CameraConfig] = Field(title="Cameras", description="Cameras")
     audio: AudioConfig = Field(
-        default_factory=AudioConfig, title="Global Audio events configuration."
+        default_factory=AudioConfig,
+        title="Audio events",
+        description="Settings for audio-based event detection for all cameras; can be overridden per-camera.",
     )
     birdseye: BirdseyeConfig = Field(
-        default_factory=BirdseyeConfig, title="Birdseye configuration."
+        default_factory=BirdseyeConfig,
+        title="Birdseye",
+        description="Settings for the Birdseye composite view that composes multiple camera feeds into a single layout.",
     )
     detect: DetectConfig = Field(
-        default_factory=DetectConfig, title="Global object tracking configuration."
+        default_factory=DetectConfig,
+        title="Object Detection",
+        description="Settings for the detection/detect role used to run object detection and initialize trackers.",
     )
     ffmpeg: FfmpegConfig = Field(
-        default_factory=FfmpegConfig, title="Global FFmpeg configuration."
+        default_factory=FfmpegConfig,
+        title="FFmpeg",
+        description="FFmpeg settings including binary path, args, hwaccel options, and per-role output args.",
     )
     live: CameraLiveConfig = Field(
-        default_factory=CameraLiveConfig, title="Live playback settings."
+        default_factory=CameraLiveConfig,
+        title="Live playback",
+        description="Settings used by the Web UI to control live stream resolution and quality.",
     )
     motion: Optional[MotionConfig] = Field(
-        default=None, title="Global motion detection configuration."
+        default=None,
+        title="Motion detection",
+        description="Default motion detection settings applied to cameras unless overridden per-camera.",
     )
     objects: ObjectConfig = Field(
-        default_factory=ObjectConfig, title="Global object configuration."
+        default_factory=ObjectConfig,
+        title="Objects",
+        description="Object tracking defaults including which labels to track and per-object filters.",
     )
     record: RecordConfig = Field(
-        default_factory=RecordConfig, title="Global record configuration."
+        default_factory=RecordConfig,
+        title="Recording",
+        description="Recording and retention settings applied to cameras unless overridden per-camera.",
     )
     review: ReviewConfig = Field(
-        default_factory=ReviewConfig, title="Review configuration."
+        default_factory=ReviewConfig,
+        title="Review",
+        description="Settings that control alerts, detections, and GenAI review summaries used by the UI and storage.",
     )
     snapshots: SnapshotsConfig = Field(
-        default_factory=SnapshotsConfig, title="Global snapshots configuration."
+        default_factory=SnapshotsConfig,
+        title="Snapshots",
+        description="Settings for saved JPEG snapshots of tracked objects for all cameras; can be overridden per-camera.",
     )
     timestamp_style: TimestampStyleConfig = Field(
         default_factory=TimestampStyleConfig,
-        title="Global timestamp style configuration.",
+        title="Timestamp style",
+        description="Styling options for in-feed timestamps applied to debug view and snapshots.",
     )
 
     # Classification Config
     audio_transcription: AudioTranscriptionConfig = Field(
-        default_factory=AudioTranscriptionConfig, title="Audio transcription config."
+        default_factory=AudioTranscriptionConfig,
+        title="Audio transcription",
+        description="Settings for live and speech audio transcription used for events and live captions.",
     )
     classification: ClassificationConfig = Field(
-        default_factory=ClassificationConfig, title="Object classification config."
+        default_factory=ClassificationConfig,
+        title="Object classification",
+        description="Settings for classification models used to refine object labels or state classification.",
     )
     semantic_search: SemanticSearchConfig = Field(
-        default_factory=SemanticSearchConfig, title="Semantic search configuration."
+        default_factory=SemanticSearchConfig,
+        title="Semantic Search",
+        description="Settings for Semantic Search which builds and queries object embeddings to find similar items.",
     )
     face_recognition: FaceRecognitionConfig = Field(
-        default_factory=FaceRecognitionConfig, title="Face recognition config."
+        default_factory=FaceRecognitionConfig,
+        title="Face recognition",
+        description="Settings for face detection and recognition for all cameras; can be overridden per-camera.",
     )
     lpr: LicensePlateRecognitionConfig = Field(
         default_factory=LicensePlateRecognitionConfig,
-        title="License Plate recognition config.",
+        title="License Plate Recognition",
+        description="License plate recognition settings including detection thresholds, formatting, and known plates.",
     )
 
     camera_groups: Dict[str, CameraGroupConfig] = Field(
-        default_factory=dict, title="Camera group configuration"
+        default_factory=dict,
+        title="Camera groups",
+        description="Configuration for named camera groups used to organize cameras in the UI.",
     )
 
     _plus_api: PlusApi
@@ -430,6 +503,18 @@ class FrigateConfig(FrigateBaseModel):
 
         # set notifications state
         self.notifications.enabled_in_config = self.notifications.enabled
+
+        # validate genai: each role (tools, vision, embeddings) at most once
+        role_to_name: dict[GenAIRoleEnum, str] = {}
+        for name, genai_cfg in self.genai.items():
+            for role in genai_cfg.roles:
+                if role in role_to_name:
+                    raise ValueError(
+                        f"GenAI role '{role.value}' is assigned to both "
+                        f"'{role_to_name[role]}' and '{name}'; each role must have "
+                        "exactly one provider."
+                    )
+                role_to_name[role] = name
 
         # set default min_score for object attributes
         for attribute in self.model.all_attributes:
@@ -475,6 +560,9 @@ class FrigateConfig(FrigateBaseModel):
 
             # users should not set model themselves
             if detector_config.model:
+                logger.warning(
+                    "The model key should be specified at the root level of the config, not under detectors. The nested model key will be ignored."
+                )
                 detector_config.model = None
 
             model_config = self.model.model_dump(exclude_unset=True, warnings="none")
@@ -524,6 +612,14 @@ class FrigateConfig(FrigateBaseModel):
 
             if camera_config.ffmpeg.hwaccel_args == "auto":
                 camera_config.ffmpeg.hwaccel_args = self.ffmpeg.hwaccel_args
+
+            # Resolve export hwaccel_args: camera export -> camera ffmpeg -> global ffmpeg
+            # This allows per-camera override for exports (e.g., when camera resolution
+            # exceeds hardware encoder limits)
+            if camera_config.record.export.hwaccel_args == "auto":
+                camera_config.record.export.hwaccel_args = (
+                    camera_config.ffmpeg.hwaccel_args
+                )
 
             for input in camera_config.ffmpeg.inputs:
                 need_detect_dimensions = "detect" in input.roles and (

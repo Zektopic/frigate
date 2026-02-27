@@ -59,7 +59,7 @@ from frigate.data_processing.real_time.license_plate import (
 from frigate.data_processing.types import DataProcessorMetrics, PostProcessDataEnum
 from frigate.db.sqlitevecq import SqliteVecQueueDatabase
 from frigate.events.types import EventTypeEnum, RegenerateDescriptionEnum
-from frigate.genai import get_genai_client
+from frigate.genai import GenAIClientManager
 from frigate.models import Event, Recordings, ReviewSegment, Trigger
 from frigate.util.builtin import serialize
 from frigate.util.file import get_event_thumbnail_bytes
@@ -144,7 +144,7 @@ class EmbeddingMaintainer(threading.Thread):
         self.frame_manager = SharedMemoryFrameManager()
 
         self.detected_license_plates: dict[str, dict[str, Any]] = {}
-        self.genai_client = get_genai_client(config)
+        self.genai_manager = GenAIClientManager(config)
 
         # model runners to share between realtime and post processors
         if self.config.lpr.enabled:
@@ -203,12 +203,15 @@ class EmbeddingMaintainer(threading.Thread):
         # post processors
         self.post_processors: list[PostProcessorApi] = []
 
-        if self.genai_client is not None and any(
+        if self.genai_manager.vision_client is not None and any(
             c.review.genai.enabled_in_config for c in self.config.cameras.values()
         ):
             self.post_processors.append(
                 ReviewDescriptionProcessor(
-                    self.config, self.requestor, self.metrics, self.genai_client
+                    self.config,
+                    self.requestor,
+                    self.metrics,
+                    self.genai_manager.vision_client,
                 )
             )
 
@@ -246,7 +249,7 @@ class EmbeddingMaintainer(threading.Thread):
             )
             self.post_processors.append(semantic_trigger_processor)
 
-        if self.genai_client is not None and any(
+        if self.genai_manager.vision_client is not None and any(
             c.objects.genai.enabled_in_config for c in self.config.cameras.values()
         ):
             self.post_processors.append(
@@ -255,7 +258,7 @@ class EmbeddingMaintainer(threading.Thread):
                     self.embeddings,
                     self.requestor,
                     self.metrics,
-                    self.genai_client,
+                    self.genai_manager.vision_client,
                     semantic_trigger_processor,
                 )
             )

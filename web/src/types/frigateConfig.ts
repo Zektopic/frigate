@@ -197,7 +197,6 @@ export interface CameraConfig {
       days: number;
       mode: string;
     };
-    sync_recordings: boolean;
   };
   review: {
     alerts: {
@@ -468,7 +467,7 @@ export interface FrigateConfig {
       supportedDetectors: string[];
       width: number;
       height: number;
-    };
+    } | null;
   };
 
   motion: Record<string, unknown> | null;
@@ -542,7 +541,6 @@ export interface FrigateConfig {
       days: number;
       mode: string;
     };
-    sync_recordings: boolean;
   };
 
   rtmp: {

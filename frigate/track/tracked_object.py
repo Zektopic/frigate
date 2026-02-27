@@ -377,7 +377,14 @@ class TrackedObject:
         return (thumb_update, significant_change, path_update, autotracker_update)
 
     def to_dict(self) -> dict[str, Any]:
-        event = {
+        # Tracking internals excluded from output (centroid, estimate, estimate_velocity)
+        _EXCLUDED_OBJ_DATA_KEYS = {
+            "centroid",
+            "estimate",
+            "estimate_velocity",
+        }
+
+        event: dict[str, Any] = {
             "id": self.obj_data["id"],
             "camera": self.camera_config.name,
             "frame_time": self.obj_data["frame_time"],
@@ -412,6 +419,11 @@ class TrackedObject:
             "recognized_license_plate": self.obj_data.get("recognized_license_plate"),
         }
 
+        # Add any other obj_data keys (e.g. custom attribute fields) not yet included
+        for key, value in self.obj_data.items():
+            if key not in _EXCLUDED_OBJ_DATA_KEYS and key not in event:
+                event[key] = value
+
         return event
 
     def is_active(self) -> bool:
@@ -422,7 +434,7 @@ class TrackedObject:
         return count > (self.camera_config.detect.stationary.threshold or 50)
 
     def get_thumbnail(self, ext: str) -> bytes | None:
-        img_bytes = self.get_img_bytes(
+        img_bytes, _ = self.get_img_bytes(
             ext, timestamp=False, bounding_box=False, crop=True, height=175
         )
 
@@ -463,20 +475,21 @@ class TrackedObject:
         crop: bool = False,
         height: int | None = None,
         quality: int | None = None,
-    ) -> bytes | None:
+    ) -> tuple[bytes | None, float | None]:
         if self.thumbnail_data is None:
-            return None
+            return None, None
 
         try:
+            frame_time = self.thumbnail_data["frame_time"]
             best_frame = cv2.cvtColor(
-                self.frame_cache[self.thumbnail_data["frame_time"]]["frame"],
+                self.frame_cache[frame_time]["frame"],
                 cv2.COLOR_YUV2BGR_I420,
             )
         except KeyError:
             logger.warning(
-                f"Unable to create jpg because frame {self.thumbnail_data['frame_time']} is not in the cache"
+                f"Unable to create jpg because frame {frame_time} is not in the cache"
             )
-            return None
+            return None, None
 
         if bounding_box:
             thickness = 2
@@ -558,13 +571,13 @@ class TrackedObject:
         ret, jpg = cv2.imencode(f".{ext}", best_frame, quality_params)
 
         if ret:
-            return jpg.tobytes()
+            return jpg.tobytes(), frame_time
         else:
-            return None
+            return None, None
 
     def write_snapshot_to_disk(self) -> None:
         snapshot_config: SnapshotsConfig = self.camera_config.snapshots
-        jpg_bytes = self.get_img_bytes(
+        jpg_bytes, _ = self.get_img_bytes(
             ext="jpg",
             timestamp=snapshot_config.timestamp,
             bounding_box=snapshot_config.bounding_box,
