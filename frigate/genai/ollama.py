@@ -197,6 +197,7 @@ class OllamaClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "Ollama provider has not been initialized. Check your Ollama configuration.",
             }
         try:
             request_params = self._build_request_params(
@@ -206,10 +207,19 @@ class OllamaClient(GenAIClient):
             return self._message_from_response(response)
         except (TimeoutException, ResponseError, ConnectionError) as e:
             logger.warning("Ollama returned an error: %s", str(e))
+            if isinstance(e, TimeoutException):
+                error_message = "Ollama request timed out. Please try again."
+            elif isinstance(e, ConnectionError):
+                error_message = "Could not connect to Ollama. Please check that the Ollama server is running."
+            else:
+                error_message = (
+                    "Ollama returned an error. Please check your Ollama configuration."
+                )
             return {
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": error_message,
             }
         except Exception as e:
             logger.warning("Unexpected error in Ollama chat_with_tools: %s", str(e))
@@ -217,6 +227,7 @@ class OllamaClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "An unexpected error occurred with the Ollama provider.",
             }
 
     async def chat_with_tools_stream(
@@ -242,6 +253,7 @@ class OllamaClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "Ollama provider has not been initialized. Check your Ollama configuration.",
                 },
             )
             return
@@ -307,12 +319,21 @@ class OllamaClient(GenAIClient):
                 )
         except (TimeoutException, ResponseError, ConnectionError) as e:
             logger.warning("Ollama streaming error: %s", str(e))
+            if isinstance(e, TimeoutException):
+                error_message = "Ollama request timed out. Please try again."
+            elif isinstance(e, ConnectionError):
+                error_message = "Could not connect to Ollama. Please check that the Ollama server is running."
+            else:
+                error_message = (
+                    "Ollama returned an error. Please check your Ollama configuration."
+                )
             yield (
                 "message",
                 {
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": error_message,
                 },
             )
         except Exception as e:
@@ -325,5 +346,6 @@ class OllamaClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "An unexpected error occurred with the Ollama provider.",
                 },
             )

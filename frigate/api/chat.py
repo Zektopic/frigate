@@ -656,11 +656,15 @@ Always be accurate with time calculations based on the current date provided.{ca
                     elif kind == "message":
                         msg = value
                         if msg.get("finish_reason") == "error":
+                            error_msg = msg.get(
+                                "error_message",
+                                "An error occurred while processing your request.",
+                            )
                             yield (
                                 json.dumps(
                                     {
                                         "type": "error",
-                                        "error": "An error occurred while processing your request.",
+                                        "error": error_msg,
                                     }
                                 ).encode("utf-8")
                                 + b"\n"
@@ -716,10 +720,14 @@ Always be accurate with time calculations based on the current date provided.{ca
             )
 
             if response.get("finish_reason") == "error":
-                logger.error("GenAI client returned an error")
+                error_msg = response.get(
+                    "error_message",
+                    "An error occurred while processing your request.",
+                )
+                logger.error("GenAI client returned an error: %s", error_msg)
                 return JSONResponse(
                     content={
-                        "error": "An error occurred while processing your request.",
+                        "error": error_msg,
                     },
                     status_code=500,
                 )

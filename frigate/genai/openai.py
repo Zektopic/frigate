@@ -231,6 +231,7 @@ class OpenAIClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "OpenAI request timed out. Please try again.",
             }
         except Exception as e:
             logger.warning("OpenAI returned an error: %s", str(e))
@@ -238,6 +239,7 @@ class OpenAIClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "OpenAI API returned an error. Please check your configuration.",
             }
 
     async def chat_with_tools_stream(
@@ -366,6 +368,7 @@ class OpenAIClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "OpenAI request timed out. Please try again.",
                 },
             )
         except Exception as e:
@@ -376,5 +379,6 @@ class OpenAIClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "OpenAI API returned an error. Please check your configuration.",
                 },
             )

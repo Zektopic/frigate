@@ -174,6 +174,7 @@ class OpenAIClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "Azure OpenAI API returned an error. Please check your configuration.",
             }
 
     async def chat_with_tools_stream(
@@ -293,5 +294,6 @@ class OpenAIClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "Azure OpenAI API returned an error. Please check your configuration.",
                 },
             )
