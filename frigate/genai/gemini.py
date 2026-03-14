@@ -271,10 +271,11 @@ class GeminiClient(GenAIClient):
 
         except errors.APIError as e:
             logger.warning("Gemini API error during chat_with_tools: %s", str(e))
-            if hasattr(e, "code") and e.code == 429:
+            code = getattr(e, "code", None)
+            if code == 429:
                 error_message = "Gemini API rate limit exceeded. Please try again later or check your API plan and billing details."
             else:
-                error_message = f"Gemini API returned an error (code {e.code}). Please check your configuration."
+                error_message = f"Gemini API returned an error (code {code}). Please check your configuration."
             return {
                 "content": None,
                 "tool_calls": None,
@@ -507,10 +508,11 @@ class GeminiClient(GenAIClient):
 
         except errors.APIError as e:
             logger.warning("Gemini API error during streaming: %s", str(e))
-            if hasattr(e, "code") and e.code == 429:
+            code = getattr(e, "code", None)
+            if code == 429:
                 error_message = "Gemini API rate limit exceeded. Please try again later or check your API plan and billing details."
             else:
-                error_message = f"Gemini API returned an error (code {e.code}). Please check your configuration."
+                error_message = f"Gemini API returned an error (code {code}). Please check your configuration."
             yield (
                 "message",
                 {
