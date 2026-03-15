@@ -325,6 +325,7 @@ class LlamaCppClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "llama.cpp provider has not been initialized. Check your llama.cpp configuration.",
             }
         try:
             payload = self._build_payload(messages, tools, tool_choice, stream=False)
@@ -340,6 +341,7 @@ class LlamaCppClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "llama.cpp server returned an empty response.",
                 }
             return self._message_from_choice(result["choices"][0])
         except requests.exceptions.Timeout as e:
@@ -348,6 +350,7 @@ class LlamaCppClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "llama.cpp request timed out. Please try again.",
             }
         except requests.exceptions.RequestException as e:
             error_detail = str(e)
@@ -361,6 +364,7 @@ class LlamaCppClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "llama.cpp server returned an error. Please check your configuration.",
             }
         except Exception as e:
             logger.warning("Unexpected error in llama.cpp chat_with_tools: %s", str(e))
@@ -368,6 +372,7 @@ class LlamaCppClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "An unexpected error occurred with the llama.cpp provider.",
             }
 
     async def chat_with_tools_stream(
@@ -387,6 +392,7 @@ class LlamaCppClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "llama.cpp provider has not been initialized. Check your llama.cpp configuration.",
                 },
             )
             return
@@ -463,6 +469,7 @@ class LlamaCppClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "llama.cpp server returned an error. Please check your configuration.",
                 },
             )
         except Exception as e:
@@ -475,5 +482,6 @@ class LlamaCppClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "An unexpected error occurred with the llama.cpp provider.",
                 },
             )

@@ -271,10 +271,16 @@ class GeminiClient(GenAIClient):
 
         except errors.APIError as e:
             logger.warning("Gemini API error during chat_with_tools: %s", str(e))
+            code = getattr(e, "code", None)
+            if code == 429:
+                error_message = "Gemini API rate limit exceeded. Please try again later or check your API plan and billing details."
+            else:
+                error_message = f"Gemini API returned an error (code {code}). Please check your configuration."
             return {
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": error_message,
             }
         except Exception as e:
             logger.warning(
@@ -284,6 +290,7 @@ class GeminiClient(GenAIClient):
                 "content": None,
                 "tool_calls": None,
                 "finish_reason": "error",
+                "error_message": "An unexpected error occurred with the Gemini provider.",
             }
 
     async def chat_with_tools_stream(
@@ -501,12 +508,18 @@ class GeminiClient(GenAIClient):
 
         except errors.APIError as e:
             logger.warning("Gemini API error during streaming: %s", str(e))
+            code = getattr(e, "code", None)
+            if code == 429:
+                error_message = "Gemini API rate limit exceeded. Please try again later or check your API plan and billing details."
+            else:
+                error_message = f"Gemini API returned an error (code {code}). Please check your configuration."
             yield (
                 "message",
                 {
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": error_message,
                 },
             )
         except Exception as e:
@@ -519,5 +532,6 @@ class GeminiClient(GenAIClient):
                     "content": None,
                     "tool_calls": None,
                     "finish_reason": "error",
+                    "error_message": "An unexpected error occurred with the Gemini provider.",
                 },
             )
