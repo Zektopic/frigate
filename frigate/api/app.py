@@ -19,6 +19,7 @@ from fastapi import APIRouter, Body, Path, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.params import Depends
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from filelock import FileLock, Timeout
 from markupsafe import escape
 from peewee import SQL, fn, operator
 from pydantic import ValidationError
@@ -30,7 +31,10 @@ from frigate.api.auth import (
     require_role,
 )
 from frigate.api.defs.query.app_query_parameters import AppTimelineHourlyQueryParameters
-from frigate.api.defs.request.app_body import AppConfigSetBody, MediaSyncBody
+from frigate.api.defs.request.app_body import (
+    AppConfigSetBody,
+    MediaSyncBody,
+)
 from frigate.api.defs.tags import Tags
 from frigate.config import FrigateConfig
 from frigate.config.camera.updater import (
@@ -48,12 +52,13 @@ from frigate.stats.prometheus import get_metrics, update_metrics
 from frigate.types import JobStatusTypesEnum
 from frigate.util.builtin import (
     clean_camera_user_pass,
+    deep_merge,
     flatten_config_data,
     load_labels,
     process_config_query_string,
     update_yaml_file_bulk,
 )
-from frigate.util.config import find_config_file
+from frigate.util.config import apply_section_update, find_config_file
 from frigate.util.schema import get_config_schema
 from frigate.util.services import (
     get_nvidia_driver_info,
@@ -152,6 +157,31 @@ def config(request: Request):
         for zone_name, zone in config_obj.cameras[camera_name].zones.items():
             camera_dict["zones"][zone_name]["color"] = zone.color
 
+        # Re-dump profile overrides with exclude_unset so that only
+        # explicitly-set fields are returned (not Pydantic defaults).
+        # Without this, the frontend merges defaults (e.g. threshold=30)
+        # over the camera's actual base values (e.g. threshold=20).
+        if camera.profiles:
+            for profile_name, profile_config in camera.profiles.items():
+                camera_dict.setdefault("profiles", {})[profile_name] = (
+                    profile_config.model_dump(
+                        mode="json", warnings="none", exclude_unset=True
+                    )
+                )
+
+        # When a profile is active, the top-level camera sections contain
+        # profile-merged (effective) values.  Include the original base
+        # configs so the frontend settings can display them separately.
+        if (
+            config_obj.active_profile is not None
+            and request.app.profile_manager is not None
+        ):
+            base_sections = request.app.profile_manager.get_base_configs_for_api(
+                camera_name
+            )
+            if base_sections:
+                camera_dict["base_config"] = base_sections
+
     # remove go2rtc stream passwords
     go2rtc: dict[str, Any] = config_obj.go2rtc.model_dump(
         mode="json", warnings="none", exclude_none=True
@@ -197,6 +227,20 @@ def config(request: Request):
         )
 
     return JSONResponse(content=config)
+
+
+@router.get("/profiles", dependencies=[Depends(allow_any_authenticated())])
+def get_profiles(request: Request):
+    """List all available profiles and the currently active profile."""
+    profile_manager = request.app.profile_manager
+    return JSONResponse(content=profile_manager.get_profile_info())
+
+
+@router.get("/profile/active", dependencies=[Depends(allow_any_authenticated())])
+def get_active_profile(request: Request):
+    """Get the currently active profile."""
+    config_obj: FrigateConfig = request.app.frigate_config
+    return JSONResponse(content={"active_profile": config_obj.active_profile})
 
 
 @router.get("/ffmpeg/presets", dependencies=[Depends(allow_any_authenticated())])
@@ -421,104 +465,235 @@ def config_save(save_option: str, body: Any = Body(media_type="text/plain")):
         )
 
 
-@router.put("/config/set", dependencies=[Depends(require_role(["admin"]))])
-def config_set(request: Request, body: AppConfigSetBody):
-    config_file = find_config_file()
+def _config_set_in_memory(request: Request, body: AppConfigSetBody) -> JSONResponse:
+    """Apply config changes in-memory only, without writing to YAML.
 
-    with open(config_file, "r") as f:
-        old_raw_config = f.read()
-
+    Used for temporary config changes like debug replay camera tuning.
+    Updates the in-memory Pydantic config and publishes ZMQ updates,
+    bypassing YAML parsing entirely.
+    """
     try:
         updates = {}
-
-        # process query string parameters (takes precedence over body.config_data)
-        parsed_url = urllib.parse.urlparse(str(request.url))
-        query_string = urllib.parse.parse_qs(parsed_url.query, keep_blank_values=True)
-
-        # Filter out empty keys but keep blank values for non-empty keys
-        query_string = {k: v for k, v in query_string.items() if k}
-
-        if query_string:
-            updates = process_config_query_string(query_string)
-        elif body.config_data:
+        if body.config_data:
             updates = flatten_config_data(body.config_data)
+            updates = {k: ("" if v is None else v) for k, v in updates.items()}
 
         if not updates:
             return JSONResponse(
-                content=(
-                    {"success": False, "message": "No configuration data provided"}
-                ),
+                content={"success": False, "message": "No configuration data provided"},
                 status_code=400,
             )
 
-        # apply all updates in a single operation
-        update_yaml_file_bulk(config_file, updates)
+        config: FrigateConfig = request.app.frigate_config
 
-        # validate the updated config
-        with open(config_file, "r") as f:
-            new_raw_config = f.read()
+        # Group flat key paths into nested per-camera, per-section dicts
+        grouped: dict[str, dict[str, dict]] = {}
+        for key_path, value in updates.items():
+            parts = key_path.split(".")
+            if len(parts) < 3 or parts[0] != "cameras":
+                continue
 
-        try:
-            config = FrigateConfig.parse(new_raw_config)
-        except Exception:
-            with open(config_file, "w") as f:
-                f.write(old_raw_config)
-                f.close()
-            logger.error(f"\nConfig Error:\n\n{str(traceback.format_exc())}")
-            return JSONResponse(
-                content=(
-                    {
+            cam, section = parts[1], parts[2]
+            grouped.setdefault(cam, {}).setdefault(section, {})
+
+            # Build nested dict from remaining path (e.g. "filters.person.threshold")
+            target = grouped[cam][section]
+            for part in parts[3:-1]:
+                target = target.setdefault(part, {})
+            if len(parts) > 3:
+                target[parts[-1]] = value
+            elif isinstance(value, dict):
+                grouped[cam][section] = deep_merge(
+                    grouped[cam][section], value, override=True
+                )
+            else:
+                grouped[cam][section] = value
+
+        # Apply each section update
+        for cam_name, sections in grouped.items():
+            camera_config = config.cameras.get(cam_name)
+            if not camera_config:
+                return JSONResponse(
+                    content={
                         "success": False,
-                        "message": "Error parsing config. Check logs for error message.",
-                    }
-                ),
-                status_code=400,
-            )
-    except Exception as e:
-        logging.error(f"Error updating config: {e}")
-        return JSONResponse(
-            content=({"success": False, "message": "Error updating config"}),
-            status_code=500,
-        )
+                        "message": f"Camera '{cam_name}' not found",
+                    },
+                    status_code=400,
+                )
 
-    if body.requires_restart == 0 or body.update_topic:
-        old_config: FrigateConfig = request.app.frigate_config
-        request.app.frigate_config = config
-        request.app.genai_manager.update_config(config)
+            for section_name, update in sections.items():
+                err = apply_section_update(camera_config, section_name, update)
+                if err is not None:
+                    return JSONResponse(
+                        content={"success": False, "message": err},
+                        status_code=400,
+                    )
 
-        if body.update_topic:
-            if body.update_topic.startswith("config/cameras/"):
-                _, _, camera, field = body.update_topic.split("/")
+        # Publish ZMQ updates so processing threads pick up changes
+        if body.update_topic and body.update_topic.startswith("config/cameras/"):
+            _, _, camera, field = body.update_topic.split("/")
+            settings = getattr(config.cameras.get(camera, None), field, None)
 
-                if field == "add":
-                    settings = config.cameras[camera]
-                elif field == "remove":
-                    settings = old_config.cameras[camera]
-                else:
-                    settings = config.get_nested_object(body.update_topic)
-
+            if settings is not None:
                 request.app.config_publisher.publish_update(
                     CameraConfigUpdateTopic(CameraConfigUpdateEnum[field], camera),
                     settings,
                 )
-            else:
-                # Generic handling for global config updates
-                settings = config.get_nested_object(body.update_topic)
 
-                # Publish None for removal, actual config for add/update
-                request.app.config_publisher.publisher.publish(
-                    body.update_topic, settings
+        return JSONResponse(
+            content={"success": True, "message": "Config applied in-memory"},
+            status_code=200,
+        )
+    except Exception as e:
+        logger.error(f"Error applying config in-memory: {e}")
+        return JSONResponse(
+            content={"success": False, "message": "Error applying config"},
+            status_code=500,
+        )
+
+
+@router.put("/config/set", dependencies=[Depends(require_role(["admin"]))])
+def config_set(request: Request, body: AppConfigSetBody):
+    config_file = find_config_file()
+
+    if body.skip_save:
+        return _config_set_in_memory(request, body)
+
+    lock = FileLock(f"{config_file}.lock", timeout=5)
+
+    try:
+        with lock:
+            with open(config_file, "r") as f:
+                old_raw_config = f.read()
+
+            try:
+                updates = {}
+
+                # process query string parameters (takes precedence over body.config_data)
+                parsed_url = urllib.parse.urlparse(str(request.url))
+                query_string = urllib.parse.parse_qs(
+                    parsed_url.query, keep_blank_values=True
                 )
 
-    return JSONResponse(
-        content=(
-            {
-                "success": True,
-                "message": "Config successfully updated, restart to apply",
-            }
-        ),
-        status_code=200,
-    )
+                # Filter out empty keys but keep blank values for non-empty keys
+                query_string = {k: v for k, v in query_string.items() if k}
+
+                if query_string:
+                    updates = process_config_query_string(query_string)
+                elif body.config_data:
+                    updates = flatten_config_data(body.config_data)
+                    # Convert None values to empty strings for deletion (e.g., when deleting masks)
+                    updates = {k: ("" if v is None else v) for k, v in updates.items()}
+
+                if not updates:
+                    return JSONResponse(
+                        content=(
+                            {
+                                "success": False,
+                                "message": "No configuration data provided",
+                            }
+                        ),
+                        status_code=400,
+                    )
+
+                # apply all updates in a single operation
+                update_yaml_file_bulk(config_file, updates)
+
+                # validate the updated config
+                with open(config_file, "r") as f:
+                    new_raw_config = f.read()
+
+                try:
+                    config = FrigateConfig.parse(new_raw_config)
+                except Exception:
+                    with open(config_file, "w") as f:
+                        f.write(old_raw_config)
+                        f.close()
+                    logger.error(f"\nConfig Error:\n\n{str(traceback.format_exc())}")
+                    return JSONResponse(
+                        content=(
+                            {
+                                "success": False,
+                                "message": "Error parsing config. Check logs for error message.",
+                            }
+                        ),
+                        status_code=400,
+                    )
+            except Exception as e:
+                logging.error(f"Error updating config: {e}")
+                return JSONResponse(
+                    content=({"success": False, "message": "Error updating config"}),
+                    status_code=500,
+                )
+
+            if body.requires_restart == 0 or body.update_topic:
+                old_config: FrigateConfig = request.app.frigate_config
+                request.app.frigate_config = config
+                request.app.genai_manager.update_config(config)
+
+                if request.app.profile_manager is not None:
+                    request.app.profile_manager.update_config(config)
+
+                if request.app.stats_emitter is not None:
+                    request.app.stats_emitter.config = config
+
+                if body.update_topic:
+                    if body.update_topic.startswith("config/cameras/"):
+                        _, _, camera, field = body.update_topic.split("/")
+
+                        if camera == "*":
+                            # Wildcard: fan out update to all cameras
+                            enum_value = CameraConfigUpdateEnum[field]
+                            for camera_name in config.cameras:
+                                settings = config.get_nested_object(
+                                    f"config/cameras/{camera_name}/{field}"
+                                )
+                                request.app.config_publisher.publish_update(
+                                    CameraConfigUpdateTopic(enum_value, camera_name),
+                                    settings,
+                                )
+                        else:
+                            if field == "add":
+                                settings = config.cameras[camera]
+                            elif field == "remove":
+                                settings = old_config.cameras[camera]
+                            else:
+                                settings = config.get_nested_object(body.update_topic)
+
+                            request.app.config_publisher.publish_update(
+                                CameraConfigUpdateTopic(
+                                    CameraConfigUpdateEnum[field], camera
+                                ),
+                                settings,
+                            )
+                    else:
+                        # Generic handling for global config updates
+                        settings = config.get_nested_object(body.update_topic)
+
+                        # Publish None for removal, actual config for add/update
+                        request.app.config_publisher.publisher.publish(
+                            body.update_topic, settings
+                        )
+
+            return JSONResponse(
+                content=(
+                    {
+                        "success": True,
+                        "message": "Config successfully updated, restart to apply",
+                    }
+                ),
+                status_code=200,
+            )
+    except Timeout:
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": "Another process is currently updating the config. Please try again in a few seconds.",
+                }
+            ),
+            status_code=503,
+        )
 
 
 @router.get("/vainfo", dependencies=[Depends(allow_any_authenticated())])

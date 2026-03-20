@@ -66,7 +66,7 @@ jobs:
       - name: Build and push
         env:
           HSA_OVERRIDE: 0
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@v7
         with:
           source: .
           push: true

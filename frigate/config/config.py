@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
 import numpy as np
 from pydantic import (
@@ -12,7 +12,6 @@ from pydantic import (
     Field,
     TypeAdapter,
     ValidationInfo,
-    field_serializer,
     field_validator,
     model_validator,
 )
@@ -46,6 +45,7 @@ from .camera.birdseye import BirdseyeConfig
 from .camera.detect import DetectConfig
 from .camera.ffmpeg import FfmpegConfig
 from .camera.genai import GenAIConfig, GenAIRoleEnum
+from .camera.mask import ObjectMaskConfig
 from .camera.motion import MotionConfig
 from .camera.notification import NotificationConfig
 from .camera.objects import FilterConfig, ObjectConfig
@@ -60,12 +60,14 @@ from .classification import (
     FaceRecognitionConfig,
     LicensePlateRecognitionConfig,
     SemanticSearchConfig,
+    SemanticSearchModelEnum,
 )
 from .database import DatabaseConfig
 from .env import EnvVars
 from .logger import LoggerConfig
 from .mqtt import MqttConfig
 from .network import NetworkingConfig
+from .profile import ProfileDefinitionConfig
 from .proxy import ProxyConfig
 from .telemetry import TelemetryConfig
 from .tls import TlsConfig
@@ -93,54 +95,99 @@ stream_info_retriever = StreamInfoRetriever()
 
 
 class RuntimeMotionConfig(MotionConfig):
-    raw_mask: Union[str, List[str]] = ""
-    mask: np.ndarray = None
+    """Runtime version of MotionConfig with rasterized masks."""
+
+    rasterized_mask: np.ndarray = Field(default=None, exclude=True)
 
     def __init__(self, **config):
         frame_shape = config.get("frame_shape", (1, 1))
 
-        mask = get_relative_coordinates(config.get("mask", ""), frame_shape)
-        config["raw_mask"] = mask
-
-        if mask:
-            config["mask"] = create_mask(frame_shape, mask)
-        else:
-            empty_mask = np.zeros(frame_shape, np.uint8)
-            empty_mask[:] = 255
-            config["mask"] = empty_mask
+        # Store original mask dict for serialization
+        original_mask = config.get("mask", {})
+        if isinstance(original_mask, dict):
+            # Process the new dict format - update raw_coordinates for each mask
+            processed_mask = {}
+            for mask_id, mask_config in original_mask.items():
+                if isinstance(mask_config, dict):
+                    coords = mask_config.get("coordinates", "")
+                    relative_coords = get_relative_coordinates(coords, frame_shape)
+                    mask_config_copy = mask_config.copy()
+                    mask_config_copy["raw_coordinates"] = (
+                        relative_coords if relative_coords else coords
+                    )
+                    mask_config_copy["coordinates"] = (
+                        relative_coords if relative_coords else coords
+                    )
+                    processed_mask[mask_id] = mask_config_copy
+                else:
+                    processed_mask[mask_id] = mask_config
+            config["mask"] = processed_mask
+            config["raw_mask"] = processed_mask
 
         super().__init__(**config)
 
-    def dict(self, **kwargs):
-        ret = super().model_dump(**kwargs)
-        if "mask" in ret:
-            ret["mask"] = ret["raw_mask"]
-            ret.pop("raw_mask")
-        return ret
+        # Rasterize only enabled masks
+        enabled_coords = []
+        for mask_config in self.mask.values():
+            if mask_config.enabled and mask_config.coordinates:
+                coords = mask_config.coordinates
+                if isinstance(coords, list):
+                    enabled_coords.extend(coords)
+                else:
+                    enabled_coords.append(coords)
 
-    @field_serializer("mask", when_used="json")
-    def serialize_mask(self, value: Any, info):
-        return self.raw_mask
-
-    @field_serializer("raw_mask", when_used="json")
-    def serialize_raw_mask(self, value: Any, info):
-        return None
+        if enabled_coords:
+            self.rasterized_mask = create_mask(frame_shape, enabled_coords)
+        else:
+            empty_mask = np.zeros(frame_shape, np.uint8)
+            empty_mask[:] = 255
+            self.rasterized_mask = empty_mask
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
 
 
 class RuntimeFilterConfig(FilterConfig):
-    mask: Optional[np.ndarray] = None
-    raw_mask: Optional[Union[str, List[str]]] = None
+    """Runtime version of FilterConfig with rasterized masks."""
+
+    rasterized_mask: Optional[np.ndarray] = Field(default=None, exclude=True)
 
     def __init__(self, **config):
         frame_shape = config.get("frame_shape", (1, 1))
-        mask = get_relative_coordinates(config.get("mask"), frame_shape)
 
-        config["raw_mask"] = mask
-
-        if mask is not None:
-            config["mask"] = create_mask(frame_shape, mask)
+        # Store original mask dict for serialization
+        original_mask = config.get("mask", {})
+        if isinstance(original_mask, dict):
+            # Process the new dict format - update raw_coordinates for each mask
+            processed_mask = {}
+            for mask_id, mask_config in original_mask.items():
+                # Handle both dict and ObjectMaskConfig formats
+                if hasattr(mask_config, "model_dump"):
+                    # It's an ObjectMaskConfig object
+                    mask_dict = mask_config.model_dump()
+                    coords = mask_dict.get("coordinates", "")
+                    relative_coords = get_relative_coordinates(coords, frame_shape)
+                    mask_dict["raw_coordinates"] = (
+                        relative_coords if relative_coords else coords
+                    )
+                    mask_dict["coordinates"] = (
+                        relative_coords if relative_coords else coords
+                    )
+                    processed_mask[mask_id] = mask_dict
+                elif isinstance(mask_config, dict):
+                    coords = mask_config.get("coordinates", "")
+                    relative_coords = get_relative_coordinates(coords, frame_shape)
+                    mask_config_copy = mask_config.copy()
+                    mask_config_copy["raw_coordinates"] = (
+                        relative_coords if relative_coords else coords
+                    )
+                    mask_config_copy["coordinates"] = (
+                        relative_coords if relative_coords else coords
+                    )
+                    processed_mask[mask_id] = mask_config_copy
+                else:
+                    processed_mask[mask_id] = mask_config
+            config["mask"] = processed_mask
+            config["raw_mask"] = processed_mask
 
         # Convert min_area and max_area to pixels if they're percentages
         if "min_area" in config:
@@ -151,12 +198,20 @@ class RuntimeFilterConfig(FilterConfig):
 
         super().__init__(**config)
 
-    def dict(self, **kwargs):
-        ret = super().model_dump(**kwargs)
-        if "mask" in ret:
-            ret["mask"] = ret["raw_mask"]
-            ret.pop("raw_mask")
-        return ret
+        # Rasterize only enabled masks
+        enabled_coords = []
+        for mask_config in self.mask.values():
+            if mask_config.enabled and mask_config.coordinates:
+                coords = mask_config.coordinates
+                if isinstance(coords, list):
+                    enabled_coords.extend(coords)
+                else:
+                    enabled_coords.append(coords)
+
+        if enabled_coords:
+            self.rasterized_mask = create_mask(frame_shape, enabled_coords)
+        else:
+            self.rasterized_mask = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
 
@@ -484,6 +539,19 @@ class FrigateConfig(FrigateBaseModel):
         description="Configuration for named camera groups used to organize cameras in the UI.",
     )
 
+    profiles: Dict[str, ProfileDefinitionConfig] = Field(
+        default_factory=dict,
+        title="Profiles",
+        description="Named profile definitions with friendly names. Camera profiles must reference names defined here.",
+    )
+
+    active_profile: Optional[str] = Field(
+        default=None,
+        title="Active profile",
+        description="Currently active profile name. Runtime-only, not persisted in YAML.",
+        exclude=True,
+    )
+
     _plus_api: PlusApi
 
     @property
@@ -515,6 +583,24 @@ class FrigateConfig(FrigateBaseModel):
                         "exactly one provider."
                     )
                 role_to_name[role] = name
+
+        # validate semantic_search.model when it is a GenAI provider name
+        if (
+            self.semantic_search.enabled
+            and isinstance(self.semantic_search.model, str)
+            and not isinstance(self.semantic_search.model, SemanticSearchModelEnum)
+        ):
+            if self.semantic_search.model not in self.genai:
+                raise ValueError(
+                    f"semantic_search.model '{self.semantic_search.model}' is not a "
+                    "valid GenAI config key. Must match a key in genai config."
+                )
+            genai_cfg = self.genai[self.semantic_search.model]
+            if GenAIRoleEnum.embeddings not in genai_cfg.roles:
+                raise ValueError(
+                    f"GenAI provider '{self.semantic_search.model}' must have "
+                    "'embeddings' in its roles for semantic search."
+                )
 
         # set default min_score for object attributes
         for attribute in self.model.all_attributes:
@@ -713,34 +799,62 @@ class FrigateConfig(FrigateBaseModel):
             for key in object_keys:
                 camera_config.objects.filters[key] = FilterConfig()
 
+            # Process global object masks to set raw_coordinates
+            if camera_config.objects.mask:
+                processed_global_masks = {}
+                for mask_id, mask_config in camera_config.objects.mask.items():
+                    if mask_config:
+                        coords = mask_config.coordinates
+                        relative_coords = get_relative_coordinates(
+                            coords, camera_config.frame_shape
+                        )
+                        # Create a new ObjectMaskConfig with raw_coordinates set
+                        processed_global_masks[mask_id] = ObjectMaskConfig(
+                            friendly_name=mask_config.friendly_name,
+                            enabled=mask_config.enabled,
+                            coordinates=relative_coords if relative_coords else coords,
+                            raw_coordinates=relative_coords
+                            if relative_coords
+                            else coords,
+                            enabled_in_config=mask_config.enabled,
+                        )
+                    else:
+                        processed_global_masks[mask_id] = mask_config
+                camera_config.objects.mask = processed_global_masks
+                camera_config.objects.raw_mask = processed_global_masks
+
             # Apply global object masks and convert masks to numpy array
             for object, filter in camera_config.objects.filters.items():
+                # Set enabled_in_config for per-object masks before processing
+                for mask_config in filter.mask.values():
+                    if mask_config:
+                        mask_config.enabled_in_config = mask_config.enabled
+
+                # Merge global object masks with per-object filter masks
+                merged_mask = dict(filter.mask)  # Copy filter-specific masks
+
+                # Add global object masks if they exist
                 if camera_config.objects.mask:
-                    filter_mask = []
-                    if filter.mask is not None:
-                        filter_mask = (
-                            filter.mask
-                            if isinstance(filter.mask, list)
-                            else [filter.mask]
-                        )
-                    object_mask = (
-                        get_relative_coordinates(
-                            (
-                                camera_config.objects.mask
-                                if isinstance(camera_config.objects.mask, list)
-                                else [camera_config.objects.mask]
-                            ),
-                            camera_config.frame_shape,
-                        )
-                        or []
-                    )
-                    filter.mask = filter_mask + object_mask
+                    for mask_id, mask_config in camera_config.objects.mask.items():
+                        # Use a global prefix to avoid key collisions
+                        global_mask_id = f"global_{mask_id}"
+                        merged_mask[global_mask_id] = mask_config
 
                 # Set runtime filter to create masks
                 camera_config.objects.filters[object] = RuntimeFilterConfig(
                     frame_shape=camera_config.frame_shape,
-                    **filter.model_dump(exclude_unset=True),
+                    mask=merged_mask,
+                    **filter.model_dump(
+                        exclude_unset=True, exclude={"mask", "raw_mask"}
+                    ),
                 )
+
+            # Set enabled_in_config for motion masks to match config file state BEFORE creating RuntimeMotionConfig
+            if camera_config.motion:
+                camera_config.motion.enabled_in_config = camera_config.motion.enabled
+                for mask_config in camera_config.motion.mask.values():
+                    if mask_config:
+                        mask_config.enabled_in_config = mask_config.enabled
 
             # Convert motion configuration
             if camera_config.motion is None:
@@ -750,10 +864,8 @@ class FrigateConfig(FrigateBaseModel):
             else:
                 camera_config.motion = RuntimeMotionConfig(
                     frame_shape=camera_config.frame_shape,
-                    raw_mask=camera_config.motion.mask,
                     **camera_config.motion.model_dump(exclude_unset=True),
                 )
-            camera_config.motion.enabled_in_config = camera_config.motion.enabled
 
             # generate zone contours
             if len(camera_config.zones) > 0:
@@ -766,6 +878,10 @@ class FrigateConfig(FrigateBaseModel):
                             )
 
                     zone.generate_contour(camera_config.frame_shape)
+
+                # Set enabled_in_config for zones to match config file state
+                for zone in camera_config.zones.values():
+                    zone.enabled_in_config = zone.enabled
 
             # Set live view stream if none is set
             if not camera_config.live.streams:
@@ -784,6 +900,15 @@ class FrigateConfig(FrigateBaseModel):
             verify_motion_and_detect(camera_config)
             verify_objects_track(camera_config, labelmap_objects)
             verify_lpr_and_face(self, camera_config)
+
+        # Validate camera profiles reference top-level profile definitions
+        for cam_name, cam_config in self.cameras.items():
+            for profile_name in cam_config.profiles:
+                if profile_name not in self.profiles:
+                    raise ValueError(
+                        f"Camera '{cam_name}' references profile '{profile_name}' "
+                        f"which is not defined in the top-level 'profiles' section"
+                    )
 
         # set names on classification configs
         for name, config in self.classification.custom.items():

@@ -7,6 +7,7 @@ class AppConfigSetBody(BaseModel):
     requires_restart: int = 1
     update_topic: str | None = None
     config_data: Optional[Dict[str, Any]] = None
+    skip_save: bool = False
 
 
 class AppPutPasswordBody(BaseModel):
@@ -27,6 +28,10 @@ class AppPostLoginBody(BaseModel):
 
 class AppPutRoleBody(BaseModel):
     role: str
+
+
+class CameraSetBody(BaseModel):
+    value: str = Field(..., description="The value to set for the feature")
 
 
 class MediaSyncBody(BaseModel):

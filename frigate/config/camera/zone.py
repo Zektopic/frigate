@@ -18,6 +18,14 @@ class ZoneConfig(BaseModel):
         title="Zone name",
         description="A user-friendly name for the zone, displayed in the Frigate UI. If not set, a formatted version of the zone name will be used.",
     )
+    enabled: bool = Field(
+        default=True,
+        title="Enabled",
+        description="Enable or disable this zone. Disabled zones are ignored at runtime.",
+    )
+    enabled_in_config: Optional[bool] = Field(
+        default=None, title="Keep track of original state of zone."
+    )
     filters: dict[str, FilterConfig] = Field(
         default_factory=dict,
         title="Zone filters",

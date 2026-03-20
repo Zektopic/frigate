@@ -642,7 +642,10 @@ class ReviewSegmentMaintainer(threading.Thread):
                     _,
                     audio_detections,
                 ) = data
-            elif topic == DetectionTypeEnum.api.value or DetectionTypeEnum.lpr.value:
+            elif (
+                topic == DetectionTypeEnum.api.value
+                or topic == DetectionTypeEnum.lpr.value
+            ):
                 (
                     camera,
                     frame_time,
@@ -651,6 +654,9 @@ class ReviewSegmentMaintainer(threading.Thread):
 
                 if camera not in self.indefinite_events:
                     self.indefinite_events[camera] = {}
+
+            if camera not in self.config.cameras:
+                continue
 
             if (
                 not self.config.cameras[camera].enabled

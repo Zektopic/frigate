@@ -24,6 +24,7 @@ from tzlocal import get_localzone_name
 from frigate.api.auth import (
     allow_any_authenticated,
     require_camera_access,
+    require_role,
 )
 from frigate.api.defs.query.media_query_parameters import (
     Extension,
@@ -1005,6 +1006,23 @@ def grid_snapshot(
         )
 
 
+@router.delete(
+    "/{camera_name}/region_grid", dependencies=[Depends(require_role("admin"))]
+)
+def clear_region_grid(request: Request, camera_name: str):
+    """Clear the region grid for a camera."""
+    if camera_name not in request.app.frigate_config.cameras:
+        return JSONResponse(
+            content={"success": False, "message": "Camera not found"},
+            status_code=404,
+        )
+
+    Regions.delete().where(Regions.camera == camera_name).execute()
+    return JSONResponse(
+        content={"success": True, "message": "Region grid cleared"},
+    )
+
+
 @router.get(
     "/events/{event_id}/snapshot-clean.webp",
     dependencies=[Depends(require_camera_access)],
@@ -1263,6 +1281,13 @@ def preview_gif(
     else:
         # need to generate from existing images
         preview_dir = os.path.join(CACHE_DIR, "preview_frames")
+
+        if not os.path.isdir(preview_dir):
+            return JSONResponse(
+                content={"success": False, "message": "Preview not found"},
+                status_code=404,
+            )
+
         file_start = f"preview_{camera_name}"
         start_file = f"{file_start}-{start_ts}.{PREVIEW_FRAME_TYPE}"
         end_file = f"{file_start}-{end_ts}.{PREVIEW_FRAME_TYPE}"
@@ -1438,6 +1463,13 @@ def preview_mp4(
     else:
         # need to generate from existing images
         preview_dir = os.path.join(CACHE_DIR, "preview_frames")
+
+        if not os.path.isdir(preview_dir):
+            return JSONResponse(
+                content={"success": False, "message": "Preview not found"},
+                status_code=404,
+            )
+
         file_start = f"preview_{camera_name}"
         start_file = f"{file_start}-{start_ts}.{PREVIEW_FRAME_TYPE}"
         end_file = f"{file_start}-{end_ts}.{PREVIEW_FRAME_TYPE}"

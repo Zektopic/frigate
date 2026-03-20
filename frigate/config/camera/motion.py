@@ -1,8 +1,9 @@
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from pydantic import Field, field_serializer
 
 from ..base import FrigateBaseModel
+from .mask import MotionMaskConfig
 
 __all__ = ["MotionConfig"]
 
@@ -23,8 +24,15 @@ class MotionConfig(FrigateBaseModel):
     lightning_threshold: float = Field(
         default=0.8,
         title="Lightning threshold",
-        description="Threshold to detect and ignore brief lighting spikes (lower is more sensitive, values between 0.3 and 1.0).",
+        description="Threshold to detect and ignore brief lighting spikes (lower is more sensitive, values between 0.3 and 1.0). This does not prevent motion detection entirely; it merely causes the detector to stop analyzing additional frames once the threshold is exceeded. Motion-based recordings are still created during these events.",
         ge=0.3,
+        le=1.0,
+    )
+    skip_motion_threshold: Optional[float] = Field(
+        default=None,
+        title="Skip motion threshold",
+        description="If set to a value between 0.0 and 1.0, and more than this fraction of the image changes in a single frame, the detector will return no motion boxes and immediately recalibrate. This can save CPU and reduce false positives during lightning, storms, etc., but may miss real events such as a PTZ camera auto‑tracking an object. The trade‑off is between dropping a few megabytes of recordings versus reviewing a couple short clips. Leave unset (None) to disable this feature.",
+        ge=0.0,
         le=1.0,
     )
     improve_contrast: bool = Field(
@@ -52,8 +60,8 @@ class MotionConfig(FrigateBaseModel):
         title="Frame height",
         description="Height in pixels to scale frames to when computing motion.",
     )
-    mask: Union[str, list[str]] = Field(
-        default="",
+    mask: dict[str, Optional[MotionMaskConfig]] = Field(
+        default_factory=dict,
         title="Mask coordinates",
         description="Ordered x,y coordinates defining the motion mask polygon used to include/exclude areas.",
     )
@@ -67,11 +75,15 @@ class MotionConfig(FrigateBaseModel):
         title="Original motion state",
         description="Indicates whether motion detection was enabled in the original static configuration.",
     )
-    raw_mask: Union[str, list[str]] = ""
+    raw_mask: dict[str, Optional[MotionMaskConfig]] = Field(
+        default_factory=dict, exclude=True
+    )
 
     @field_serializer("mask", when_used="json")
     def serialize_mask(self, value: Any, info):
-        return self.raw_mask
+        if self.raw_mask:
+            return self.raw_mask
+        return value
 
     @field_serializer("raw_mask", when_used="json")
     def serialize_raw_mask(self, value: Any, info):
