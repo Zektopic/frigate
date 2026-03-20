@@ -21,6 +21,8 @@ runs:
 
     # This creates a virtual volume at /var/lib/docker to maximize the size
     # As of 2/14/2024, this results in 97G for docker images
+    # root-reserve-mb is set high enough to leave room for tool caches
+    # (e.g. docker/setup-qemu-action caches binfmt images in /opt/hostedtoolcache)
     - name: Maximize build space
       uses: easimon/maximize-build-space@master
       with:
@@ -29,6 +31,7 @@ runs:
         remove-haskell: 'true'
         remove-codeql: 'true'
         build-mount-path: '/var/lib/docker'
+        root-reserve-mb: '8192'
 
     - name: Start docker
       run: sudo systemctl start docker
