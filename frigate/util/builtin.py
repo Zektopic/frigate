@@ -186,7 +186,11 @@ def process_config_query_string(query_string: Dict[str, list]) -> Dict[str, Any]
             value = new_value_list[0]
             try:
                 # no need to convert if we have a mask/zone string
-                value = ast.literal_eval(value) if "," not in value else value
+                value = (
+                    ast.literal_eval(value)
+                    if "," not in value or value.startswith(("[", "{"))
+                    else value
+                )
             except (ValueError, SyntaxError):
                 pass
             updates[key_path_str] = value
