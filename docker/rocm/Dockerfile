@@ -115,17 +115,17 @@ FROM scratch AS rocm-dist
 
 ARG ROCM
 
+# Copy HIP headers required for MIOpen JIT (BuildHip) / HIPRTC at runtime
+COPY --from=rocm /opt/rocm-${ROCM}/include/ /opt/rocm-${ROCM}/include/
+COPY --from=rocm /opt/rocm-$ROCM/bin/rocminfo /opt/rocm-$ROCM/bin/migraphx-driver /opt/rocm-$ROCM/bin/
+
 # Copy MIOpen database files
+# NOTE: Do not filter by gfx version to preserve gfx900 (Vega) support alongside RDNA2/RDNA3/RDNA4
 COPY --from=rocm /opt/rocm-$ROCM/share/miopen/db/ /opt/rocm-$ROCM/share/miopen/db/
 
 # Copy rocBLAS library files
 # NOTE: Do not filter this copy to specific gfx versions, some fallback tensile libraries are necessary.
 COPY --from=rocm /opt/rocm-$ROCM/lib/rocblas/library/ /opt/rocm-$ROCM/lib/rocblas/library/
-
-# Copy ROCm binary files
-COPY --from=rocm /opt/rocm-$ROCM/bin/ /opt/rocm-$ROCM/bin/
-
-# Copy stripped ROCm
 COPY --from=rocm /opt/rocm-dist/ /
 
 #######################################################################
