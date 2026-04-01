@@ -324,21 +324,22 @@ class TrackedObjectProcessor(threading.Thread):
                 self.last_motion_detected[camera] = 0
 
     def get_best(self, camera: str, label: str) -> dict[str, Any]:
-        # TODO: need a lock here
         camera_state = self.camera_states[camera]
-        if label in camera_state.best_objects:
-            best_obj = camera_state.best_objects[label]
 
-            if not best_obj.thumbnail_data:
+        with camera_state.best_objects_lock:
+            if label in camera_state.best_objects:
+                best_obj = camera_state.best_objects[label]
+
+                if not best_obj.thumbnail_data:
+                    return {}
+
+                best = best_obj.thumbnail_data.copy()
+                best["frame"] = camera_state.frame_cache.get(
+                    best_obj.thumbnail_data["frame_time"]
+                )
+                return best
+            else:
                 return {}
-
-            best = best_obj.thumbnail_data.copy()
-            best["frame"] = camera_state.frame_cache.get(
-                best_obj.thumbnail_data["frame_time"]
-            )
-            return best
-        else:
-            return {}
 
     def get_current_frame(
         self, camera: str, draw_options: dict[str, Any] = {}
