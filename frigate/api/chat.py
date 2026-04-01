@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from frigate.api.auth import (
     allow_any_authenticated,
     get_allowed_cameras_for_filter,
+    require_camera_access,
 )
 from frigate.api.defs.query.events_query_parameters import EventsQueryParams
 from frigate.api.defs.request.chat_body import ChatCompletionRequest
@@ -26,6 +27,11 @@ from frigate.api.defs.response.chat_response import (
 from frigate.api.defs.tags import Tags
 from frigate.api.event import events
 from frigate.genai.utils import build_assistant_message_for_conversation
+from frigate.jobs.vlm_watch import (
+    get_vlm_watch_job,
+    start_vlm_watch_job,
+    stop_vlm_watch_job,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +88,16 @@ class ToolExecuteRequest(BaseModel):
     arguments: Dict[str, Any]
 
 
+class VLMMonitorRequest(BaseModel):
+    """Request model for starting a VLM watch job."""
+
+    camera: str
+    condition: str
+    max_duration_minutes: int = 60
+    labels: List[str] = []
+    zones: List[str] = []
+
+
 def get_tool_definitions() -> List[Dict[str, Any]]:
     """
     Get OpenAI-compatible tool definitions for Frigate.
@@ -95,9 +111,11 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
             "function": {
                 "name": "search_objects",
                 "description": (
-                    "Search for detected objects in Frigate by camera, object label, time range, "
-                    "zones, and other filters. Use this to answer questions about when "
-                    "objects were detected, what objects appeared, or to find specific object detections. "
+                    "Search the historical record of detected objects in Frigate. "
+                    "Use this ONLY for questions about the PAST — e.g. 'did anyone come by today?', "
+                    "'when was the last car?', 'show me detections from yesterday'. "
+                    "Do NOT use this for monitoring or alerting requests about future events — "
+                    "use start_camera_watch instead for those. "
                     "An 'object' in Frigate represents a tracked detection (e.g., a person, package, car). "
                     "When the user asks about a specific name (person, delivery company, animal, etc.), "
                     "filter by sub_label only and do not set label."
@@ -214,6 +232,119 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                         },
                     },
                     "required": ["camera"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "start_camera_watch",
+                "description": (
+                    "Start a continuous VLM watch job that monitors a camera and sends a notification "
+                    "when a specified condition is met. Use this when the user wants to be alerted about "
+                    "a future event, e.g. 'tell me when guests arrive' or 'notify me when the package is picked up'. "
+                    "Only one watch job can run at a time. Returns a job ID."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "camera": {
+                            "type": "string",
+                            "description": "Camera ID to monitor.",
+                        },
+                        "condition": {
+                            "type": "string",
+                            "description": (
+                                "Natural-language description of the condition to watch for, "
+                                "e.g. 'a person arrives at the front door'."
+                            ),
+                        },
+                        "max_duration_minutes": {
+                            "type": "integer",
+                            "description": "Maximum time to watch before giving up (minutes, default 60).",
+                            "default": 60,
+                        },
+                        "labels": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Object labels that should trigger a VLM check (e.g. ['person', 'car']). If omitted, any detection on the camera triggers a check.",
+                        },
+                        "zones": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Zone names to filter by. If specified, only detections in these zones trigger a VLM check.",
+                        },
+                    },
+                    "required": ["camera", "condition"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "stop_camera_watch",
+                "description": (
+                    "Cancel the currently running VLM watch job. Use this when the user wants to "
+                    "stop a previously started watch, e.g. 'stop watching the front door'."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_profile_status",
+                "description": (
+                    "Get the current profile status including the active profile and "
+                    "timestamps of when each profile was last activated. Use this to "
+                    "determine time periods for recap requests — e.g. when the user asks "
+                    "'what happened while I was away?', call this first to find the relevant "
+                    "time window based on profile activation history."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_recap",
+                "description": (
+                    "Get a recap of all activity (alerts and detections) for a given time period. "
+                    "Use this after calling get_profile_status to retrieve what happened during "
+                    "a specific window — e.g. 'what happened while I was away?'. Returns a "
+                    "chronological list of activity with camera, objects, zones, and GenAI-generated "
+                    "descriptions when available. Summarize the results for the user."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "after": {
+                            "type": "string",
+                            "description": "Start of the time period in ISO 8601 format (e.g. '2025-03-15T08:00:00').",
+                        },
+                        "before": {
+                            "type": "string",
+                            "description": "End of the time period in ISO 8601 format (e.g. '2025-03-15T17:00:00').",
+                        },
+                        "cameras": {
+                            "type": "string",
+                            "description": "Comma-separated camera IDs to include, or 'all' for all cameras. Default is 'all'.",
+                        },
+                        "severity": {
+                            "type": "string",
+                            "enum": ["alert", "detection"],
+                            "description": "Filter by severity level. Omit to include both alerts and detections.",
+                        },
+                    },
+                    "required": ["after", "before"],
                 },
             },
         },
@@ -565,14 +696,241 @@ async def _execute_tool_internal(
             )
             return {"error": "Camera parameter is required"}
         return await _execute_get_live_context(request, camera, allowed_cameras)
+    elif tool_name == "start_camera_watch":
+        return await _execute_start_camera_watch(request, arguments)
+    elif tool_name == "stop_camera_watch":
+        return _execute_stop_camera_watch()
+    elif tool_name == "get_profile_status":
+        return _execute_get_profile_status(request)
+    elif tool_name == "get_recap":
+        return _execute_get_recap(arguments, allowed_cameras)
     else:
         logger.error(
-            "Tool call failed: unknown tool %r. Expected one of: search_objects, get_live_context. "
-            "Arguments received: %s",
+            "Tool call failed: unknown tool %r. Expected one of: search_objects, get_live_context, "
+            "start_camera_watch, stop_camera_watch, get_profile_status, get_recap. Arguments received: %s",
             tool_name,
             json.dumps(arguments),
         )
         return {"error": f"Unknown tool: {tool_name}"}
+
+
+async def _execute_start_camera_watch(
+    request: Request,
+    arguments: Dict[str, Any],
+) -> Dict[str, Any]:
+    camera = arguments.get("camera", "").strip()
+    condition = arguments.get("condition", "").strip()
+    max_duration_minutes = int(arguments.get("max_duration_minutes", 60))
+    labels = arguments.get("labels") or []
+    zones = arguments.get("zones") or []
+
+    if not camera or not condition:
+        return {"error": "camera and condition are required."}
+
+    config = request.app.frigate_config
+    if camera not in config.cameras:
+        return {"error": f"Camera '{camera}' not found."}
+
+    await require_camera_access(camera, request=request)
+
+    genai_manager = request.app.genai_manager
+    vision_client = genai_manager.vision_client or genai_manager.tool_client
+    if vision_client is None:
+        return {"error": "No vision/GenAI provider configured."}
+
+    try:
+        job_id = start_vlm_watch_job(
+            camera=camera,
+            condition=condition,
+            max_duration_minutes=max_duration_minutes,
+            config=config,
+            frame_processor=request.app.detected_frames_processor,
+            genai_manager=genai_manager,
+            dispatcher=request.app.dispatcher,
+            labels=labels,
+            zones=zones,
+        )
+    except RuntimeError as e:
+        logger.error("Failed to start VLM watch job: %s", e, exc_info=True)
+        return {"error": "Failed to start VLM watch job."}
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "message": (
+            f"Now watching '{camera}' for: {condition}. "
+            f"You'll receive a notification when the condition is met (timeout: {max_duration_minutes} min)."
+        ),
+    }
+
+
+def _execute_stop_camera_watch() -> Dict[str, Any]:
+    cancelled = stop_vlm_watch_job()
+    if cancelled:
+        return {"success": True, "message": "Watch job cancelled."}
+    return {"success": False, "message": "No active watch job to cancel."}
+
+
+def _execute_get_profile_status(request: Request) -> Dict[str, Any]:
+    """Return profile status including active profile and activation timestamps."""
+    profile_manager = getattr(request.app, "profile_manager", None)
+    if profile_manager is None:
+        return {"error": "Profile manager is not available."}
+
+    info = profile_manager.get_profile_info()
+
+    # Convert timestamps to human-readable local times inline
+    last_activated = {}
+    for name, ts in info.get("last_activated", {}).items():
+        try:
+            dt = datetime.fromtimestamp(ts)
+            last_activated[name] = dt.strftime("%Y-%m-%d %I:%M:%S %p")
+        except (TypeError, ValueError, OSError):
+            last_activated[name] = str(ts)
+
+    return {
+        "active_profile": info.get("active_profile"),
+        "profiles": info.get("profiles", []),
+        "last_activated": last_activated,
+    }
+
+
+def _execute_get_recap(
+    arguments: Dict[str, Any],
+    allowed_cameras: List[str],
+) -> Dict[str, Any]:
+    """Fetch review segments with GenAI metadata for a time period."""
+    from functools import reduce
+
+    from peewee import operator
+
+    from frigate.models import ReviewSegment
+
+    after_str = arguments.get("after")
+    before_str = arguments.get("before")
+
+    def _parse_as_local_timestamp(s: str):
+        s = s.replace("Z", "").strip()[:19]
+        dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+        return time.mktime(dt.timetuple())
+
+    try:
+        after = _parse_as_local_timestamp(after_str)
+    except (ValueError, AttributeError, TypeError):
+        return {"error": f"Invalid 'after' timestamp: {after_str}"}
+
+    try:
+        before = _parse_as_local_timestamp(before_str)
+    except (ValueError, AttributeError, TypeError):
+        return {"error": f"Invalid 'before' timestamp: {before_str}"}
+
+    cameras = arguments.get("cameras", "all")
+    if cameras != "all":
+        requested = set(cameras.split(","))
+        camera_list = list(requested.intersection(allowed_cameras))
+        if not camera_list:
+            return {"events": [], "message": "No accessible cameras matched."}
+    else:
+        camera_list = allowed_cameras
+
+    clauses = [
+        (ReviewSegment.start_time < before)
+        & ((ReviewSegment.end_time.is_null(True)) | (ReviewSegment.end_time > after)),
+        (ReviewSegment.camera << camera_list),
+    ]
+
+    severity_filter = arguments.get("severity")
+    if severity_filter:
+        clauses.append(ReviewSegment.severity == severity_filter)
+
+    try:
+        rows = (
+            ReviewSegment.select(
+                ReviewSegment.camera,
+                ReviewSegment.start_time,
+                ReviewSegment.end_time,
+                ReviewSegment.severity,
+                ReviewSegment.data,
+            )
+            .where(reduce(operator.and_, clauses))
+            .order_by(ReviewSegment.start_time.asc())
+            .limit(100)
+            .dicts()
+            .iterator()
+        )
+
+        events: List[Dict[str, Any]] = []
+
+        for row in rows:
+            data = row.get("data") or {}
+            if isinstance(data, str):
+                try:
+                    data = json.loads(data)
+                except json.JSONDecodeError:
+                    data = {}
+
+            camera = row["camera"]
+            event: Dict[str, Any] = {
+                "camera": camera.replace("_", " ").title(),
+                "severity": row.get("severity", "detection"),
+            }
+
+            # Include GenAI metadata when available
+            metadata = data.get("metadata")
+            if metadata and isinstance(metadata, dict):
+                if metadata.get("title"):
+                    event["title"] = metadata["title"]
+                if metadata.get("scene"):
+                    event["description"] = metadata["scene"]
+                threat = metadata.get("potential_threat_level")
+                if threat is not None:
+                    threat_labels = {
+                        0: "normal",
+                        1: "needs_review",
+                        2: "security_concern",
+                    }
+                    event["threat_level"] = threat_labels.get(threat, str(threat))
+
+            # Only include objects/zones/audio when there's no GenAI description
+            # to keep the payload concise — the description already covers these
+            if "description" not in event:
+                objects = data.get("objects", [])
+                if objects:
+                    event["objects"] = objects
+                zones = data.get("zones", [])
+                if zones:
+                    event["zones"] = zones
+                audio = data.get("audio", [])
+                if audio:
+                    event["audio"] = audio
+
+            start_ts = row.get("start_time")
+            end_ts = row.get("end_time")
+            if start_ts is not None:
+                try:
+                    event["time"] = datetime.fromtimestamp(start_ts).strftime(
+                        "%I:%M %p"
+                    )
+                except (TypeError, ValueError, OSError):
+                    pass
+            if end_ts is not None and start_ts is not None:
+                try:
+                    event["duration_seconds"] = round(end_ts - start_ts)
+                except (TypeError, ValueError):
+                    pass
+
+            events.append(event)
+
+        if not events:
+            return {
+                "events": [],
+                "message": "No activity was found during this time period.",
+            }
+
+        return {"events": events}
+    except Exception as e:
+        logger.error("Error executing get_recap: %s", e, exc_info=True)
+        return {"error": "Failed to fetch recap data."}
 
 
 async def _execute_pending_tools(
@@ -999,3 +1357,97 @@ Always be accurate with time calculations based on the current date provided.{ca
             },
             status_code=500,
         )
+
+
+# ---------------------------------------------------------------------------
+# VLM Monitor endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/vlm/monitor",
+    dependencies=[Depends(allow_any_authenticated())],
+    summary="Start a VLM watch job",
+    description=(
+        "Start monitoring a camera with the vision provider. "
+        "The VLM analyzes live frames until the specified condition is met, "
+        "then sends a notification. Only one watch job can run at a time."
+    ),
+)
+async def start_vlm_monitor(
+    request: Request,
+    body: VLMMonitorRequest,
+) -> JSONResponse:
+    config = request.app.frigate_config
+    genai_manager = request.app.genai_manager
+
+    if body.camera not in config.cameras:
+        return JSONResponse(
+            content={"success": False, "message": f"Camera '{body.camera}' not found."},
+            status_code=404,
+        )
+
+    await require_camera_access(body.camera, request=request)
+
+    vision_client = genai_manager.vision_client or genai_manager.tool_client
+    if vision_client is None:
+        return JSONResponse(
+            content={
+                "success": False,
+                "message": "No vision/GenAI provider configured.",
+            },
+            status_code=400,
+        )
+
+    try:
+        job_id = start_vlm_watch_job(
+            camera=body.camera,
+            condition=body.condition,
+            max_duration_minutes=body.max_duration_minutes,
+            config=config,
+            frame_processor=request.app.detected_frames_processor,
+            genai_manager=genai_manager,
+            dispatcher=request.app.dispatcher,
+            labels=body.labels,
+            zones=body.zones,
+        )
+    except RuntimeError as e:
+        logger.error("Failed to start VLM watch job: %s", e, exc_info=True)
+        return JSONResponse(
+            content={"success": False, "message": "Failed to start VLM watch job."},
+            status_code=409,
+        )
+
+    return JSONResponse(
+        content={"success": True, "job_id": job_id},
+        status_code=201,
+    )
+
+
+@router.get(
+    "/vlm/monitor",
+    dependencies=[Depends(allow_any_authenticated())],
+    summary="Get current VLM watch job",
+    description="Returns the current (or most recently completed) VLM watch job.",
+)
+async def get_vlm_monitor() -> JSONResponse:
+    job = get_vlm_watch_job()
+    if job is None:
+        return JSONResponse(content={"active": False}, status_code=200)
+    return JSONResponse(content={"active": True, **job.to_dict()}, status_code=200)
+
+
+@router.delete(
+    "/vlm/monitor",
+    dependencies=[Depends(allow_any_authenticated())],
+    summary="Cancel the current VLM watch job",
+    description="Cancels the running watch job if one exists.",
+)
+async def cancel_vlm_monitor() -> JSONResponse:
+    cancelled = stop_vlm_watch_job()
+    if not cancelled:
+        return JSONResponse(
+            content={"success": False, "message": "No active watch job to cancel."},
+            status_code=404,
+        )
+    return JSONResponse(content={"success": True}, status_code=200)
