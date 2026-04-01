@@ -94,6 +94,7 @@ class TrackedObjectProcessor(threading.Thread):
 
         self.camera_activity: dict[str, dict[str, Any]] = {}
         self.ongoing_manual_events: dict[str, str] = {}
+        self.lock = threading.Lock()
 
         # {
         #   'zone_name': {
@@ -325,21 +326,21 @@ class TrackedObjectProcessor(threading.Thread):
                 self.last_motion_detected[camera] = 0
 
     def get_best(self, camera: str, label: str) -> dict[str, Any]:
-        # TODO: need a lock here
         camera_state = self.camera_states[camera]
-        if label in camera_state.best_objects:
-            best_obj = camera_state.best_objects[label]
+        with self.lock:
+            if label in camera_state.best_objects:
+                best_obj = camera_state.best_objects[label]
 
-            if not best_obj.thumbnail_data:
+                if not best_obj.thumbnail_data:
+                    return {}
+
+                best = best_obj.thumbnail_data.copy()
+                best["frame"] = camera_state.frame_cache.get(
+                    best_obj.thumbnail_data["frame_time"]
+                )
+                return best
+            else:
                 return {}
-
-            best = best_obj.thumbnail_data.copy()
-            best["frame"] = camera_state.frame_cache.get(
-                best_obj.thumbnail_data["frame_time"]
-            )
-            return best
-        else:
-            return {}
 
     def get_current_frame(
         self, camera: str, draw_options: dict[str, Any] = {}
@@ -775,15 +776,20 @@ class TrackedObjectProcessor(threading.Thread):
 
             camera_state = self.camera_states[camera]
 
-            camera_state.update(
-                frame_name, frame_time, current_tracked_objects, motion_boxes, regions
-            )
+            with self.lock:
+                camera_state.update(
+                    frame_name,
+                    frame_time,
+                    current_tracked_objects,
+                    motion_boxes,
+                    regions,
+                )
 
-            self.update_mqtt_motion(camera, frame_time, motion_boxes)
+                self.update_mqtt_motion(camera, frame_time, motion_boxes)
 
-            tracked_objects = [
-                o.to_dict() for o in camera_state.tracked_objects.values()
-            ]
+                tracked_objects = [
+                    o.to_dict() for o in camera_state.tracked_objects.values()
+                ]
 
             # publish info on this frame
             self.detection_publisher.publish(
