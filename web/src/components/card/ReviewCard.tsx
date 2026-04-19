@@ -81,7 +81,7 @@ export default function ReviewCard({
 
     axios
       .post(
-        `export/${event.camera}/start/${event.start_time + REVIEW_PADDING}/end/${endTime}`,
+        `export/${event.camera}/start/${event.start_time - REVIEW_PADDING}/end/${endTime}`,
         { playback: "realtime" },
       )
       .then((response) => {
@@ -275,7 +275,7 @@ export default function ReviewCard({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        <ContextMenu key={event.id}>
+        <ContextMenu key={event.id} modal={false}>
           <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
           <ContextMenuContent>
             <ContextMenuItem>
