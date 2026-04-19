@@ -270,7 +270,10 @@ export default function MotionSearchView({
   );
 
   useEffect(() => {
-    if (exportMode !== "timeline" || exportRange) {
+    if (
+      (exportMode !== "timeline" && exportMode !== "timeline_multi") ||
+      exportRange
+    ) {
       return;
     }
 
@@ -955,9 +958,25 @@ export default function MotionSearchView({
 
       <SaveExportOverlay
         className="pointer-events-none absolute inset-x-0 top-0 z-30"
-        show={exportMode === "timeline" && Boolean(exportRange)}
+        show={
+          (exportMode === "timeline" || exportMode === "timeline_multi") &&
+          Boolean(exportRange)
+        }
+        hidePreview={exportMode === "timeline_multi"}
+        saveLabel={
+          exportMode === "timeline_multi"
+            ? t("export.fromTimeline.useThisRange", { ns: "components/dialog" })
+            : undefined
+        }
         onPreview={handleExportPreview}
-        onSave={handleExportSave}
+        onSave={() => {
+          if (exportMode === "timeline_multi") {
+            setExportMode("select");
+            return;
+          }
+
+          handleExportSave();
+        }}
         onCancel={handleExportCancel}
       />
 
@@ -976,7 +995,10 @@ export default function MotionSearchView({
           noRecordingRanges={noRecordings ?? []}
           contentRef={contentRef}
           onHandlebarDraggingChange={(dragging) => setScrubbing(dragging)}
-          showExportHandles={exportMode === "timeline" && Boolean(exportRange)}
+          showExportHandles={
+            (exportMode === "timeline" || exportMode === "timeline_multi") &&
+            Boolean(exportRange)
+          }
           exportStartTime={exportRange?.after}
           exportEndTime={exportRange?.before}
           setExportStartTime={setExportStartTime}
@@ -994,15 +1016,20 @@ export default function MotionSearchView({
   );
 
   const progressMetrics = jobStatus?.metrics ?? searchMetrics;
-  const progressValue =
-    progressMetrics && progressMetrics.segments_scanned > 0
-      ? Math.min(
-          100,
-          (progressMetrics.segments_processed /
-            progressMetrics.segments_scanned) *
-            100,
-        )
-      : 0;
+  const progressValue = (() => {
+    if (!progressMetrics || progressMetrics.segments_scanned <= 0) {
+      return 0;
+    }
+    const skipped =
+      progressMetrics.heatmap_roi_skip_segments +
+      progressMetrics.metadata_inactive_segments;
+    const totalWork = progressMetrics.segments_scanned - skipped;
+    const doneWork = progressMetrics.segments_processed - skipped;
+    if (totalWork <= 0) {
+      return 100;
+    }
+    return Math.min(100, Math.max(0, (doneWork / totalWork) * 100));
+  })();
 
   const resultsPanel = (
     <>
@@ -1036,8 +1063,8 @@ export default function MotionSearchView({
             <Progress className="h-1" value={progressValue} />
           </div>
         )}
-        {searchMetrics && searchResults.length > 0 && (
-          <div className="mx-2 rounded-lg border bg-secondary p-2">
+        {searchMetrics && (isSearching || searchResults.length > 0) && (
+          <div className="mx-2 my-3 rounded-lg border bg-secondary p-2">
             <div className="space-y-0.5 text-xs text-muted-foreground">
               <div className="flex justify-between">
                 <span>{t("metrics.segmentsScanned")}</span>
@@ -1403,7 +1430,11 @@ export default function MotionSearchView({
                 onControllerReady={(controller) => {
                   mainControllerRef.current = controller;
                 }}
-                isScrubbing={scrubbing || exportMode == "timeline"}
+                isScrubbing={
+                  scrubbing ||
+                  exportMode == "timeline" ||
+                  exportMode == "timeline_multi"
+                }
                 supportsFullscreen={supportsFullScreen}
                 setFullResolution={setFullResolution}
                 toggleFullscreen={toggleFullscreen}

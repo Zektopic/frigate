@@ -16,6 +16,16 @@ const record: SectionConfigOverrides = {
         },
       },
     ],
+    fieldDocs: {
+      "alerts.pre_capture":
+        "/configuration/record#pre-capture-and-post-capture",
+      "alerts.post_capture":
+        "/configuration/record#pre-capture-and-post-capture",
+      "detections.pre_capture":
+        "/configuration/record#pre-capture-and-post-capture",
+      "detections.post_capture":
+        "/configuration/record#pre-capture-and-post-capture",
+    },
     restartRequired: [],
     fieldOrder: [
       "enabled",
@@ -46,6 +56,11 @@ const record: SectionConfigOverrides = {
   },
   camera: {
     restartRequired: [],
+    hiddenFields: [
+      "enabled_in_config",
+      "sync_recordings",
+      "export.max_concurrent",
+    ],
   },
 };
 

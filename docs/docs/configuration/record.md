@@ -123,6 +123,76 @@ record:
 </TabItem>
 </ConfigTabs>
 
+## Pre-capture and Post-capture
+
+The `pre_capture` and `post_capture` settings control how many seconds of video are included before and after an alert or detection. These can be configured independently for alerts and detections, and can be set globally or overridden per camera.
+
+<ConfigTabs>
+<TabItem value="ui">
+
+Navigate to <NavPath path="Settings > Global configuration > Recording" /> for global defaults, or <NavPath path="Settings > Camera configuration > (select camera) > Recording" /> to override for a specific camera.
+
+| Field                                          | Description                                          |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| **Alert retention > Pre-capture seconds**      | Seconds of video to include before an alert event    |
+| **Alert retention > Post-capture seconds**     | Seconds of video to include after an alert event     |
+| **Detection retention > Pre-capture seconds**  | Seconds of video to include before a detection event |
+| **Detection retention > Post-capture seconds** | Seconds of video to include after a detection event  |
+
+</TabItem>
+<TabItem value="yaml">
+
+```yaml
+record:
+  enabled: True
+  alerts:
+    pre_capture: 5 # seconds before the alert to include
+    post_capture: 5 # seconds after the alert to include
+  detections:
+    pre_capture: 5 # seconds before the detection to include
+    post_capture: 5 # seconds after the detection to include
+```
+
+</TabItem>
+</ConfigTabs>
+
+- **Default**: 5 seconds for both pre and post capture.
+- **Pre-capture maximum**: 60 seconds.
+- These settings apply per review category (alerts and detections), not per object type.
+
+### How pre/post capture interacts with retention mode
+
+The `pre_capture` and `post_capture` values define the **time window** around a review item, but only recording segments that also match the configured **retention mode** are actually kept on disk.
+
+- **`mode: all`** — Retains every segment within the capture window, regardless of whether motion was detected.
+- **`mode: motion`** (default) — Only retains segments within the capture window that contain motion. This includes segments with active tracked objects, since object motion implies motion. Segments without any motion are discarded even if they fall within the pre/post capture range.
+- **`mode: active_objects`** — Only retains segments within the capture window where tracked objects were actively moving. Segments with general motion but no active objects are discarded.
+
+This means that with the default `motion` mode, you may see less footage than the configured pre/post capture duration if parts of the capture window had no motion.
+
+To guarantee the full pre/post capture duration is always retained:
+
+```yaml
+record:
+  enabled: True
+  alerts:
+    pre_capture: 10
+    post_capture: 10
+    retain:
+      days: 30
+      mode: all # retains all segments within the capture window
+```
+
+:::note
+
+Because recording segments are written in 10 second chunks, pre-capture timing depends on segment boundaries. The actual pre-capture footage may be slightly shorter or longer than the exact configured value.
+
+:::
+
+### Where to view pre/post capture footage
+
+Pre and post capture footage is included in the **recording timeline**, visible in the History view. Note that pre/post capture settings only affect which recording segments are **retained on disk** — they do not change the start and end points shown in the UI. The History view will still center on the review item's actual time range, but you can scrub backward and forward through the retained pre/post capture footage on the timeline. The Explore view shows object-specific clips that are trimmed to when the tracked object was actually visible, so pre/post capture time will not be reflected there.
+
 ## Will Frigate delete old recordings if my storage runs out?
 
 As of Frigate 0.12 if there is less than an hour left of storage, the oldest 2 hours of recordings will be deleted.
@@ -211,31 +281,52 @@ Using Frigate UI, Home Assistant, or MQTT, cameras can be automated to only reco
 
 Footage can be exported from Frigate by right-clicking (desktop) or long pressing (mobile) on a review item in the Review pane or by clicking the Export button in the History view. Exported footage is then organized and searchable through the Export view, accessible from the main navigation bar.
 
-### Time-lapse export
+### Custom export with FFmpeg arguments
 
-Time lapse exporting is available only via the [HTTP API](../integrations/api/export-recording-export-camera-name-start-start-time-end-end-time-post.api.mdx).
+For advanced use cases, the [custom export HTTP API](../integrations/api/export-recording-custom-export-custom-camera-name-start-start-time-end-end-time-post.api.mdx) lets you pass custom FFmpeg arguments when exporting a recording:
 
-When exporting a time-lapse the default speed-up is 25x with 30 FPS. This means that every 25 seconds of (real-time) recording is condensed into 1 second of time-lapse video (always without audio) with a smoothness of 30 FPS.
-
-To configure the speed-up factor, the frame rate and further custom settings, use the `timelapse_args` parameter. The below configuration example would change the time-lapse speed to 60x (for fitting 1 hour of recording into 1 minute of time-lapse) with 25 FPS:
-
-```yaml {3-4}
-record:
-  enabled: True
-  export:
-    timelapse_args: "-vf setpts=PTS/60 -r 25"
+```
+POST /export/custom/{camera_name}/start/{start_time}/end/{end_time}
 ```
 
-:::tip
+The request body accepts `ffmpeg_input_args` and `ffmpeg_output_args` to control encoding, frame rate, filters, and other FFmpeg options. If neither is provided, Frigate defaults to time-lapse output settings (25x speed, 30 FPS).
 
-When using `hwaccel_args`, hardware encoding is used for timelapse generation. This setting can be overridden for a specific camera (e.g., when camera resolution exceeds hardware encoder limits); set the camera-level export hwaccel_args with the appropriate settings. Using an unrecognized value or empty string will fall back to software encoding (libx264).
+The following example exports a time-lapse at 60x speed with 25 FPS:
+
+```json
+{
+  "name": "Front Door Time-lapse",
+  "ffmpeg_output_args": "-vf setpts=PTS/60 -r 25"
+}
+```
+
+#### CPU fallback
+
+If hardware acceleration is configured and the export fails (e.g., the GPU is unavailable), set `cpu_fallback: true` in the request body to automatically retry using software encoding.
+
+```json
+{
+  "name": "My Export",
+  "ffmpeg_output_args": "-c:v libx264 -crf 23",
+  "cpu_fallback": true
+}
+```
+
+:::note
+
+Non-admin users are restricted from using FFmpeg arguments that can access the filesystem (e.g., `-filter_complex`, file paths, and protocol references). Admin users have full control over FFmpeg arguments.
 
 :::
 
 :::tip
 
-The encoder determines its own behavior so the resulting file size may be undesirably large.
-To reduce the output file size the ffmpeg parameter `-qp n` can be utilized (where `n` stands for the value of the quantisation parameter). The value can be adjusted to get an acceptable tradeoff between quality and file size for the given scenario.
+When `hwaccel_args` is configured, hardware encoding is used for exports. This can be overridden per camera (e.g., when camera resolution exceeds hardware encoder limits) by setting a camera-level `hwaccel_args`. Using an unrecognized value or empty string falls back to software encoding (libx264).
+
+:::
+
+:::tip
+
+To reduce output file size, add the FFmpeg parameter `-qp n` to `ffmpeg_output_args` (where `n` is the quantization parameter). Adjust the value to balance quality and file size for your scenario.
 
 :::
 
