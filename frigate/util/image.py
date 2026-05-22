@@ -891,7 +891,6 @@ def get_blank_yuv_frame(width: int, height: int) -> np.ndarray:
 
 def yuv_region_2_yuv(frame, region):
     try:
-        # TODO: does this copy the numpy array?
         yuv_cropped_frame = yuv_crop_and_resize(frame, region)
         return yuv_to_3_channel_yuv(yuv_cropped_frame)
     except:
@@ -902,7 +901,6 @@ def yuv_region_2_yuv(frame, region):
 
 def yuv_region_2_rgb(frame, region):
     try:
-        # TODO: does this copy the numpy array?
         yuv_cropped_frame = yuv_crop_and_resize(frame, region)
         return cv2.cvtColor(yuv_cropped_frame, cv2.COLOR_YUV2RGB_I420)
     except:
