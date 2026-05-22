@@ -1888,24 +1888,40 @@ def create_trigger_embedding(
         if body.type == "description":
             embedding = context.generate_description_embedding(body.data)
         elif body.type == "thumbnail":
+            webp_file = sanitize_filename(body.data) + ".webp"
+            webp_path = os.path.join(
+                TRIGGER_DIR, sanitize_filename(camera_name), webp_file
+            )
+
             try:
                 event: Event = Event.get(Event.id == body.data)
+
+                # Skip the event if not an object
+                if event.data.get("type") != "object":
+                    return JSONResponse(
+                        content={
+                            "success": False,
+                            "message": f"Event {body.data} is not a tracked object for {body.type} trigger",
+                        },
+                        status_code=400,
+                    )
+
+                # Get the thumbnail
+                thumbnail = get_event_thumbnail_bytes(event)
             except DoesNotExist:
-                # TODO: check triggers directory for image
-                return JSONResponse(
-                    content={
-                        "success": False,
-                        "message": f"Failed to fetch event for {body.type} trigger",
-                    },
-                    status_code=400,
-                )
-
-            # Skip the event if not an object
-            if event.data.get("type") != "object":
-                return
-
-            # Get the thumbnail
-            thumbnail = get_event_thumbnail_bytes(event)
+                # check triggers directory for image
+                if not os.path.exists(webp_path):
+                    return JSONResponse(
+                        content={
+                            "success": False,
+                            "message": f"Failed to fetch event for {body.type} trigger",
+                        },
+                        status_code=400,
+                    )
+                else:
+                    # Load the image from the triggers directory
+                    with open(webp_path, "rb") as f:
+                        thumbnail = f.read()
 
             if thumbnail is None:
                 return JSONResponse(
