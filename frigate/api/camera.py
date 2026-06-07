@@ -1024,6 +1024,80 @@ async def onvif_probe(
                 logger.debug(f"Error closing ONVIF camera session: {e}")
 
 
+def _remove_camera_from_config(config_file: str, camera_name: str) -> dict:
+    lock = FileLock(f"{config_file}.lock", timeout=5)
+
+    try:
+        with lock:
+            with open(config_file, "r") as f:
+                old_raw_config = f.read()
+
+            try:
+                yaml = YAML()
+                yaml.indent(mapping=2, sequence=4, offset=2)
+
+                with open(config_file, "r") as f:
+                    data = yaml.load(f)
+
+                # Remove camera from config
+                if "cameras" in data and camera_name in data["cameras"]:
+                    del data["cameras"][camera_name]
+
+                # Remove camera from auth roles
+                auth = data.get("auth", {})
+                if auth and "roles" in auth:
+                    empty_roles = []
+                    for role_name, cameras_list in auth["roles"].items():
+                        if isinstance(cameras_list, list) and camera_name in cameras_list:
+                            cameras_list.remove(camera_name)
+                            # Custom roles can't be empty; mark for removal
+                            if not cameras_list and role_name not in (
+                                "admin",
+                                "viewer",
+                            ):
+                                empty_roles.append(role_name)
+                    for role_name in empty_roles:
+                        del auth["roles"][role_name]
+
+                with open(config_file, "w") as f:
+                    yaml.dump(data, f)
+
+                with open(config_file, "r") as f:
+                    new_raw_config = f.read()
+
+                try:
+                    config = FrigateConfig.parse(new_raw_config)
+                    return {"success": True, "config": config}
+                except Exception:
+                    with open(config_file, "w") as f:
+                        f.write(old_raw_config)
+                    logger.exception(
+                        "Config error after removing camera %s",
+                        camera_name,
+                    )
+                    return {
+                        "success": False,
+                        "status_code": 400,
+                        "message": "Error parsing config after camera removal",
+                    }
+            except Exception as e:
+                logger.error(
+                    "Error updating config to remove camera %s: %s", camera_name, e
+                )
+                return {
+                    "success": False,
+                    "status_code": 500,
+                    "message": "Error updating config",
+                }
+
+    except Timeout:
+        return {
+            "success": False,
+            "status_code": 409,
+            "message": "Another process is currently updating the config",
+        }
+
+
 @router.delete(
     "/cameras/{camera_name}",
     dependencies=[Depends(require_role(["admin"]))],
@@ -1055,95 +1129,31 @@ async def delete_camera(
 
     old_camera_config = frigate_config.cameras[camera_name]
     config_file = find_config_file()
-    lock = FileLock(f"{config_file}.lock", timeout=5)
 
-    try:
-        with lock:
-            with open(config_file, "r") as f:
-                old_raw_config = f.read()
+    result = await asyncio.to_thread(
+        _remove_camera_from_config, config_file, camera_name
+    )
 
-            try:
-                yaml = YAML()
-                yaml.indent(mapping=2, sequence=4, offset=2)
-
-                with open(config_file, "r") as f:
-                    data = yaml.load(f)
-
-                # Remove camera from config
-                if "cameras" in data and camera_name in data["cameras"]:
-                    del data["cameras"][camera_name]
-
-                # Remove camera from auth roles
-                auth = data.get("auth", {})
-                if auth and "roles" in auth:
-                    empty_roles = []
-                    for role_name, cameras_list in auth["roles"].items():
-                        if (
-                            isinstance(cameras_list, list)
-                            and camera_name in cameras_list
-                        ):
-                            cameras_list.remove(camera_name)
-                            # Custom roles can't be empty; mark for removal
-                            if not cameras_list and role_name not in (
-                                "admin",
-                                "viewer",
-                            ):
-                                empty_roles.append(role_name)
-                    for role_name in empty_roles:
-                        del auth["roles"][role_name]
-
-                with open(config_file, "w") as f:
-                    yaml.dump(data, f)
-
-                with open(config_file, "r") as f:
-                    new_raw_config = f.read()
-
-                try:
-                    config = FrigateConfig.parse(new_raw_config)
-                except Exception:
-                    with open(config_file, "w") as f:
-                        f.write(old_raw_config)
-                    logger.exception(
-                        "Config error after removing camera %s",
-                        camera_name,
-                    )
-                    return JSONResponse(
-                        content={
-                            "success": False,
-                            "message": "Error parsing config after camera removal",
-                        },
-                        status_code=400,
-                    )
-            except Exception as e:
-                logger.error(
-                    "Error updating config to remove camera %s: %s", camera_name, e
-                )
-                return JSONResponse(
-                    content={
-                        "success": False,
-                        "message": "Error updating config",
-                    },
-                    status_code=500,
-                )
-
-            # Update runtime config
-            request.app.frigate_config = config
-            request.app.genai_manager.update_config(config)
-
-            # Publish removal to stop ffmpeg processes and clean up runtime state
-            request.app.config_publisher.publish_update(
-                CameraConfigUpdateTopic(CameraConfigUpdateEnum.remove, camera_name),
-                old_camera_config,
-            )
-
-    except Timeout:
+    if not result["success"]:
         return JSONResponse(
             content={
                 "success": False,
-                "message": "Another process is currently updating the config",
+                "message": result["message"],
             },
-            status_code=409,
+            status_code=result["status_code"],
         )
+
+    config = result["config"]
+
+    # Update runtime config
+    request.app.frigate_config = config
+    request.app.genai_manager.update_config(config)
+
+    # Publish removal to stop ffmpeg processes and clean up runtime state
+    request.app.config_publisher.publish_update(
+        CameraConfigUpdateTopic(CameraConfigUpdateEnum.remove, camera_name),
+        old_camera_config,
+    )
 
     # Clean up database entries
     counts, export_paths = await asyncio.to_thread(
