@@ -78,9 +78,27 @@ class EventProcessor(threading.Thread):
         self.timeline_queue = timeline_queue
         self.events_in_process: Dict[str, dict[str, Any]] = {}
         self.stop_event = stop_event
+        self.external_end_updates: list[Event] = []
 
         self.event_receiver = EventUpdateSubscriber()
         self.event_end_publisher = EventEndPublisher()
+
+    def flush_external_end_updates(self) -> None:
+        if not self.external_end_updates:
+            return
+
+        try:
+            Event.bulk_update(
+                self.external_end_updates,
+                fields=[Event.end_time],
+                batch_size=50,
+            )
+        except Exception:
+            logger.warning(
+                f"Failed to bulk update {len(self.external_end_updates)} manual events"
+            )
+
+        self.external_end_updates.clear()
 
     def run(self) -> None:
         # set an end_time on events without an end_time on startup
@@ -92,6 +110,7 @@ class EventProcessor(threading.Thread):
             update = self.event_receiver.check_for_update(timeout=1)
 
             if update == None:
+                self.flush_external_end_updates()
                 continue
 
             source_type, event_type, camera, _, event_data = update  # type: ignore[misc]
@@ -134,6 +153,10 @@ class EventProcessor(threading.Thread):
 
                 self.handle_external_detection(event_type, event_data)
 
+            if len(self.external_end_updates) >= 50:
+                self.flush_external_end_updates()
+
+        self.flush_external_end_updates()
         self.event_receiver.stop()
         self.event_end_publisher.stop()
         logger.info("Exiting event processor...")
@@ -337,12 +360,6 @@ class EventProcessor(threading.Thread):
                 ]
             Event.insert(event).execute()
         elif event_type == EventStateEnum.end:
-            event = {
-                Event.id: event_data["id"],
-                Event.end_time: event_data["end_time"],
-            }
-
-            try:
-                Event.update(event).where(Event.id == event_data["id"]).execute()
-            except Exception:
-                logger.warning(f"Failed to update manual event: {event_data['id']}")
+            self.external_end_updates.append(
+                Event(id=event_data["id"], end_time=event_data["end_time"])
+            )
