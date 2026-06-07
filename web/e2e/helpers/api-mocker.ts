@@ -246,6 +246,12 @@ export class MediaMocker {
         body: PLACEHOLDER_PNG,
       }),
     );
+    await this.page.route("**/api/*/latest.webp**", (route) =>
+      route.fulfill({
+        contentType: "image/webp",
+        body: PLACEHOLDER_PNG,
+      }),
+    );
 
     // Clips and thumbnails
     await this.page.route("**/clips/**", (route) =>
