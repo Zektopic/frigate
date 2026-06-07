@@ -1157,7 +1157,8 @@ async def delete_camera(
 
     # Best-effort go2rtc stream removal
     try:
-        requests.delete(
+        await asyncio.to_thread(
+            requests.delete,
             "http://127.0.0.1:1984/api/streams",
             params={"src": camera_name},
             timeout=5,
