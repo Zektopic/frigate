@@ -8,8 +8,39 @@ from frigate.jobs.export import (
     reap_stale_exports,
     start_export_job,
 )
+from frigate.api.export import _validate_camera_name
 from frigate.models import Export, ExportCase, Previews, Recordings
 from frigate.test.http_api.base_http_test import AuthTestClient, BaseTestHttp
+import unittest
+from unittest.mock import MagicMock
+import json
+
+
+class TestExportUtils(unittest.TestCase):
+    def test_validate_camera_name_valid(self):
+        mock_request = MagicMock()
+        mock_request.app.frigate_config.cameras.get.return_value = True
+
+        result = _validate_camera_name(mock_request, "front_door")
+        self.assertIsNone(result)
+
+    def test_validate_camera_name_invalid(self):
+        mock_request = MagicMock()
+        mock_request.app.frigate_config.cameras.get.return_value = False
+
+        result = _validate_camera_name(mock_request, "back_door")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.status_code, 404)
+        self.assertEqual(json.loads(result.body), {"success": False, "message": "back_door is not a valid camera."})
+
+    def test_validate_camera_name_empty(self):
+        mock_request = MagicMock()
+        mock_request.app.frigate_config.cameras.get.return_value = False
+
+        result = _validate_camera_name(mock_request, "")
+        self.assertIsNotNone(result)
+        self.assertEqual(result.status_code, 404)
+        self.assertEqual(json.loads(result.body), {"success": False, "message": " is not a valid camera."})
 
 
 class TestHttpExport(BaseTestHttp):
