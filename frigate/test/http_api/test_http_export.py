@@ -1,7 +1,12 @@
+import json
 import os
 import tempfile
+import unittest
 from unittest.mock import patch
 
+from peewee import DoesNotExist
+
+from frigate.api.export import _validate_export_case
 from frigate.jobs.export import (
     ExportJob,
     get_export_job_manager,
@@ -1431,3 +1436,27 @@ class TestHttpExport(BaseTestHttp):
             )
 
         assert response.status_code == 403
+
+
+class TestValidateExportCase(unittest.TestCase):
+    def test_validate_export_case_none(self):
+        result = _validate_export_case(None)
+        self.assertIsNone(result)
+
+    @patch("frigate.api.export.ExportCase.get")
+    def test_validate_export_case_exists(self, mock_get):
+        mock_get.return_value = True
+        result = _validate_export_case("existing_id")
+        self.assertIsNone(result)
+        mock_get.assert_called_once()
+
+    @patch("frigate.api.export.ExportCase.get")
+    def test_validate_export_case_not_found(self, mock_get):
+        mock_get.side_effect = DoesNotExist
+        result = _validate_export_case("missing_id")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.status_code, 404)
+        content = json.loads(result.body.decode())
+        self.assertFalse(content["success"])
+        self.assertEqual(content["message"], "Export case not found")
