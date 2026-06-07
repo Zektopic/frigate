@@ -22,3 +22,5 @@ core
 !/web/**/*.ts
 .idea/*
 .ipynb_checkpoints
+node_modules
+web/node_modules
