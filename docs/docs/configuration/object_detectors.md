@@ -91,7 +91,7 @@ See [common Edge TPU troubleshooting steps](/troubleshooting/edgetpu) if the Edg
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **EdgeTPU** from the detector type dropdown and click **Add**, then set device to `usb`.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **EdgeTPU** from the detector type dropdown and click **Add**, then set device to `usb`.
 
 </TabItem>
 <TabItem value="yaml">
@@ -111,7 +111,7 @@ detectors:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **EdgeTPU** from the detector type dropdown and click **Add** to add multiple detectors, specifying `usb:0` and `usb:1` as the device for each.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **EdgeTPU** from the detector type dropdown and click **Add** to add multiple detectors, specifying `usb:0` and `usb:1` as the device for each.
 
 </TabItem>
 <TabItem value="yaml">
@@ -136,7 +136,7 @@ _warning: may have [compatibility issues](https://github.com/blakeblackshear/fri
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **EdgeTPU** from the detector type dropdown and click **Add**, then leave the device field empty.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **EdgeTPU** from the detector type dropdown and click **Add**, then leave the device field empty.
 
 </TabItem>
 <TabItem value="yaml">
@@ -156,7 +156,7 @@ detectors:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **EdgeTPU** from the detector type dropdown and click **Add**, then set device to `pci`.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **EdgeTPU** from the detector type dropdown and click **Add**, then set device to `pci`.
 
 </TabItem>
 <TabItem value="yaml">
@@ -176,7 +176,7 @@ detectors:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **EdgeTPU** from the detector type dropdown and click **Add** to add multiple detectors, specifying `pci:0` and `pci:1` as the device for each.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **EdgeTPU** from the detector type dropdown and click **Add** to add multiple detectors, specifying `pci:0` and `pci:1` as the device for each.
 
 </TabItem>
 <TabItem value="yaml">
@@ -199,7 +199,7 @@ detectors:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **EdgeTPU** from the detector type dropdown and click **Add** to add multiple detectors with different device types (e.g., `usb` and `pci`).
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **EdgeTPU** from the detector type dropdown and click **Add** to add multiple detectors with different device types (e.g., `usb` and `pci`).
 
 </TabItem>
 <TabItem value="yaml">
@@ -246,7 +246,7 @@ After placing the downloaded files for the tflite model and labels in your confi
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **EdgeTPU** from the detector type dropdown and click **Add**, then set device to `usb`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure the model settings:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **EdgeTPU** from the detector type dropdown and click **Add**, then set device to `usb`. Then on the same page, in the **Custom Model** tab, configure the model settings:
 
 | Field                                    | Value                                                             |
 | ---------------------------------------- | ----------------------------------------------------------------- |
@@ -309,7 +309,7 @@ Use this configuration for YOLO-based models. When no custom model path or URL i
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **Hailo-8/Hailo-8L** from the detector type dropdown and click **Add**, then set device to `PCIe`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure the model settings:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **Hailo-8/Hailo-8L** from the detector type dropdown and click **Add**, then set device to `PCIe`. Then on the same page, in the **Custom Model** tab, configure the model settings:
 
 | Field                                    | Value                   |
 | ---------------------------------------- | ----------------------- |
@@ -365,7 +365,7 @@ For SSD-based models, provide either a model path or URL to your compiled SSD mo
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **Hailo-8/Hailo-8L** from the detector type dropdown and click **Add**, then set device to `PCIe`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure the model settings:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **Hailo-8/Hailo-8L** from the detector type dropdown and click **Add**, then set device to `PCIe`. Then on the same page, in the **Custom Model** tab, configure the model settings:
 
 | Field                                   | Value  |
 | --------------------------------------- | ------ |
@@ -410,7 +410,7 @@ The Hailo detector supports all YOLO models compiled for Hailo hardware that inc
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **Hailo-8/Hailo-8L** from the detector type dropdown and click **Add**, then set device to `PCIe`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure the model settings to match your custom model dimensions and format.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **Hailo-8/Hailo-8L** from the detector type dropdown and click **Add**, then set device to `PCIe`. Then on the same page, in the **Custom Model** tab, configure the model settings to match your custom model dimensions and format.
 
 </TabItem>
 <TabItem value="yaml">
@@ -465,7 +465,7 @@ When using many cameras one detector may not be enough to keep up. Multiple dete
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **OpenVINO** from the detector type dropdown and click **Add** to add multiple detectors, each targeting `GPU` or `NPU`.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **OpenVINO** from the detector type dropdown and click **Add** to add multiple detectors, each targeting `GPU` or `NPU`.
 
 </TabItem>
 <TabItem value="yaml">
@@ -494,7 +494,7 @@ detectors:
 | [YOLO-NAS](#yolo-nas)                 | ✅  | ✅  |                                                              |
 | [MobileNet v2](#ssdlite-mobilenet-v2) | ✅  | ✅  | Fast and lightweight model, less accurate than larger models |
 | [YOLOX](#yolox)                       | ✅  | ?   |                                                              |
-| [D-FINE](#d-fine)                     | ❌  | ❌  |                                                              |
+| [D-FINE / DEIMv2](#d-fine--deimv2)    | ❌  | ❌  |                                                              |
 
 #### SSDLite MobileNet v2
 
@@ -508,7 +508,7 @@ Use the model configuration shown below when using the OpenVINO detector with th
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `GPU` (or `NPU`). Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `GPU` (or `NPU`). Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                      |
 | ---------------------------------------- | ------------------------------------------ |
@@ -558,7 +558,7 @@ After placing the downloaded onnx model in your config folder, use the following
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `GPU`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `GPU`. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                             |
 | ---------------------------------------- | ------------------------------------------------- |
@@ -620,7 +620,7 @@ After placing the downloaded onnx model in your config folder, use the following
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `GPU` (or `NPU`). Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `GPU` (or `NPU`). Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                                    |
 | ---------------------------------------- | -------------------------------------------------------- |
@@ -660,7 +660,7 @@ Note that the labelmap uses a subset of the complete COCO label set that has onl
 
 #### RF-DETR
 
-[RF-DETR](https://github.com/roboflow/rf-detr) is a DETR based model. The ONNX exported models are supported, but not included by default. See [the models section](#downloading-rf-detr-model) for more informatoin on downloading the RF-DETR model for use in Frigate.
+[RF-DETR](https://github.com/roboflow/rf-detr) is a DETR based model. The ONNX exported models are supported, but not included by default. See [the models section](#downloading-rf-detr-model) for more information on downloading the RF-DETR model for use in Frigate.
 
 :::warning
 
@@ -676,7 +676,7 @@ After placing the downloaded onnx model in your `config/model_cache` folder, use
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `GPU`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `GPU`. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                   | Value                             |
 | --------------------------------------- | --------------------------------- |
@@ -710,13 +710,13 @@ model:
 
 </details>
 
-#### D-FINE
+#### D-FINE / DEIMv2
 
-[D-FINE](https://github.com/Peterande/D-FINE) is a DETR based model. The ONNX exported models are supported, but not included by default. See [the models section](#downloading-d-fine-model) for more information on downloading the D-FINE model for use in Frigate.
+[D-FINE](https://github.com/Peterande/D-FINE) and [DEIMv2](https://github.com/Intellindust-AI-Lab/DEIMv2) are DETR based models that share the same ONNX input/output format. The ONNX exported models are supported, but not included by default. See the models section for downloading [D-FINE](#downloading-d-fine-model) or [DEIMv2](#downloading-deimv2-model) for use in Frigate.
 
 :::warning
 
-Currently D-FINE models only run on OpenVINO in CPU mode, GPUs currently fail to compile the model
+Currently D-FINE / DEIMv2 models only run on OpenVINO in CPU mode, GPUs currently fail to compile the model
 
 :::
 
@@ -728,7 +728,7 @@ After placing the downloaded onnx model in your config/model_cache folder, use t
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `CPU`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **OpenVINO** from the detector type dropdown and click **Add**, then set device to `CPU`. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                              |
 | ---------------------------------------- | ---------------------------------- |
@@ -766,6 +766,31 @@ Note that the labelmap uses a subset of the complete COCO label set that has onl
 
 </details>
 
+<details>
+  <summary>DEIMv2 Setup & Config</summary>
+
+After placing the downloaded onnx model in your `config/model_cache` folder, you can use the following configuration:
+
+```yaml
+detectors:
+  ov:
+    type: openvino
+    device: CPU
+
+model:
+  model_type: dfine
+  width: 640
+  height: 640
+  input_tensor: nchw
+  input_dtype: float
+  path: /config/model_cache/deimv2_hgnetv2_n.onnx
+  labelmap_path: /labelmap/coco-80.txt
+```
+
+Note that the labelmap uses a subset of the complete COCO label set that has only 80 objects.
+
+</details>
+
 ## Apple Silicon detector
 
 The NPU in Apple Silicon can't be accessed from within a container, so the [Apple Silicon detector client](https://github.com/frigate-nvr/apple-silicon-detector) must first be setup. It is recommended to use the Frigate docker image with `-standard-arm64` suffix, for example `ghcr.io/blakeblackshear/frigate:stable-standard-arm64`.
@@ -782,7 +807,7 @@ Using the detector config below will connect to the client:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **ZMQ IPC** from the detector type dropdown and click **Add**, then set the endpoint to `tcp://host.docker.internal:5555`.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **ZMQ IPC** from the detector type dropdown and click **Add**, then set the endpoint to `tcp://host.docker.internal:5555`.
 
 </TabItem>
 <TabItem value="yaml">
@@ -816,7 +841,7 @@ When Frigate is started with the following config it will connect to the detecto
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **ZMQ IPC** from the detector type dropdown and click **Add**, then set the endpoint to `tcp://host.docker.internal:5555`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **ZMQ IPC** from the detector type dropdown and click **Add**, then set the endpoint to `tcp://host.docker.internal:5555`. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                                    |
 | ---------------------------------------- | -------------------------------------------------------- |
@@ -947,7 +972,7 @@ The AMD GPU kernel is known problematic especially when converting models to mxr
 
 See [ONNX supported models](#supported-models) for supported models, there are some caveats:
 
-- D-FINE models are not supported
+- D-FINE / DEIMv2 models are not supported
 - YOLO-NAS models are known to not run well on integrated GPUs
 
 ## ONNX
@@ -977,7 +1002,7 @@ When using many cameras one detector may not be enough to keep up. Multiple dete
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **ONNX** from the detector type dropdown and click **Add** to add multiple detectors.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **ONNX** from the detector type dropdown and click **Add** to add multiple detectors.
 
 </TabItem>
 <TabItem value="yaml">
@@ -997,13 +1022,13 @@ detectors:
 
 ### ONNX Supported Models
 
-| Model                         | Nvidia GPU | AMD GPU | Notes                                               |
-| ----------------------------- | ---------- | ------- | --------------------------------------------------- |
-| [YOLOv9](#yolo-v3-v4-v7-v9-2) | ✅         | ✅      | Supports CUDA Graphs for optimal Nvidia performance |
-| [RF-DETR](#rf-detr)           | ✅         | ❌      | Supports CUDA Graphs for optimal Nvidia performance |
-| [YOLO-NAS](#yolo-nas-1)       | ⚠️         | ⚠️      | Not supported by CUDA Graphs                        |
-| [YOLOX](#yolox-1)             | ✅         | ✅      | Supports CUDA Graphs for optimal Nvidia performance |
-| [D-FINE](#d-fine)             | ⚠️         | ❌      | Not supported by CUDA Graphs                        |
+| Model                                | Nvidia GPU | AMD GPU | Notes                                               |
+| ------------------------------------ | ---------- | ------- | --------------------------------------------------- |
+| [YOLOv9](#yolo-v3-v4-v7-v9-2)        | ✅         | ✅      | Supports CUDA Graphs for optimal Nvidia performance |
+| [RF-DETR](#rf-detr)                  | ✅         | ⚠️      | Supports CUDA Graphs for optimal Nvidia performance |
+| [YOLO-NAS](#yolo-nas-1)              | ⚠️         | ⚠️      | Not supported by CUDA Graphs                        |
+| [YOLOX](#yolox-1)                    | ✅         | ✅      | Supports CUDA Graphs for optimal Nvidia performance |
+| [D-FINE / DEIMv2](#d-fine--deimv2-1) | ⚠️         | ❌      | Not supported by CUDA Graphs                        |
 
 There is no default model provided, the following formats are supported:
 
@@ -1025,7 +1050,7 @@ After placing the downloaded onnx model in your config folder, use the following
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **ONNX** from the detector type dropdown and click **Add**. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **ONNX** from the detector type dropdown and click **Add**. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                             |
 | ---------------------------------------- | ------------------------------------------------- |
@@ -1084,7 +1109,7 @@ After placing the downloaded onnx model in your config folder, use the following
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **ONNX** from the detector type dropdown and click **Add**. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **ONNX** from the detector type dropdown and click **Add**. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                                    |
 | ---------------------------------------- | -------------------------------------------------------- |
@@ -1133,7 +1158,7 @@ After placing the downloaded onnx model in your config folder, use the following
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **ONNX** from the detector type dropdown and click **Add**. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **ONNX** from the detector type dropdown and click **Add**. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                                    |
 | ---------------------------------------- | -------------------------------------------------------- |
@@ -1182,7 +1207,7 @@ After placing the downloaded onnx model in your `config/model_cache` folder, use
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **ONNX** from the detector type dropdown and click **Add**. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **ONNX** from the detector type dropdown and click **Add**. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                   | Value                             |
 | --------------------------------------- | --------------------------------- |
@@ -1215,9 +1240,9 @@ model:
 
 </details>
 
-#### D-FINE
+#### D-FINE / DEIMv2
 
-[D-FINE](https://github.com/Peterande/D-FINE) is a DETR based model. The ONNX exported models are supported, but not included by default. See [the models section](#downloading-d-fine-model) for more information on downloading the D-FINE model for use in Frigate.
+[D-FINE](https://github.com/Peterande/D-FINE) and [DEIMv2](https://github.com/Intellindust-AI-Lab/DEIMv2) are DETR based models that share the same ONNX input/output format. The ONNX exported models are supported, but not included by default. See the models section for downloading [D-FINE](#downloading-d-fine-model) or [DEIMv2](#downloading-deimv2-model) for use in Frigate.
 
 <details>
   <summary>D-FINE Setup & Config</summary>
@@ -1227,7 +1252,7 @@ After placing the downloaded onnx model in your `config/model_cache` folder, use
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **ONNX** from the detector type dropdown and click **Add**. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **ONNX** from the detector type dropdown and click **Add**. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                       |
 | ---------------------------------------- | ------------------------------------------- |
@@ -1262,6 +1287,28 @@ model:
 
 </details>
 
+<details>
+  <summary>DEIMv2 Setup & Config</summary>
+
+After placing the downloaded onnx model in your `config/model_cache` folder, you can use the following configuration:
+
+```yaml
+detectors:
+  onnx:
+    type: onnx
+
+model:
+  model_type: dfine
+  width: 640
+  height: 640
+  input_tensor: nchw
+  input_dtype: float
+  path: /config/model_cache/deimv2_hgnetv2_n.onnx
+  labelmap_path: /labelmap/coco-80.txt
+```
+
+</details>
+
 Note that the labelmap uses a subset of the complete COCO label set that has only 80 objects.
 
 ## CPU Detector (not recommended)
@@ -1281,7 +1328,7 @@ A TensorFlow Lite model is provided in the container at `/cpu_model.tflite` and 
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **CPU** from the detector type dropdown and click **Add**. Configure the number of threads and click **Add** again to add additional CPU detectors as needed (one per camera is recommended).
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **CPU** from the detector type dropdown and click **Add**. Configure the number of threads and click **Add** again to add additional CPU detectors as needed (one per camera is recommended).
 
 </TabItem>
 <TabItem value="yaml">
@@ -1317,7 +1364,7 @@ To integrate CodeProject.AI into Frigate, configure the detector as follows:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **DeepStack** from the detector type dropdown and click **Add**. Set the API URL to point to your CodeProject.AI server (e.g., `http://<your_codeproject_ai_server_ip>:<port>/v1/vision/detection`).
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **DeepStack** from the detector type dropdown and click **Add**. Set the API URL to point to your CodeProject.AI server (e.g., `http://<your_codeproject_ai_server_ip>:<port>/v1/vision/detection`).
 
 </TabItem>
 <TabItem value="yaml">
@@ -1356,7 +1403,7 @@ To configure the MemryX detector, use the following example configuration:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`.
 
 </TabItem>
 <TabItem value="yaml">
@@ -1376,7 +1423,7 @@ detectors:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **MemryX** from the detector type dropdown and click **Add** to add multiple detectors, specifying `PCIe:0`, `PCIe:1`, `PCIe:2`, etc. as the device for each.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **MemryX** from the detector type dropdown and click **Add** to add multiple detectors, specifying `PCIe:0`, `PCIe:1`, `PCIe:2`, etc. as the device for each.
 
 </TabItem>
 <TabItem value="yaml">
@@ -1405,7 +1452,7 @@ MemryX `.dfp` models are automatically downloaded at runtime, if enabled, to the
 
 #### YOLO-NAS
 
-The [YOLO-NAS](https://github.com/Deci-AI/super-gradients/blob/master/YOLONAS.md) model included in this detector is downloaded from the [Models Section](#downloading-yolo-nas-model) and compiled to DFP with [mx_nc](https://developer.memryx.com/tools/neural_compiler.html#usage).
+The [YOLO-NAS](https://github.com/Deci-AI/super-gradients/blob/master/YOLONAS.md) model included in this detector is downloaded from the [Models Section](#downloading-yolo-nas-model) and compiled to DFP with [mx_nc](https://developer.memryx.com/2p1/tools/neural_compiler.html#usage).
 
 **Note:** The default model for the MemryX detector is YOLO-NAS 320x320.
 
@@ -1420,7 +1467,7 @@ Below is the recommended configuration for using the **YOLO-NAS** (small) model 
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                             |
 | ---------------------------------------- | ------------------------------------------------- |
@@ -1459,7 +1506,7 @@ model:
 
 #### YOLOv9
 
-The YOLOv9s model included in this detector is downloaded from [the original GitHub](https://github.com/WongKinYiu/yolov9) like in the [Models Section](#yolov9-1) and compiled to DFP with [mx_nc](https://developer.memryx.com/tools/neural_compiler.html#usage).
+The YOLOv9s model included in this detector is downloaded from [the original GitHub](https://github.com/WongKinYiu/yolov9) like in the [Models Section](#yolov9-1) and compiled to DFP with [mx_nc](https://developer.memryx.com/2p1/tools/neural_compiler.html#usage).
 
 ##### Configuration
 
@@ -1468,7 +1515,7 @@ Below is the recommended configuration for using the **YOLOv9** (small) model wi
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                             |
 | ---------------------------------------- | ------------------------------------------------- |
@@ -1515,7 +1562,7 @@ Below is the recommended configuration for using the **YOLOX** (small) model wit
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                   |
 | ---------------------------------------- | ----------------------- |
@@ -1562,7 +1609,7 @@ Below is the recommended configuration for using the **SSDLite MobileNet v2** mo
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **MemryX** from the detector type dropdown and click **Add**, then set device to `PCIe:0`. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                   |
 | ---------------------------------------- | ----------------------- |
@@ -1601,19 +1648,39 @@ model:
 
 #### Using a Custom Model
 
-To use your own model:
+To use your own custom model, first compile it into a [.dfp](https://developer.memryx.com/2p1/specs/files.html#dataflow-program) file, which is the format used by MemryX.
 
-1.  Package your compiled model into a `.zip` file.
+#### Compile the Model
 
-2.  The `.zip` must contain the compiled `.dfp` file.
+Custom models must be compiled using **MemryX SDK 2.1**.
 
-3.  Depending on the model, the compiler may also generate a cropped post-processing network. If present, it will be named with the suffix `_post.onnx`.
+Before compiling your model, install the MemryX Neural Compiler tools from the
+[Install Tools](https://developer.memryx.com/2p1/get_started/install_tools.html) page on the **host**.
 
-4.  Bind-mount the `.zip` file into the container and specify its path using `model.path` in your config.
+> **Note:** It is recommended to compile the model on the host machine, or on another separate machine, rather than inside the Frigate Docker container. Installing the compiler inside Docker may conflict with container packages. It is recommended to create a Python virtual environment and install the compiler there.
 
-5.  Update the `labelmap_path` to match your custom model's labels.
+Once the SDK 2.1 environment is set up, follow the
+[MemryX Compiler](https://developer.memryx.com/2p1/tools/neural_compiler.html#usage) documentation to compile your model.
 
-For detailed instructions on compiling models, refer to the [MemryX Compiler](https://developer.memryx.com/tools/neural_compiler.html#usage) docs and [Tutorials](https://developer.memryx.com/tutorials/tutorials.html).
+Example:
+
+```bash
+mx_nc -m yolonas.onnx -c 4 --autocrop -v --dfp_fname yolonas.dfp
+```
+
+For detailed instructions on compiling models, refer to the [MemryX Compiler](https://developer.memryx.com/2p1/tools/neural_compiler.html#usage) docs and [Tutorials](https://developer.memryx.com/2p1/tutorials/tutorials.html).
+
+#### Package the Compiled Model
+
+1. Package your compiled model into a `.zip` file.
+
+2. The `.zip` file must contain the compiled `.dfp` file.
+
+3. Depending on the model, the compiler may also generate a cropped post-processing network. If present, it will be named with the suffix `_post.onnx`.
+
+4. Bind-mount the `.zip` file into the container and specify its path using `model.path` in your config.
+
+5. Update `labelmap_path` to match your custom model's labels.
 
 ```yaml
 # The detector automatically selects the default model if nothing is provided in the config.
@@ -1701,7 +1768,7 @@ Use the config below to work with generated TRT models:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **TensorRT** from the detector type dropdown and click **Add**, then set the device to `0` (the default GPU index). Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **TensorRT** from the detector type dropdown and click **Add**, then set the device to `0` (the default GPU index). Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                                        |
 | ---------------------------------------- | ------------------------------------------------------------ |
@@ -1758,7 +1825,7 @@ Use the model configuration shown below when using the synaptics detector with t
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **Synaptics** from the detector type dropdown and click **Add**. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **Synaptics** from the detector type dropdown and click **Add**. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                        |
 | ---------------------------------------- | ---------------------------- |
@@ -1812,7 +1879,7 @@ When using many cameras one detector may not be enough to keep up. Multiple dete
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **RKNN** from the detector type dropdown and click **Add** to add multiple detectors, each with `num_cores` set to `0` for automatic selection.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **RKNN** from the detector type dropdown and click **Add** to add multiple detectors, each with `num_cores` set to `0` for automatic selection.
 
 </TabItem>
 <TabItem value="yaml">
@@ -1854,7 +1921,7 @@ This `config.yml` shows all relevant options to configure the detector and expla
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **RKNN** from the detector type dropdown and click **Add**. Set `num_cores` to `0` for automatic selection (increase for better performance on multicore NPUs, e.g., set to `3` on rk3588).
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **RKNN** from the detector type dropdown and click **Add**. Set `num_cores` to `0` for automatic selection (increase for better performance on multicore NPUs, e.g., set to `3` on rk3588).
 
 </TabItem>
 <TabItem value="yaml">
@@ -1891,7 +1958,7 @@ The inference time was determined on a rk3588 with 3 NPU cores.
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                                                   |
 | ---------------------------------------- | ----------------------------------------------------------------------- |
@@ -1937,7 +2004,7 @@ The pre-trained YOLO-NAS weights from DeciAI are subject to their license and ca
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                              |
 | ---------------------------------------- | -------------------------------------------------- |
@@ -1977,7 +2044,7 @@ model: # required
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                                          |
 | ---------------------------------------- | ---------------------------------------------- |
@@ -2071,7 +2138,7 @@ Once completed, configure the detector as follows:
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **DeGirum** from the detector type dropdown and click **Add**. Set the location to your AI server (e.g., service name, container name, or `host:port`), the zoo to `degirum/public`, and provide your authentication token if needed.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **DeGirum** from the detector type dropdown and click **Add**. Set the location to your AI server (e.g., service name, container name, or `host:port`), the zoo to `degirum/public`, and provide your authentication token if needed.
 
 </TabItem>
 <TabItem value="yaml">
@@ -2114,7 +2181,7 @@ It is also possible to eliminate the need for an AI server and run the hardware 
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **DeGirum** from the detector type dropdown and click **Add**. Set the location to `@local`, the zoo to `degirum/public`, and provide your authentication token.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **DeGirum** from the detector type dropdown and click **Add**. Set the location to `@local`, the zoo to `degirum/public`, and provide your authentication token.
 
 </TabItem>
 <TabItem value="yaml">
@@ -2151,7 +2218,7 @@ If you do not possess whatever hardware you want to run, there's also the option
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **DeGirum** from the detector type dropdown and click **Add**. Set the location to `@cloud`, the zoo to `degirum/public`, and provide your authentication token.
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **DeGirum** from the detector type dropdown and click **Add**. Set the location to `@cloud`, the zoo to `degirum/public`, and provide your authentication token.
 
 </TabItem>
 <TabItem value="yaml">
@@ -2207,7 +2274,7 @@ Use the model configuration shown below when using the axengine detector with th
 <ConfigTabs>
 <TabItem value="ui">
 
-Navigate to <NavPath path="Settings > System > Detector hardware" /> and select **AXEngine NPU** from the detector type dropdown and click **Add**. Then navigate to <NavPath path="Settings > System > Detection model" /> and configure:
+Navigate to <NavPath path="Settings > System > Detectors and model" /> and select **AXEngine NPU** from the detector type dropdown and click **Add**. Then on the same page, in the **Custom Model** tab, configure:
 
 | Field                                    | Value                   |
 | ---------------------------------------- | ----------------------- |
@@ -2271,6 +2338,49 @@ RUN python3 tools/deployment/export_onnx.py -c configs/dfine/objects365/dfine_hg
 FROM scratch
 ARG MODEL_SIZE
 COPY --from=build /dfine/output/dfine_${MODEL_SIZE}_obj2coco.onnx /dfine-${MODEL_SIZE}.onnx
+EOF
+```
+
+### Downloading DEIMv2 Model
+
+[DEIMv2](https://github.com/Intellindust-AI-Lab/DEIMv2) can be exported as ONNX by running the command below. Pretrained weights are available on Hugging Face for two backbone families:
+
+- **HGNetv2** (smaller/faster): `atto`, `femto`, `pico`, `n`
+- **DINOv3** (larger/more accurate): `s`, `m`, `l`, `x`
+
+Set `BACKBONE` and `MODEL_SIZE` in the first line to match your desired variant. Hugging Face model names use uppercase (e.g. `HGNetv2_N`, `DINOv3_S`), while config files use lowercase (e.g. `hgnetv2_n`, `dinov3_s`).
+
+```sh
+docker build . --rm --build-arg BACKBONE=hgnetv2 --build-arg MODEL_SIZE=n --output . -f- <<'EOF'
+FROM python:3.11-slim AS build
+RUN apt-get update && apt-get install --no-install-recommends -y git libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:0.8.0 /uv /bin/
+WORKDIR /deimv2
+RUN git clone https://github.com/Intellindust-AI-Lab/DEIMv2.git .
+# Install CPU-only PyTorch first to avoid pulling CUDA variant
+RUN uv pip install --no-cache --system torch torchvision --index-url https://download.pytorch.org/whl/cpu
+RUN uv pip install --no-cache --system -r requirements.txt
+RUN uv pip install --no-cache --system onnx safetensors huggingface_hub
+RUN mkdir -p output
+ARG BACKBONE
+ARG MODEL_SIZE
+# Download from Hugging Face and convert safetensors to pth
+RUN python3 -c "\
+from huggingface_hub import hf_hub_download; \
+from safetensors.torch import load_file; \
+import torch; \
+backbone = '${BACKBONE}'.replace('hgnetv2','HGNetv2').replace('dinov3','DINOv3'); \
+size = '${MODEL_SIZE}'.upper(); \
+st = load_file(hf_hub_download('Intellindust/DEIMv2_' + backbone + '_' + size + '_COCO', 'model.safetensors')); \
+torch.save({'model': st}, 'output/deimv2.pth')"
+RUN sed -i "s/data = torch.rand(2/data = torch.rand(1/" tools/deployment/export_onnx.py
+# HuggingFace safetensors omits frozen constants that the model constructor initializes
+RUN sed -i "s/cfg.model.load_state_dict(state)/cfg.model.load_state_dict(state, strict=False)/" tools/deployment/export_onnx.py
+RUN python3 tools/deployment/export_onnx.py -c configs/deimv2/deimv2_${BACKBONE}_${MODEL_SIZE}_coco.yml -r output/deimv2.pth
+FROM scratch
+ARG BACKBONE
+ARG MODEL_SIZE
+COPY --from=build /deimv2/output/deimv2.onnx /deimv2_${BACKBONE}_${MODEL_SIZE}.onnx
 EOF
 ```
 

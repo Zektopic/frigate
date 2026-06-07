@@ -20,11 +20,13 @@ class CameraConfigUpdateEnum(str, Enum):
     ffmpeg = "ffmpeg"
     live = "live"
     motion = "motion"  # includes motion and motion masks
+    mqtt = "mqtt"
     notifications = "notifications"
     objects = "objects"
     object_genai = "object_genai"
     onvif = "onvif"
     record = "record"
+    refresh = "refresh"  # signals the camera maintainer to recycle the camera process
     remove = "remove"  # for removing a camera
     review = "review"
     review_genai = "review_genai"
@@ -33,6 +35,7 @@ class CameraConfigUpdateEnum(str, Enum):
     lpr = "lpr"
     snapshots = "snapshots"
     timestamp_style = "timestamp_style"
+    ui = "ui"
     zones = "zones"
 
 
@@ -82,8 +85,8 @@ class CameraConfigUpdateSubscriber:
         self, camera: str, update_type: CameraConfigUpdateEnum, updated_config: Any
     ) -> None:
         if update_type == CameraConfigUpdateEnum.add:
-            self.config.cameras[camera] = updated_config
-            self.camera_configs[camera] = updated_config
+            shared = self.config.cameras.setdefault(camera, updated_config)
+            self.camera_configs[camera] = shared
             return
         elif update_type == CameraConfigUpdateEnum.remove:
             self.config.cameras.pop(camera, None)
@@ -119,7 +122,10 @@ class CameraConfigUpdateSubscriber:
         elif update_type == CameraConfigUpdateEnum.objects:
             config.objects = updated_config
         elif update_type == CameraConfigUpdateEnum.record:
+            old_enabled_in_config = config.record.enabled_in_config
             config.record = updated_config
+            if old_enabled_in_config != updated_config.enabled_in_config:
+                config.recreate_ffmpeg_cmds()
         elif update_type == CameraConfigUpdateEnum.review:
             config.review = updated_config
         elif update_type == CameraConfigUpdateEnum.review_genai:
