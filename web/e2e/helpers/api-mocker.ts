@@ -118,6 +118,7 @@ export class ApiMocker {
 
     // Sub-labels and attributes (for explore filters).
     // Use trailing ** so query-string variants (e.g. ?split_joined=1) match.
+    // This resolves the previous 500 error for /api/sub_labels?split_joined=1.
     await this.page.route("**/api/sub_labels**", (route) =>
       route.fulfill({ json: [] }),
     );

@@ -50,12 +50,6 @@ export const GLOBAL_ALLOWLIST: RegExp[] = [
   // covered by the "Failed to load resource" entry above.
   // -------------------------------------------------------------------------
 
-  // TODO(real-bug): /api/sub_labels?split_joined=1 returns 500; the mock
-  // registers "**/api/sub_labels" which may not match when a query string is
-  // present, or route registration order causes the catch-all to win first.
-  // Fix: change the mock route to "**/api/sub_labels**" in api-mocker.ts.
-  /500 Internal Server Error.*\/api\/sub_labels/,
-
   // TODO(real-bug): MediaMocker handles /api/*/latest.jpg but the app also
   // requests /api/*/latest.webp (webp format) for camera snapshots.
   // Affects: live.spec.ts, review.spec.ts, auth.spec.ts, navigation.spec.ts.
