@@ -129,7 +129,8 @@ export default function InputWithTags({
   const inputRef = useRef<HTMLInputElement>(null);
   const commandRef = useRef<HTMLDivElement>(null);
 
-  // TODO: search history from browser storage
+  const [recentSearches, setRecentSearches, recentSearchesLoaded] =
+    useUserPersistence<SavedSearchQuery[]>("frigate-search-recent");
 
   const [searchHistory, setSearchHistory, searchHistoryLoaded] =
     useUserPersistence<SavedSearchQuery[]>("frigate-search-history");
@@ -629,13 +630,60 @@ export default function InputWithTags({
     [createFilter, currentFilterType, allSuggestions, resolvedTimeFormat],
   );
 
+  const generateRecentSearchName = useCallback(
+    (query: string, currentFilters: SearchFilter) => {
+      const filterParts: string[] = [];
+      Object.entries(currentFilters).forEach(([key, val]) => {
+        if (key !== "query") {
+          if (Array.isArray(val)) {
+            val.forEach((v) => filterParts.push(`${key}:${v}`));
+          } else {
+            filterParts.push(`${key}:${val}`);
+          }
+        }
+      });
+
+      const filterString = filterParts.join(" ");
+      if (query && filterString) {
+        return `${query} (${filterString})`;
+      } else if (query) {
+        return query;
+      } else if (filterString) {
+        return `(${filterString})`;
+      }
+      return "";
+    },
+    [],
+  );
+
   const handleSearch = useCallback(
     (value: string) => {
       setSearch(value);
       setInputFocused(false);
       inputRef?.current?.blur();
+
+      if (recentSearchesLoaded) {
+        const name = generateRecentSearchName(value, filters);
+        if (name) {
+          const newEntry = { name, search: value, filter: filters };
+          setRecentSearches(
+            [
+              newEntry,
+              ...(recentSearches ?? []).filter((item) => item.name !== name),
+            ].slice(0, 10),
+          );
+        }
+      }
     },
-    [setSearch, setInputFocused],
+    [
+      setSearch,
+      setInputFocused,
+      filters,
+      recentSearches,
+      setRecentSearches,
+      recentSearchesLoaded,
+      generateRecentSearchName,
+    ],
   );
 
   const handleInputKeyDown = useCallback(
@@ -911,6 +959,26 @@ export default function InputWithTags({
               </div>
             </CommandGroup>
           )}
+
+          {!currentFilterType &&
+            !inputValue &&
+            recentSearchesLoaded &&
+            (recentSearches?.length ?? 0) > 0 && (
+              <CommandGroup heading={t("recentSearches")}>
+                {recentSearches?.map((suggestion, index) => (
+                  <CommandItem
+                    key={index}
+                    className="flex cursor-pointer items-center justify-between"
+                    onSelect={() => {
+                      setFilters(suggestion.filter ?? {});
+                      setSearch(suggestion.search);
+                    }}
+                  >
+                    <span>{suggestion.name}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
 
           {!currentFilterType &&
             !inputValue &&
