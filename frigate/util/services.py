@@ -978,9 +978,13 @@ def get_fs_type(path: str) -> str:
     bestMatch = ""
     fsType = ""
     for part in psutil.disk_partitions(all=True):
-        if path.startswith(part.mountpoint) and len(bestMatch) < len(part.mountpoint):
+        mountpoint = part.mountpoint
+        is_match = path == mountpoint or path.startswith(
+            mountpoint if mountpoint.endswith(os.sep) else mountpoint + os.sep
+        )
+        if is_match and len(bestMatch) < len(mountpoint):
             fsType = part.fstype
-            bestMatch = part.mountpoint
+            bestMatch = mountpoint
     return fsType
 
 
