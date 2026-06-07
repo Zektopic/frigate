@@ -1,8 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from frigate.util.services import get_amd_gpu_stats, get_intel_gpu_stats
-
+from frigate.util.services import get_amd_gpu_stats, get_intel_gpu_stats, vainfo_hwaccel
 
 class TestGpuStats(unittest.TestCase):
     def setUp(self):
@@ -48,3 +47,37 @@ class TestGpuStats(unittest.TestCase):
             "compute": "0.0%",
             "dec": "2.27%",
         }
+
+    @patch("frigate.util.services.sp.run")
+    def test_vainfo_hwaccel_no_device(self, sp):
+        process = MagicMock()
+        process.returncode = 0
+        process.stdout = b"vainfo: VA-API version: 1.14 (libva 2.12.0)\n"
+        sp.return_value = process
+
+        result = vainfo_hwaccel()
+
+        sp.assert_called_once_with(["vainfo"], capture_output=True)
+        assert result == process
+
+    @patch("frigate.util.services.sp.run")
+    def test_vainfo_hwaccel_with_name(self, sp):
+        process = MagicMock()
+        process.returncode = 0
+        sp.return_value = process
+
+        result = vainfo_hwaccel("renderD128")
+
+        sp.assert_called_once_with(["vainfo", "--display", "drm", "--device", "/dev/dri/renderD128"], capture_output=True)
+        assert result == process
+
+    @patch("frigate.util.services.sp.run")
+    def test_vainfo_hwaccel_with_absolute_path(self, sp):
+        process = MagicMock()
+        process.returncode = 0
+        sp.return_value = process
+
+        result = vainfo_hwaccel("/dev/dri/renderD129")
+
+        sp.assert_called_once_with(["vainfo", "--display", "drm", "--device", "/dev/dri/renderD129"], capture_output=True)
+        assert result == process
