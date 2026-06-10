@@ -356,7 +356,10 @@ def get_jwt_secret() -> str:
                     jwt_secret = secrets.token_hex(64)
 
     if len(jwt_secret) < 64:
-        logger.warning("JWT Secret is recommended to be 64 characters or more")
+        raise ValueError(
+            "JWT Secret must be at least 64 characters for security. "
+            f"Current length: {len(jwt_secret)}"
+        )
 
     return jwt_secret
 

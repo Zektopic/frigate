@@ -591,7 +591,7 @@ class Dispatcher:
         try:
             payload = int(payload)
         except ValueError:
-            f"Received unsupported value for motion contour area: {payload}"
+            logger.error("Received unsupported value for motion contour area: %s", payload)
             return
 
         motion_settings = self.config.cameras[camera_name].motion
@@ -608,7 +608,7 @@ class Dispatcher:
         try:
             payload = int(payload)
         except ValueError:
-            f"Received unsupported value for motion threshold: {payload}"
+            logger.error("Received unsupported value for motion threshold: %s", payload)
             return
 
         motion_settings = self.config.cameras[camera_name].motion
@@ -623,7 +623,7 @@ class Dispatcher:
     def _on_global_notification_command(self, payload: str) -> None:
         """Callback for global notification topic."""
         if payload != "ON" and payload != "OFF":
-            f"Received unsupported value for all notification: {payload}"
+            logger.error("Received unsupported value for all notification: %s", payload)
             return
 
         notification_settings = self.config.notifications
