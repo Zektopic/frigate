@@ -730,7 +730,10 @@ class FrigateApp:
         while len(self.detection_shms) > 0:
             shm = self.detection_shms.pop()
             shm.close()
-            shm.unlink()
+            try:
+                shm.unlink()
+            except OSError:
+                logger.warning("Failed to unlink shared memory segment")
 
         _stop_logging()
         self.metrics_manager.shutdown()
