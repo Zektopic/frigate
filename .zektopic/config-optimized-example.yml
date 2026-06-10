@@ -1,0 +1,162 @@
+# Frigate Configuration — Optimized for AMD Ryzen 5 3500U / Vega 8 APU
+#
+# This config is tuned for:
+#   - CPU-only object detection (TFLite with XNNPACK/AVX2)
+#   - VAAPI hardware video decoding on the integrated Vega GPU
+#   - 14 GB RAM / 468 GB NVMe SSD
+#   - 2-4 IP cameras at 1080p or lower
+#
+# Copy to: config/config.yml
+# Validate: frigate --validate-config
+
+mqtt:
+  host: 192.168.1.100
+  port: 1883
+  user: mqtt_user
+  password: mqtt_password
+
+# ── Detectors ────────────────────────────────────────────────────────────
+# CPU detection is the ONLY viable option for Picasso APUs (GFX909).
+# ROCm does not support this GPU. OpenVINO is Intel-optimized and slower on AMD.
+# TFLite with XNNPACK auto-detects AVX2 on this CPU and gives the best perf.
+
+detectors:
+  cpu:
+    type: cpu
+    num_threads: 3  # Leave 1 core for ffmpeg + system
+
+# ── Model ────────────────────────────────────────────────────────────────
+# 300x300 MobileNet SSD v2 is the lightest viable model.
+# Inference target: < 50ms per frame on this CPU.
+
+model:
+  width: 300
+  height: 300
+  input_tensor: nhwc
+  input_pixel_format: bgr
+  path: /config/model_cache/tensorflow/ssd_mobilenet_v2_coco_2018_03_29
+  labelmap_path: /labelmap.txt
+
+# ── Database ─────────────────────────────────────────────────────────────
+
+database:
+  path: /config/frigate.db
+
+# ── Global FFmpeg ────────────────────────────────────────────────────────
+
+ffmpeg:
+  global_args:
+    - -threads
+    - "2"  # Limit each ffmpeg instance to 2 threads
+
+# ── Recording Defaults ───────────────────────────────────────────────────
+
+record:
+  enabled: true
+  retain:
+    days: 3       # Short retention to preserve SSD space
+    mode: all
+  events:
+    pre_capture: 5
+    post_capture: 5
+    retain:
+      default: 7
+      mode: active_objects
+
+# ── Snapshots ────────────────────────────────────────────────────────────
+
+snapshots:
+  enabled: true
+  retain:
+    default: 7
+
+# ── go2rtc ───────────────────────────────────────────────────────────────
+# Use hardware=vaapi for transcoding. Only include cameras you actually have.
+
+go2rtc:
+  streams:
+    # camera_1:
+    #   - rtsp://user:password@192.168.1.101:554/stream1
+    #   - "ffmpeg:camera_1#video=h264#hardware=vaapi"
+    # camera_2:
+    #   - rtsp://user:password@192.168.1.102:554/stream1
+    #   - "ffmpeg:camera_2#video=h264#hardware=vaapi"
+
+# ── Features: ALL DISABLED for low-end APU ───────────────────────────────
+# Enable only what you actually use. Each feature costs CPU/RAM.
+
+birdseye:
+  enabled: false
+
+audio:
+  enabled: false
+
+semantic_search:
+  enabled: false
+
+face_recognition:
+  enabled: false
+
+lpr:
+  enabled: false
+
+classification:
+  custom: {}
+
+# ── Telemetry ────────────────────────────────────────────────────────────
+
+telemetry:
+  network_interfaces: []
+  stats_interval: 60
+
+# ── Camera Template ──────────────────────────────────────────────────────
+# Uncomment and customize for each camera. Key optimization points:
+#   - detect resolution: 640x360 (NOT 1280x720)
+#   - detect fps: 5 (NOT 10 or 15)
+#   - hwaccel_args: preset-vaapi (uses Vega GPU for decode)
+#   - motion threshold: 30 (less sensitive = less CPU for false positives)
+#   - min_area filter: skips distant/small objects
+
+cameras:
+  # camera_1:
+  #   enabled: true
+  #   ffmpeg:
+  #     hwaccel_args: preset-vaapi
+  #     inputs:
+  #       - path: rtsp://user:password@192.168.1.101:554/stream1
+  #         roles:
+  #           - detect
+  #           - record
+  #     output_args:
+  #       detect:
+  #         - -vf
+  #         - fps=5,scale_vaapi=w=640:h=360,hwdownload,format=nv12,format=bgra
+  #         - -an
+  #       record: preset-record-generic
+  #   detect:
+  #     width: 640
+  #     height: 360
+  #     fps: 5
+  #     enabled: true
+  #   motion:
+  #     threshold: 30
+  #     contour_area: 30
+  #     improve_contrast: false
+  #   objects:
+  #     track:
+  #       - person
+  #       - car
+  #       - cat
+  #       - dog
+  #     filters:
+  #       person:
+  #         min_area: 5000
+  #         max_area: 300000
+  #       car:
+  #         min_area: 10000
+  #   record:
+  #     enabled: true
+  #     retain:
+  #       days: 3
+  #   snapshots:
+  #     enabled: true
