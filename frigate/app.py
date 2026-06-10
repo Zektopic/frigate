@@ -261,7 +261,7 @@ class FrigateApp:
         self.db = SqliteVecQueueDatabase(
             self.config.database.path,
             pragmas={
-                "auto_vacuum": "FULL",  # Does not defragment database
+                "auto_vacuum": "INCREMENTAL",  # Reduces write amplification on flash storage
                 "cache_size": -512 * 1000,  # 512MB of cache,
                 "synchronous": "NORMAL",  # Safe when using WAL https://www.sqlite.org/pragma.html#pragma_synchronous
             },
