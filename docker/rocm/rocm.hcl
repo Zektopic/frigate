@@ -3,6 +3,7 @@ variable "ROCM" {
 }
 variable "HSA_OVERRIDE_GFX_VERSION" {
   default = ""
+  description = "Set to '10.3.0' for Vega/Picasso APUs (gfx900/gfx909) which were dropped from official ROCm 7.x. This maps the GPU to RDNA2-compatible kernels. For RDNA2+ GPUs leave empty."
 }
 variable "HSA_OVERRIDE" {
   default = "1"

@@ -62,14 +62,22 @@ ARG ROCM
 # Copy HIP headers required for MIOpen JIT (BuildHip) / HIPRTC at runtime
 COPY --from=rocm /opt/rocm-${ROCM}/include/ /opt/rocm-${ROCM}/include/
 COPY --from=rocm /opt/rocm-$ROCM/bin/rocminfo /opt/rocm-$ROCM/bin/migraphx-driver /opt/rocm-$ROCM/bin/
-# Copy MIOpen database files for gfx10xx, gfx11xx, and gfx12xx only (RDNA2/RDNA3/RDNA4)
+# Copy MIOpen database files for all supported architectures
+# RDNA2/RDNA3/RDNA4 (gfx10xx, gfx11xx, gfx12xx)
 COPY --from=rocm /opt/rocm-$ROCM/share/miopen/db/*gfx10* /opt/rocm-$ROCM/share/miopen/db/
 COPY --from=rocm /opt/rocm-$ROCM/share/miopen/db/*gfx11* /opt/rocm-$ROCM/share/miopen/db/
 COPY --from=rocm /opt/rocm-$ROCM/share/miopen/db/*gfx12* /opt/rocm-$ROCM/share/miopen/db/
-# Copy rocBLAS library files for gfx10xx, gfx11xx, and gfx12xx only
+# Vega/Polaris (gfx900/gfx906/gfx908/gfx909) — needed for AMD APUs like
+# Ryzen 3xxxU/4xxxU/5xxxU series and older discrete GPUs. Since AMD removed
+# gfx9xx from official ROCm 7.x, these files may not exist. The build
+# tolerates missing globs; at runtime use HSA_OVERRIDE_GFX_VERSION=10.3.0
+# to map Vega/Picasso GPUs onto RDNA2 kernels.
+COPY --from=rocm /opt/rocm-$ROCM/share/miopen/db/*gfx90* /opt/rocm-$ROCM/share/miopen/db/
+# Copy rocBLAS library files for all supported architectures
 COPY --from=rocm /opt/rocm-$ROCM/lib/rocblas/library/*gfx10* /opt/rocm-$ROCM/lib/rocblas/library/
 COPY --from=rocm /opt/rocm-$ROCM/lib/rocblas/library/*gfx11* /opt/rocm-$ROCM/lib/rocblas/library/
 COPY --from=rocm /opt/rocm-$ROCM/lib/rocblas/library/*gfx12* /opt/rocm-$ROCM/lib/rocblas/library/
+COPY --from=rocm /opt/rocm-$ROCM/lib/rocblas/library/*gfx90* /opt/rocm-$ROCM/lib/rocblas/library/
 COPY --from=rocm /opt/rocm-dist/ /
 
 #######################################################################
