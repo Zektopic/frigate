@@ -1,8 +1,14 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from frigate.util.services import get_fs_type
+try:
+    from frigate.util.services import get_fs_type
+    SERVICES_AVAILABLE = True
+except ImportError:
+    SERVICES_AVAILABLE = False
+    get_fs_type = None  # type: ignore[assignment]
 
+@unittest.skipIf(not SERVICES_AVAILABLE, "OpenCV not installed — required by frigate.util.services")
 class TestGetFsType(unittest.TestCase):
     def setUp(self):
         # Create mock disk partitions
