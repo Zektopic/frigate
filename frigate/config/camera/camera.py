@@ -76,7 +76,7 @@ class CameraConfig(FrigateBaseModel):
     # Options with global fallback
     audio: AudioConfig = Field(
         default_factory=AudioConfig,
-        title="Audio events",
+        title="Audio detection",
         description="Settings for audio-based event detection for this camera.",
     )
     audio_transcription: CameraAudioTranscriptionConfig = Field(
@@ -146,7 +146,7 @@ class CameraConfig(FrigateBaseModel):
     timestamp_style: TimestampStyleConfig = Field(
         default_factory=TimestampStyleConfig,
         title="Timestamp style",
-        description="Styling options for in-feed timestamps applied to recordings and snapshots.",
+        description="Styling options for timestamps applied to snapshots and Debug view.",
     )
 
     # Options without global fallback

@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolCall } from "@/types/chat";
+import type { ChatMessage, ChatStats, ToolCall } from "@/types/chat";
 
 export type StreamChatCallbacks = {
   /** Update the messages array (e.g. pass to setState). */
@@ -7,38 +7,65 @@ export type StreamChatCallbacks = {
   onError: (message: string) => void;
   /** Called when the stream finishes (success or error). */
   onDone: () => void;
+  /** Called when the stream emits token/timing stats. The stats are also
+   * attached to the last assistant message in updateMessages, so consumers
+   * can usually rely on the message itself rather than wiring this up. */
+  onStats?: (stats: ChatStats) => void;
   /** Message used when fetch throws and no server error is available. */
   defaultErrorMessage?: string;
+};
+
+type StatsChunk = {
+  type: "stats";
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  completion_duration_ms?: number;
+  tokens_per_second?: number;
 };
 
 type StreamChunk =
   | { type: "error"; error: string }
   | { type: "tool_calls"; tool_calls: ToolCall[] }
-  | { type: "content"; delta: string };
+  | { type: "content"; delta: string }
+  | { type: "reasoning"; delta: string }
+  | StatsChunk;
 
 /**
  * POST to chat/completion with stream: true, parse NDJSON stream, and invoke
  * callbacks so the caller can update UI (e.g. React state).
  */
+export type StreamChatOptions = {
+  enableThinking?: boolean;
+};
+
 export async function streamChatCompletion(
   url: string,
   headers: Record<string, string>,
   apiMessages: { role: string; content: string }[],
   callbacks: StreamChatCallbacks,
   signal?: AbortSignal,
+  options: StreamChatOptions = {},
 ): Promise<void> {
   const {
     updateMessages,
     onError,
     onDone,
+    onStats,
     defaultErrorMessage = "Something went wrong. Please try again.",
   } = callbacks;
 
   try {
+    const body: Record<string, unknown> = {
+      messages: apiMessages,
+      stream: true,
+    };
+    if (options.enableThinking !== undefined) {
+      body.enable_thinking = options.enableThinking;
+    }
     const res = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify({ messages: apiMessages, stream: true }),
+      body: JSON.stringify(body),
       signal,
     });
 
@@ -93,6 +120,36 @@ export async function streamChatCompletion(
             };
           return next;
         });
+        return "continue";
+      }
+      if (data.type === "reasoning" && data.delta !== undefined) {
+        updateMessages((prev) => {
+          const next = [...prev];
+          const lastMsg = next[next.length - 1];
+          if (lastMsg?.role === "assistant")
+            next[next.length - 1] = {
+              ...lastMsg,
+              reasoning: (lastMsg.reasoning ?? "") + data.delta,
+            };
+          return next;
+        });
+        return "continue";
+      }
+      if (data.type === "stats") {
+        const stats: ChatStats = {
+          promptTokens: data.prompt_tokens,
+          completionTokens: data.completion_tokens,
+          completionDurationMs: data.completion_duration_ms,
+          tokensPerSecond: data.tokens_per_second,
+        };
+        updateMessages((prev) => {
+          const next = [...prev];
+          const lastMsg = next[next.length - 1];
+          if (lastMsg?.role === "assistant")
+            next[next.length - 1] = { ...lastMsg, stats };
+          return next;
+        });
+        onStats?.(stats);
         return "continue";
       }
       return "continue";

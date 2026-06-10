@@ -10,7 +10,7 @@ from functools import reduce
 from typing import Any, Dict, List, Optional
 
 import cv2
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -35,7 +35,13 @@ from frigate.api.defs.response.chat_response import (
     ToolCall,
 )
 from frigate.api.defs.tags import Tags
-from frigate.api.event import events
+from frigate.api.event import _build_attribute_filter_clause, events
+from frigate.config import FrigateConfig
+from frigate.genai.prompts import (
+    build_chat_system_prompt,
+    get_attribute_classifications,
+    get_tool_definitions,
+)
 from frigate.genai.utils import build_assistant_message_for_conversation
 from frigate.jobs.vlm_watch import (
     get_vlm_watch_job,
@@ -66,351 +72,76 @@ class VLMMonitorRequest(BaseModel):
     zones: List[str] = []
 
 
-def get_tool_definitions() -> List[Dict[str, Any]]:
-    """
-    Get OpenAI-compatible tool definitions for Frigate.
-
-    Returns a list of tool definitions that can be used with OpenAI-compatible
-    function calling APIs.
-    """
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": "search_objects",
-                "description": (
-                    "Search the historical record of detected objects in Frigate. "
-                    "Use this ONLY for questions about the PAST — e.g. 'did anyone come by today?', "
-                    "'when was the last car?', 'show me detections from yesterday'. "
-                    "Do NOT use this for monitoring or alerting requests about future events — "
-                    "use start_camera_watch instead for those. "
-                    "An 'object' in Frigate represents a tracked detection (e.g., a person, package, car). "
-                    "When the user asks about a specific name (person, delivery company, animal, etc.), "
-                    "filter by sub_label only and do not set label."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "camera": {
-                            "type": "string",
-                            "description": "Camera name to filter by (optional).",
-                        },
-                        "label": {
-                            "type": "string",
-                            "description": "Object label to filter by (e.g., 'person', 'package', 'car').",
-                        },
-                        "sub_label": {
-                            "type": "string",
-                            "description": "Name of a person, delivery company, animal, etc. When filtering by a specific name, use only sub_label; do not set label.",
-                        },
-                        "after": {
-                            "type": "string",
-                            "description": "Start time in ISO 8601 format (e.g., '2024-01-01T00:00:00Z').",
-                        },
-                        "before": {
-                            "type": "string",
-                            "description": "End time in ISO 8601 format (e.g., '2024-01-01T23:59:59Z').",
-                        },
-                        "zones": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of zone names to filter by.",
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of objects to return (default: 25).",
-                            "default": 25,
-                        },
-                    },
-                },
-                "required": [],
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "find_similar_objects",
-                "description": (
-                    "Find tracked objects that are visually and semantically similar "
-                    "to a specific past event. Use this when the user references a "
-                    "particular object they have seen and wants to find other "
-                    "sightings of the same or similar one ('that green car', 'the "
-                    "person in the red jacket', 'the package that was delivered'). "
-                    "Prefer this over search_objects whenever the user's intent is "
-                    "'find more like this specific one.' Use search_objects first "
-                    "only if you need to locate the anchor event. Requires semantic "
-                    "search to be enabled."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "event_id": {
-                            "type": "string",
-                            "description": "The id of the anchor event to find similar objects to.",
-                        },
-                        "after": {
-                            "type": "string",
-                            "description": "Start time in ISO 8601 format (e.g., '2024-01-01T00:00:00Z').",
-                        },
-                        "before": {
-                            "type": "string",
-                            "description": "End time in ISO 8601 format (e.g., '2024-01-01T23:59:59Z').",
-                        },
-                        "cameras": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional list of cameras to restrict to. Defaults to all.",
-                        },
-                        "labels": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional list of labels to restrict to. Defaults to the anchor event's label.",
-                        },
-                        "sub_labels": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional list of sub_labels (names) to restrict to.",
-                        },
-                        "zones": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional list of zones. An event matches if any of its zones overlap.",
-                        },
-                        "similarity_mode": {
-                            "type": "string",
-                            "enum": ["visual", "semantic", "fused"],
-                            "description": "Which similarity signal(s) to use. 'fused' (default) combines visual and semantic.",
-                            "default": "fused",
-                        },
-                        "min_score": {
-                            "type": "number",
-                            "description": "Drop matches with a similarity score below this threshold (0.0-1.0).",
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of matches to return (default: 10).",
-                            "default": 10,
-                        },
-                    },
-                    "required": ["event_id"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "set_camera_state",
-                "description": (
-                    "Change a camera's feature state (e.g., turn detection on/off, enable/disable recordings). "
-                    "Use camera='*' to apply to all cameras at once. "
-                    "Only call this tool when the user explicitly asks to change a camera setting. "
-                    "Requires admin privileges."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "camera": {
-                            "type": "string",
-                            "description": "Camera name to target, or '*' to target all cameras.",
-                        },
-                        "feature": {
-                            "type": "string",
-                            "enum": [
-                                "detect",
-                                "record",
-                                "snapshots",
-                                "audio",
-                                "motion",
-                                "enabled",
-                                "birdseye",
-                                "birdseye_mode",
-                                "improve_contrast",
-                                "ptz_autotracker",
-                                "motion_contour_area",
-                                "motion_threshold",
-                                "notifications",
-                                "audio_transcription",
-                                "review_alerts",
-                                "review_detections",
-                                "object_descriptions",
-                                "review_descriptions",
-                                "profile",
-                            ],
-                            "description": (
-                                "The feature to change. Most features accept ON or OFF. "
-                                "birdseye_mode accepts CONTINUOUS, MOTION, or OBJECTS. "
-                                "motion_contour_area and motion_threshold accept a number. "
-                                "profile accepts a profile name or 'none' to deactivate (requires camera='*')."
-                            ),
-                        },
-                        "value": {
-                            "type": "string",
-                            "description": "The value to set. ON or OFF for toggles, a number for thresholds, a profile name or 'none' for profile.",
-                        },
-                    },
-                    "required": ["camera", "feature", "value"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "get_live_context",
-                "description": (
-                    "Get the current live image and detection information for a camera: objects being tracked, "
-                    "zones, timestamps. Use this to understand what is visible in the live view. "
-                    "Call this when answering questions about what is happening right now on a specific camera."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "camera": {
-                            "type": "string",
-                            "description": "Camera name to get live context for.",
-                        },
-                    },
-                    "required": ["camera"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "start_camera_watch",
-                "description": (
-                    "Start a continuous VLM watch job that monitors a camera and sends a notification "
-                    "when a specified condition is met. Use this when the user wants to be alerted about "
-                    "a future event, e.g. 'tell me when guests arrive' or 'notify me when the package is picked up'. "
-                    "Only one watch job can run at a time. Returns a job ID."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "camera": {
-                            "type": "string",
-                            "description": "Camera ID to monitor.",
-                        },
-                        "condition": {
-                            "type": "string",
-                            "description": (
-                                "Natural-language description of the condition to watch for, "
-                                "e.g. 'a person arrives at the front door'."
-                            ),
-                        },
-                        "max_duration_minutes": {
-                            "type": "integer",
-                            "description": "Maximum time to watch before giving up (minutes, default 60).",
-                            "default": 60,
-                        },
-                        "labels": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Object labels that should trigger a VLM check (e.g. ['person', 'car']). If omitted, any detection on the camera triggers a check.",
-                        },
-                        "zones": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Zone names to filter by. If specified, only detections in these zones trigger a VLM check.",
-                        },
-                    },
-                    "required": ["camera", "condition"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "stop_camera_watch",
-                "description": (
-                    "Cancel the currently running VLM watch job. Use this when the user wants to "
-                    "stop a previously started watch, e.g. 'stop watching the front door'."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "get_profile_status",
-                "description": (
-                    "Get the current profile status including the active profile and "
-                    "timestamps of when each profile was last activated. Use this to "
-                    "determine time periods for recap requests — e.g. when the user asks "
-                    "'what happened while I was away?', call this first to find the relevant "
-                    "time window based on profile activation history."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "get_recap",
-                "description": (
-                    "Get a recap of all activity (alerts and detections) for a given time period. "
-                    "Use this after calling get_profile_status to retrieve what happened during "
-                    "a specific window — e.g. 'what happened while I was away?'. Returns a "
-                    "chronological list of activity with camera, objects, zones, and GenAI-generated "
-                    "descriptions when available. Summarize the results for the user."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "after": {
-                            "type": "string",
-                            "description": "Start of the time period in ISO 8601 format (e.g. '2025-03-15T08:00:00').",
-                        },
-                        "before": {
-                            "type": "string",
-                            "description": "End of the time period in ISO 8601 format (e.g. '2025-03-15T17:00:00').",
-                        },
-                        "cameras": {
-                            "type": "string",
-                            "description": "Comma-separated camera IDs to include, or 'all' for all cameras. Default is 'all'.",
-                        },
-                        "severity": {
-                            "type": "string",
-                            "enum": ["alert", "detection"],
-                            "description": "Filter by severity level. Omit to include both alerts and detections.",
-                        },
-                    },
-                    "required": ["after", "before"],
-                },
-            },
-        },
-    ]
-
-
 @router.get(
     "/chat/tools",
     dependencies=[Depends(allow_any_authenticated())],
     summary="Get available tools",
     description="Returns OpenAI-compatible tool definitions for function calling.",
 )
-def get_tools() -> JSONResponse:
+def get_tools(request: Request) -> JSONResponse:
     """Get list of available tools for LLM function calling."""
-    tools = get_tool_definitions()
+    config = request.app.frigate_config
+    semantic_search_enabled = bool(getattr(config.semantic_search, "enabled", False))
+    attribute_classifications = get_attribute_classifications(config)
+    tools = get_tool_definitions(
+        semantic_search_enabled=semantic_search_enabled,
+        attribute_classifications=attribute_classifications,
+    )
     return JSONResponse(content={"tools": tools})
 
 
+def _resolve_zones(
+    zones: List[str],
+    config: FrigateConfig,
+    target_cameras: List[str],
+) -> List[str]:
+    """Map zone names to their canonical config keys, case-insensitively.
+
+    LLMs frequently echo a user's casing ("Front Yard") instead of the
+    configured key ("front_yard"). The downstream zone filter is a SQLite GLOB
+    over the JSON-encoded zones column, which is case-sensitive — so an
+    unnormalized name silently returns zero matches. Build a lookup over the
+    relevant cameras' configured zones and substitute when we find a match;
+    unknown names pass through so behavior matches what the model asked for.
+    """
+    if not zones:
+        return zones
+
+    lookup: Dict[str, str] = {}
+    for camera_id in target_cameras:
+        camera_config = config.cameras.get(camera_id)
+        if camera_config is None:
+            continue
+        for zone_name in camera_config.zones.keys():
+            lookup.setdefault(zone_name.lower(), zone_name)
+
+    return [lookup.get(z.lower(), z) for z in zones]
+
+
 async def _execute_search_objects(
+    request: Request,
     arguments: Dict[str, Any],
     allowed_cameras: List[str],
 ) -> JSONResponse:
     """
     Execute the search_objects tool.
 
-    This searches for detected objects (events) in Frigate using the same
-    logic as the events API endpoint.
+    Routes to the semantic path when the LLM supplied a `semantic_query`
+    and semantic search is enabled; otherwise delegates to the standard
+    events API logic.
     """
+    config = request.app.frigate_config
+    semantic_query = arguments.get("semantic_query")
+    if isinstance(semantic_query, str):
+        semantic_query = semantic_query.strip() or None
+    else:
+        semantic_query = None
+
+    if semantic_query and getattr(config.semantic_search, "enabled", False):
+        return await _execute_search_objects_semantic(
+            request, arguments, allowed_cameras, semantic_query
+        )
+
     # Parse after/before as server local time; convert to Unix timestamp
     after = arguments.get("after")
     before = arguments.get("before")
@@ -437,15 +168,23 @@ async def _execute_search_objects(
     # Convert zones array to comma-separated string if provided
     zones = arguments.get("zones")
     if isinstance(zones, list):
+        camera_arg = arguments.get("camera")
+        target_cameras = (
+            [camera_arg] if camera_arg and camera_arg != "all" else allowed_cameras
+        )
+        zones = _resolve_zones(zones, config, target_cameras)
         zones = ",".join(zones)
     elif zones is None:
         zones = "all"
+
+    attribute = arguments.get("attribute")
 
     # Build query parameters compatible with EventsQueryParams
     query_params = EventsQueryParams(
         cameras=arguments.get("camera", "all"),
         labels=arguments.get("label", "all"),
         sub_labels=arguments.get("sub_label", "all"),  # case-insensitive on the backend
+        attributes=attribute if attribute else "all",
         zones=zones,
         zone=zones,
         after=after,
@@ -470,6 +209,124 @@ async def _execute_search_objects(
             },
             status_code=500,
         )
+
+
+async def _execute_search_objects_semantic(
+    request: Request,
+    arguments: Dict[str, Any],
+    allowed_cameras: List[str],
+    semantic_query: str,
+) -> JSONResponse:
+    """Search objects via fused thumbnail + description embeddings.
+
+    Runs both visual and description vec searches against `semantic_query`,
+    intersects the candidates with the structured filters (camera, label,
+    sub_label, zones, time window) the LLM supplied, and ranks the survivors
+    by fused similarity. Mirrors the candidate-then-filter pattern used by
+    find_similar_objects since sqlite-vec's IN filter is unreliable.
+    """
+    from peewee import fn
+
+    config = request.app.frigate_config
+    context = request.app.embeddings
+    if context is None:
+        logger.warning(
+            "semantic_query supplied but embeddings context is unavailable; "
+            "returning empty results."
+        )
+        return JSONResponse(content=[])
+
+    after = parse_iso_to_timestamp(arguments.get("after"))
+    before = parse_iso_to_timestamp(arguments.get("before"))
+
+    camera_arg = arguments.get("camera")
+    if camera_arg and camera_arg != "all":
+        if camera_arg not in allowed_cameras:
+            return JSONResponse(content=[])
+        cameras = [camera_arg]
+    else:
+        cameras = list(allowed_cameras) if allowed_cameras else []
+
+    if not cameras:
+        return JSONResponse(content=[])
+
+    label = arguments.get("label")
+    sub_label = arguments.get("sub_label")
+    attribute = arguments.get("attribute")
+
+    zones = arguments.get("zones")
+    if isinstance(zones, list) and zones:
+        zones = _resolve_zones(zones, config, cameras)
+    else:
+        zones = None
+
+    limit = int(arguments.get("limit", 25))
+    limit = max(1, min(limit, 100))
+
+    visual_distances: Dict[str, float] = {}
+    description_distances: Dict[str, float] = {}
+    try:
+        rows = context.search_thumbnail(semantic_query)
+        visual_distances = {row[0]: row[1] for row in rows}
+    except Exception:
+        logger.exception(
+            "search_thumbnail failed for semantic_query: %s", semantic_query
+        )
+
+    try:
+        rows = context.search_description(semantic_query)
+        description_distances = {row[0]: row[1] for row in rows}
+    except Exception:
+        logger.exception(
+            "search_description failed for semantic_query: %s", semantic_query
+        )
+
+    vec_ids = set(visual_distances) | set(description_distances)
+    if not vec_ids:
+        return JSONResponse(content=[])
+
+    clauses = [Event.id.in_(list(vec_ids)), Event.camera.in_(cameras)]
+    if after is not None:
+        clauses.append(Event.start_time >= after)
+    if before is not None:
+        clauses.append(Event.start_time <= before)
+    if label:
+        clauses.append(Event.label == label)
+    if sub_label:
+        # case-insensitive match to mirror events() behavior
+        clauses.append(fn.LOWER(Event.sub_label.cast("text")) == sub_label.lower())
+    if attribute:
+        attribute_clause = _build_attribute_filter_clause(attribute)
+        if attribute_clause is not None:
+            clauses.append(attribute_clause)
+    if zones:
+        zone_clauses = [Event.zones.cast("text") % f'*"{zone}"*' for zone in zones]
+        clauses.append(reduce(operator.or_, zone_clauses))
+
+    eligible = {e.id: e for e in Event.select().where(reduce(operator.and_, clauses))}
+
+    scored: List[tuple[str, float]] = []
+    for eid in eligible:
+        v_score = (
+            distance_to_score(visual_distances[eid], context.thumb_stats)
+            if eid in visual_distances
+            else None
+        )
+        d_score = (
+            distance_to_score(description_distances[eid], context.desc_stats)
+            if eid in description_distances
+            else None
+        )
+        fused = fuse_scores(v_score, d_score)
+        if fused is None:
+            continue
+        scored.append((eid, fused))
+
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+    scored = scored[:limit]
+
+    results = [hydrate_event(eligible[eid], score=score) for eid, score in scored]
+    return JSONResponse(content=results)
 
 
 async def _execute_find_similar_objects(
@@ -527,6 +384,11 @@ async def _execute_find_similar_objects(
     labels = arguments.get("labels") or [anchor.label]
     sub_labels = arguments.get("sub_labels")
     zones = arguments.get("zones")
+
+    if zones:
+        zones = _resolve_zones(
+            zones, request.app.frigate_config, cameras or list(allowed_cameras)
+        )
 
     similarity_mode = arguments.get("similarity_mode", "fused")
     if similarity_mode not in ("visual", "semantic", "fused"):
@@ -655,7 +517,7 @@ async def execute_tool(
     logger.debug(f"Executing tool: {tool_name} with arguments: {arguments}")
 
     if tool_name == "search_objects":
-        return await _execute_search_objects(arguments, allowed_cameras)
+        return await _execute_search_objects(request, arguments, allowed_cameras)
 
     if tool_name == "find_similar_objects":
         result = await _execute_find_similar_objects(
@@ -685,9 +547,21 @@ async def _execute_get_live_context(
     camera: str,
     allowed_cameras: List[str],
 ) -> Dict[str, Any]:
+    # Reject wildcards explicitly so models retry with a real camera name
+    # instead of silently fanning out across every camera.
+    if camera in ("*", "all"):
+        return {
+            "error": (
+                "get_live_context requires a single camera name; wildcards "
+                "are not supported. Call this tool once per camera."
+            ),
+            "available_cameras": allowed_cameras,
+        }
+
     if camera not in allowed_cameras:
         return {
             "error": f"Camera '{camera}' not found or access denied",
+            "available_cameras": allowed_cameras,
         }
 
     if camera not in request.app.frigate_config.cameras:
@@ -835,7 +709,7 @@ async def _execute_tool_internal(
     This is used by the chat completion endpoint to execute tools.
     """
     if tool_name == "search_objects":
-        response = await _execute_search_objects(arguments, allowed_cameras)
+        response = await _execute_search_objects(request, arguments, allowed_cameras)
         try:
             if hasattr(response, "body"):
                 body_str = response.body.decode("utf-8")
@@ -859,7 +733,14 @@ async def _execute_tool_internal(
                 "Arguments: %s",
                 json.dumps(arguments),
             )
-            return {"error": "Camera parameter is required"}
+            return {
+                "error": (
+                    "get_live_context requires a single camera name; "
+                    "wildcards and empty values are not supported. "
+                    "Call this tool once per camera."
+                ),
+                "available_cameras": allowed_cameras,
+            }
         return await _execute_get_live_context(request, camera, allowed_cameras)
     elif tool_name == "start_camera_watch":
         return await _execute_start_camera_watch(request, arguments)
@@ -898,6 +779,9 @@ async def _execute_start_camera_watch(
         return {"error": f"Camera '{camera}' not found."}
 
     await require_camera_access(camera, request=request)
+
+    if zones:
+        zones = _resolve_zones(zones, config, [camera])
 
     genai_manager = request.app.genai_manager
     chat_client = genai_manager.chat_client
@@ -1245,52 +1129,21 @@ async def chat_completion(
             status_code=400,
         )
 
-    tools = get_tool_definitions()
+    config = request.app.frigate_config
+    semantic_search_enabled = bool(getattr(config.semantic_search, "enabled", False))
+    attribute_classifications = get_attribute_classifications(config)
+    tools = get_tool_definitions(
+        semantic_search_enabled=semantic_search_enabled,
+        attribute_classifications=attribute_classifications,
+    )
     conversation = []
 
-    current_datetime = datetime.now()
-    current_date_str = current_datetime.strftime("%Y-%m-%d")
-    current_time_str = current_datetime.strftime("%I:%M:%S %p")
-
-    cameras_info = []
-    config = request.app.frigate_config
-    for camera_id in allowed_cameras:
-        if camera_id not in config.cameras:
-            continue
-        camera_config = config.cameras[camera_id]
-        friendly_name = (
-            camera_config.friendly_name
-            if camera_config.friendly_name
-            else camera_id.replace("_", " ").title()
-        )
-        zone_names = list(camera_config.zones.keys())
-        if zone_names:
-            cameras_info.append(
-                f"  - {friendly_name} (ID: {camera_id}, zones: {', '.join(zone_names)})"
-            )
-        else:
-            cameras_info.append(f"  - {friendly_name} (ID: {camera_id})")
-
-    cameras_section = ""
-    if cameras_info:
-        cameras_section = (
-            "\n\nAvailable cameras:\n"
-            + "\n".join(cameras_info)
-            + "\n\nWhen users refer to cameras by their friendly name (e.g., 'Back Deck Camera'), use the corresponding camera ID (e.g., 'back_deck_cam') in tool calls."
-        )
-
-    system_prompt = f"""You are a helpful assistant for Frigate, a security camera NVR system. You help users answer questions about their cameras, detected objects, and events.
-
-Current server local date and time: {current_date_str} at {current_time_str}
-
-Do not start your response with phrases like "I will check...", "Let me see...", or "Let me look...". Answer directly.
-
-Always present times to the user in the server's local timezone. When tool results include start_time_local and end_time_local, use those exact strings when listing or describing detection times—do not convert or invent timestamps. Do not use UTC or ISO format with Z for the user-facing answer unless the tool result only provides Unix timestamps without local time fields.
-When users ask about "today", "yesterday", "this week", etc., use the current date above as reference.
-When searching for objects or events, use ISO 8601 format for dates (e.g., {current_date_str}T00:00:00Z for the start of today).
-Always be accurate with time calculations based on the current date provided.
-
-When a user refers to a specific object they have seen or describe with identifying details ("that green car", "the person in the red jacket", "a package left today"), prefer the find_similar_objects tool over search_objects. Use search_objects first only to locate the anchor event, then pass its id to find_similar_objects. For generic queries like "show me all cars today", keep using search_objects. If a user message begins with [attached_event:<id>], treat that event id as the anchor for any similarity or "tell me more" request in the same message and call find_similar_objects with that id.{cameras_section}"""
+    system_prompt = build_chat_system_prompt(
+        config=config,
+        allowed_cameras=allowed_cameras,
+        semantic_search_enabled=semantic_search_enabled,
+        attribute_classifications=attribute_classifications,
+    )
 
     conversation.append(
         {
@@ -1339,6 +1192,7 @@ When a user refers to a specific object they have seen or describe with identify
                     messages=conversation,
                     tools=tools if tools else None,
                     tool_choice="auto",
+                    enable_thinking=body.enable_thinking,
                 ):
                     if await request.is_disconnected():
                         logger.debug("Client disconnected, stopping chat stream")
@@ -1349,6 +1203,18 @@ When a user refers to a specific object they have seen or describe with identify
                             json.dumps({"type": "content", "delta": value}).encode(
                                 "utf-8"
                             )
+                            + b"\n"
+                        )
+                    elif kind == "reasoning_delta":
+                        yield (
+                            json.dumps({"type": "reasoning", "delta": value}).encode(
+                                "utf-8"
+                            )
+                            + b"\n"
+                        )
+                    elif kind == "stats":
+                        yield (
+                            json.dumps({"type": "stats", **value}).encode("utf-8")
                             + b"\n"
                         )
                     elif kind == "message":
@@ -1425,6 +1291,7 @@ When a user refers to a specific object they have seen or describe with identify
                 messages=conversation,
                 tools=tools if tools else None,
                 tool_choice="auto",
+                enable_thinking=body.enable_thinking,
             )
 
             if response.get("finish_reason") == "error":
@@ -1454,6 +1321,7 @@ When a user refers to a specific object they have seen or describe with identify
                 final_content = response.get("content") or ""
 
                 if body.stream:
+                    final_reasoning = response.get("reasoning")
 
                     async def stream_body() -> Any:
                         if tool_calls:
@@ -1465,6 +1333,15 @@ When a user refers to a specific object they have seen or describe with identify
                                             tc.model_dump() for tc in tool_calls
                                         ],
                                     }
+                                ).encode("utf-8")
+                                + b"\n"
+                            )
+                        # Emit the full reasoning trace up front when the
+                        # underlying client did not stream it
+                        if final_reasoning:
+                            yield (
+                                json.dumps(
+                                    {"type": "reasoning", "delta": final_reasoning}
                                 ).encode("utf-8")
                                 + b"\n"
                             )
@@ -1488,6 +1365,7 @@ When a user refers to a specific object they have seen or describe with identify
                         message=ChatMessageResponse(
                             role="assistant",
                             content=final_content,
+                            reasoning=response.get("reasoning"),
                             tool_calls=None,
                         ),
                         finish_reason=response.get("finish_reason", "stop"),
@@ -1589,6 +1467,7 @@ async def start_vlm_monitor(
             dispatcher=request.app.dispatcher,
             labels=body.labels,
             zones=body.zones,
+            username=request.headers.get("remote-user", ""),
         )
     except RuntimeError as e:
         logger.error("Failed to start VLM watch job: %s", e, exc_info=True)
@@ -1609,10 +1488,22 @@ async def start_vlm_monitor(
     summary="Get current VLM watch job",
     description="Returns the current (or most recently completed) VLM watch job.",
 )
-async def get_vlm_monitor() -> JSONResponse:
+async def get_vlm_monitor(request: Request) -> JSONResponse:
     job = get_vlm_watch_job()
     if job is None:
         return JSONResponse(content={"active": False}, status_code=200)
+
+    role = request.headers.get("remote-role", "viewer")
+    username = request.headers.get("remote-user", "")
+
+    # Admin and the job's creator always see the job. Other users only see it
+    # if they have access to the camera being watched; otherwise hide it.
+    if role != "admin" and username != job.username:
+        try:
+            await require_camera_access(job.camera, request=request)
+        except HTTPException:
+            return JSONResponse(content={"active": False}, status_code=200)
+
     return JSONResponse(content={"active": True, **job.to_dict()}, status_code=200)
 
 
@@ -1622,7 +1513,27 @@ async def get_vlm_monitor() -> JSONResponse:
     summary="Cancel the current VLM watch job",
     description="Cancels the running watch job if one exists.",
 )
-async def cancel_vlm_monitor() -> JSONResponse:
+async def cancel_vlm_monitor(request: Request) -> JSONResponse:
+    job = get_vlm_watch_job()
+    if job is None:
+        return JSONResponse(
+            content={"success": False, "message": "No active watch job to cancel."},
+            status_code=404,
+        )
+
+    role = request.headers.get("remote-role", "viewer")
+    username = request.headers.get("remote-user", "")
+
+    # Admin can cancel any job; other users can only cancel jobs they started.
+    if role != "admin" and username != job.username:
+        return JSONResponse(
+            content={
+                "success": False,
+                "message": "Not authorized to cancel this watch job.",
+            },
+            status_code=403,
+        )
+
     cancelled = stop_vlm_watch_job()
     if not cancelled:
         return JSONResponse(
