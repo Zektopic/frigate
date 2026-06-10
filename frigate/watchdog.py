@@ -49,6 +49,7 @@ class FrigateWatchdog(threading.Thread):
         self.detectors = detectors
         self.stop_event = stop_event
         self._monitored: list[MonitoredProcess] = []
+        self._restart_times: dict[str, float] = {}
 
     def register(
         self,
@@ -117,15 +118,24 @@ class FrigateWatchdog(threading.Thread):
             now = datetime.datetime.now().timestamp()
 
             # check the detection processes
-            for detector in self.detectors.values():
+            for name, detector in self.detectors.items():
                 detection_start = detector.detection_start.value  # type: ignore[attr-defined]
                 # issue https://github.com/python/typeshed/issues/8799
                 # from mypy 0.981 onwards
                 if detection_start > 0.0 and now - detection_start > 10:
-                    logger.info(
-                        "Detection appears to be stuck. Restarting detection process..."
-                    )
-                    detector.start_or_restart()
+                    last_restart = self._restart_times.get(name, 0.0)
+                    if now - last_restart < 35:
+                        logger.debug(
+                            "Skipping stuck check for %s (restarted %.1fs ago)",
+                            name,
+                            now - last_restart,
+                        )
+                    else:
+                        logger.info(
+                            "Detection appears to be stuck. Restarting detection process..."
+                        )
+                        detector.start_or_restart()
+                        self._restart_times[name] = now
                 elif (
                     detector.detect_process is not None
                     and not detector.detect_process.is_alive()
