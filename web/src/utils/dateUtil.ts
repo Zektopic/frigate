@@ -422,9 +422,9 @@ export const convertLocalDateToTimestamp = (dateString: string): number => {
       break;
     case "YMD":
       [year, month, day] = [
-        dateString.slice(0, 2),
-        dateString.slice(2, 4),
-        dateString.slice(4),
+        dateString.slice(0, 4),
+        dateString.slice(4, 6),
+        dateString.slice(6),
       ];
       break;
     default:
