@@ -16,6 +16,9 @@ class SqliteVecQueueDatabase(SqliteQueueDatabase):
 
     def _connect(self, *args: Any, **kwargs: Any) -> sqlite3.Connection:
         conn: sqlite3.Connection = super()._connect(*args, **kwargs)  # type: ignore[misc]
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA temp_store=MEMORY;")
         if self.load_vec_extension:
             self._load_vec_extension(conn)
 
