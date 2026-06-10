@@ -125,8 +125,6 @@ class FrigateMotionDetector(MotionDetector):
 
             if self.save_images:
                 thresh_dilated = cv2.cvtColor(thresh_dilated, cv2.COLOR_GRAY2BGR)
-                # print("--------")
-                # print(self.frame_counter)
                 for c in contours:
                     contour_area = cv2.contourArea(c)
                     if contour_area > self.contour_area.value:
