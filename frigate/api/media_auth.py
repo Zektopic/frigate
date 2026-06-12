@@ -9,8 +9,6 @@ could read clips, recordings, and exports for *any* camera, bypassing the
 per-camera authorization the regular API enforces via `require_camera_access`.
 """
 
-from __future__ import annotations
-
 import logging
 import os
 from enum import Enum
