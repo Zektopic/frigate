@@ -74,8 +74,9 @@ def _is_valid_host(host: str) -> bool:
 
 @router.get("/go2rtc/streams", dependencies=[Depends(allow_any_authenticated())])
 async def go2rtc_streams(request: Request):
-    r = requests.get("http://127.0.0.1:1984/api/streams")
-    if not r.ok:
+    async with httpx.AsyncClient() as client:
+        r = await client.get("http://127.0.0.1:1984/api/streams")
+    if not r.is_success:
         logger.error("Failed to fetch streams from go2rtc")
         return JSONResponse(
             content=({"success": False, "message": "Error fetching stream data"}),
@@ -1163,7 +1164,10 @@ def _remove_camera_from_config(config_file: str, camera_name: str) -> dict:
                 if auth and "roles" in auth:
                     empty_roles = []
                     for role_name, cameras_list in auth["roles"].items():
-                        if isinstance(cameras_list, list) and camera_name in cameras_list:
+                        if (
+                            isinstance(cameras_list, list)
+                            and camera_name in cameras_list
+                        ):
                             cameras_list.remove(camera_name)
                             # Custom roles can't be empty; mark for removal
                             if not cameras_list and role_name not in (
