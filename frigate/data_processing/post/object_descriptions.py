@@ -1,5 +1,7 @@
 """Post processor for object descriptions using GenAI."""
 
+from __future__ import annotations
+
 import datetime
 import logging
 import os
@@ -38,7 +40,7 @@ class ObjectDescriptionProcessor(PostProcessorApi):
     def __init__(
         self,
         config: FrigateConfig,
-        embeddings: "Embeddings",
+        embeddings: Embeddings,
         requestor: InterProcessRequestor,
         metrics: DataProcessorMetrics,
         genai_manager: GenAIClientManager,
