@@ -2,13 +2,10 @@
 
 import io
 import logging
-from typing import TYPE_CHECKING
+from typing import Any
 
 import numpy as np
 from PIL import Image
-
-if TYPE_CHECKING:
-    from frigate.genai import GenAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +20,7 @@ class GenAIEmbedding:
     normalized to 768 dimensions for Frigate's sqlite-vec schema.
     """
 
-    def __init__(self, client: "GenAIClient") -> None:
+    def __init__(self, client: Any) -> None:
         self.client = client
 
     def __call__(
