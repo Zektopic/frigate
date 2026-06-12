@@ -5,6 +5,8 @@ on first access so that providers whose roles are never used (e.g. chat when
 no chat feature is active) are never initialized.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -23,7 +25,7 @@ class GenAIClientManager:
     def __init__(self, config: FrigateConfig) -> None:
         self._configs: dict[str, GenAIConfig] = {}
         self._role_map: dict[GenAIRoleEnum, str] = {}
-        self._clients: dict[str, "GenAIClient"] = {}
+        self._clients: dict[str, GenAIClient] = {}
         self.update_config(config)
 
     def update_config(self, config: FrigateConfig) -> None:
@@ -59,7 +61,7 @@ class GenAIClientManager:
             for role in genai_cfg.roles:
                 self._role_map[role] = name
 
-    def _get_client(self, name: str) -> "Optional[GenAIClient]":
+    def _get_client(self, name: str) -> Optional[GenAIClient]:
         """Return the client for *name*, creating it on first access."""
         if name in self._clients:
             return self._clients[name]
@@ -78,7 +80,7 @@ class GenAIClientManager:
             return None
 
         try:
-            client: "GenAIClient" = provider_cls(genai_cfg)
+            client: GenAIClient = provider_cls(genai_cfg)
         except Exception as e:
             logger.exception(
                 "Failed to create GenAI client for provider %s: %s",
@@ -91,19 +93,19 @@ class GenAIClientManager:
         return client
 
     @property
-    def chat_client(self) -> "Optional[GenAIClient]":
+    def chat_client(self) -> Optional[GenAIClient]:
         """Client configured for the chat role (e.g. chat with function calling)."""
         name = self._role_map.get(GenAIRoleEnum.chat)
         return self._get_client(name) if name else None
 
     @property
-    def description_client(self) -> "Optional[GenAIClient]":
+    def description_client(self) -> Optional[GenAIClient]:
         """Client configured for the descriptions role (e.g. review descriptions, object descriptions)."""
         name = self._role_map.get(GenAIRoleEnum.descriptions)
         return self._get_client(name) if name else None
 
     @property
-    def embeddings_client(self) -> "Optional[GenAIClient]":
+    def embeddings_client(self) -> Optional[GenAIClient]:
         """Client configured for the embeddings role."""
         name = self._role_map.get(GenAIRoleEnum.embeddings)
         return self._get_client(name) if name else None
