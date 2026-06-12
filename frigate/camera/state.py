@@ -47,6 +47,7 @@ class CameraState:
         self._current_frame = np.zeros(self.camera_config.frame_shape_yuv, np.uint8)
         self._last_frame_shape: tuple[int, int] = self.camera_config.frame_shape_yuv
         self.current_frame_lock = threading.Lock()
+        self.best_objects_lock = threading.RLock()
         self.current_frame_time = 0.0
         self.motion_boxes: list[tuple[int, int, int, int]] = []
         self.regions: list[tuple[int, int, int, int]] = []
@@ -431,10 +432,11 @@ class CameraState:
                     logger.debug(
                         f"{self.name}: Existing object, adding {frame_time} to frame cache for {id}"
                     )
-                    self.frame_cache[frame_time] = {
-                        "frame": np.copy(current_frame),
-                        "object_id": id,
-                    }
+                    with self.best_objects_lock:
+                        self.frame_cache[frame_time] = {
+                            "frame": np.copy(current_frame),
+                            "object_id": id,
+                        }
 
                 updated_obj.last_updated = frame_time
 
@@ -538,29 +540,30 @@ class CameraState:
             ):
                 continue
 
-            if object_type in self.best_objects:
-                current_best = self.best_objects[object_type]
-                now = datetime.datetime.now().timestamp()
-                # if the object is a higher score than the current best score
-                # or the current object is older than desired, use the new object
-                if (
-                    current_best.thumbnail_data is not None
-                    and obj.thumbnail_data is not None
-                    and is_better_thumbnail(
-                        object_type,
-                        current_best.thumbnail_data,
-                        obj.thumbnail_data,
-                        self.camera_config.frame_shape,
-                    )
-                    or (
+            with self.best_objects_lock:
+                if object_type in self.best_objects:
+                    current_best = self.best_objects[object_type]
+                    now = datetime.datetime.now().timestamp()
+                    # if the object is a higher score than the current best score
+                    # or the current object is older than desired, use the new object
+                    if (
                         current_best.thumbnail_data is not None
-                        and (now - current_best.thumbnail_data["frame_time"])
-                        > self.camera_config.best_image_timeout
-                    )
-                ):
+                        and obj.thumbnail_data is not None
+                        and is_better_thumbnail(
+                            object_type,
+                            current_best.thumbnail_data,
+                            obj.thumbnail_data,
+                            self.camera_config.frame_shape,
+                        )
+                        or (
+                            current_best.thumbnail_data is not None
+                            and (now - current_best.thumbnail_data["frame_time"])
+                            > self.camera_config.best_image_timeout
+                        )
+                    ):
+                        self.send_mqtt_snapshot(obj, object_type)
+                else:
                     self.send_mqtt_snapshot(obj, object_type)
-            else:
-                self.send_mqtt_snapshot(obj, object_type)
 
         for c in self.callbacks["camera_activity"]:
             c(self.name, camera_activity)
@@ -571,31 +574,33 @@ class CameraState:
             for obj in tracked_objects.values()
             if obj.thumbnail_data is not None
         }
-        current_best_frames = {
-            obj.thumbnail_data["frame_time"]
-            for obj in self.best_objects.values()
-            if obj.thumbnail_data is not None
-        }
-        thumb_frames_to_delete = [
-            t
-            for t in self.frame_cache.keys()
-            if t not in current_thumb_frames and t not in current_best_frames
-        ]
-        if len(thumb_frames_to_delete) > 0:
-            logger.debug(f"{self.name}: Current frame cache contents:")
-            for k, v in self.frame_cache.items():
-                logger.debug(f"  frame time: {k}, object id: {v['object_id']}")
-            for obj_id, obj in tracked_objects.items():
-                thumb_time = (
-                    obj.thumbnail_data["frame_time"] if obj.thumbnail_data else None
-                )
-                logger.debug(
-                    f"{self.name}: Tracked object {obj_id} thumbnail frame_time: {thumb_time}, false positive: {obj.false_positive}"
-                )
-        for t in thumb_frames_to_delete:
-            object_id = self.frame_cache[t].get("object_id", "unknown")
-            logger.debug(f"{self.name}: Deleting {t} from frame cache for {object_id}")
-            del self.frame_cache[t]
+
+        with self.best_objects_lock:
+            current_best_frames = {
+                obj.thumbnail_data["frame_time"]
+                for obj in self.best_objects.values()
+                if obj.thumbnail_data is not None
+            }
+            thumb_frames_to_delete = [
+                t
+                for t in self.frame_cache.keys()
+                if t not in current_thumb_frames and t not in current_best_frames
+            ]
+            if len(thumb_frames_to_delete) > 0:
+                logger.debug(f"{self.name}: Current frame cache contents:")
+                for k, v in self.frame_cache.items():
+                    logger.debug(f"  frame time: {k}, object id: {v['object_id']}")
+                for obj_id, obj in tracked_objects.items():
+                    thumb_time = (
+                        obj.thumbnail_data["frame_time"] if obj.thumbnail_data else None
+                    )
+                    logger.debug(
+                        f"{self.name}: Tracked object {obj_id} thumbnail frame_time: {thumb_time}, false positive: {obj.false_positive}"
+                    )
+            for t in thumb_frames_to_delete:
+                object_id = self.frame_cache[t].get("object_id", "unknown")
+                logger.debug(f"{self.name}: Deleting {t} from frame cache for {object_id}")
+                del self.frame_cache[t]
 
         with self.current_frame_lock:
             self.tracked_objects = tracked_objects
@@ -618,12 +623,13 @@ class CameraState:
             # if the snapshot was not updated, then this object is not a best object
             # but all new objects should be considered the next best object
             # so we remove the label from the best objects
-            if updated:
-                self.best_objects[object_type] = new_obj
-            else:
-                if object_type in self.best_objects:
-                    self.best_objects.pop(object_type)
-                break
+            with self.best_objects_lock:
+                if updated:
+                    self.best_objects[object_type] = new_obj
+                else:
+                    if object_type in self.best_objects:
+                        self.best_objects.pop(object_type)
+                    break
 
     def save_manual_event_image(
         self,
