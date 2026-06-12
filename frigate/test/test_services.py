@@ -2,11 +2,12 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 try:
-    from frigate.util.services import get_fs_type
+    from frigate.util.services import get_fs_type, is_restricted_go2rtc_source
     SERVICES_AVAILABLE = True
 except ImportError:
     SERVICES_AVAILABLE = False
     get_fs_type = None  # type: ignore[assignment]
+    is_restricted_go2rtc_source = None  # type: ignore[assignment]
 
 @unittest.skipIf(not SERVICES_AVAILABLE, "OpenCV not installed — required by frigate.util.services")
 class TestGetFsType(unittest.TestCase):
@@ -52,6 +53,48 @@ class TestGetFsType(unittest.TestCase):
 
         # With the fix, this should now correctly fall back to the root mount "/"
         self.assertEqual(get_fs_type("/mnt/data_old/file.txt"), "ext4")
+
+
+@unittest.skipIf(not SERVICES_AVAILABLE, "OpenCV not installed — required by frigate.util.services")
+class TestIsRestrictedGo2rtcSource(unittest.TestCase):
+    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    def test_restricted_sources_when_exec_not_allowed(self, mock_exec_allowed):
+        mock_exec_allowed.return_value = False
+        self.assertTrue(is_restricted_go2rtc_source("echo:test"))
+        self.assertTrue(is_restricted_go2rtc_source("expr:test"))
+        self.assertTrue(is_restricted_go2rtc_source("exec:test"))
+
+    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    def test_unrestricted_sources_when_exec_not_allowed(self, mock_exec_allowed):
+        mock_exec_allowed.return_value = False
+        self.assertFalse(is_restricted_go2rtc_source("rtsp://test"))
+        self.assertFalse(is_restricted_go2rtc_source("http://test"))
+        self.assertFalse(is_restricted_go2rtc_source("ffmpeg:test"))
+        self.assertFalse(is_restricted_go2rtc_source("hass:test"))
+
+    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    def test_restricted_sources_when_exec_allowed(self, mock_exec_allowed):
+        mock_exec_allowed.return_value = True
+        self.assertFalse(is_restricted_go2rtc_source("echo:test"))
+        self.assertFalse(is_restricted_go2rtc_source("expr:test"))
+        self.assertFalse(is_restricted_go2rtc_source("exec:test"))
+
+    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    def test_unrestricted_sources_when_exec_allowed(self, mock_exec_allowed):
+        mock_exec_allowed.return_value = True
+        self.assertFalse(is_restricted_go2rtc_source("rtsp://test"))
+        self.assertFalse(is_restricted_go2rtc_source("http://test"))
+        self.assertFalse(is_restricted_go2rtc_source("ffmpeg:test"))
+        self.assertFalse(is_restricted_go2rtc_source("hass:test"))
+
+    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    def test_whitespace_handling(self, mock_exec_allowed):
+        mock_exec_allowed.return_value = False
+        self.assertTrue(is_restricted_go2rtc_source("  exec:test  "))
+        self.assertTrue(is_restricted_go2rtc_source("\t expr:test \n"))
+        self.assertTrue(is_restricted_go2rtc_source("\n \r echo:test \t"))
+        self.assertFalse(is_restricted_go2rtc_source("  rtsp://test  "))
+
 
 if __name__ == "__main__":
     unittest.main()
