@@ -68,6 +68,13 @@ class AudioTranscriptionConfig(FrigateBaseModel):
         title="Model size",
         description="Model size to use for offline audio event transcription.",
     )
+    vad_threshold: float = Field(
+        default=0.8,
+        title="Voice Activity Detection Threshold",
+        description="Threshold (0.0 to 1.0) for Voice Activity Detection; higher means fewer false positives but more missed speech. Replaces the hardcoded value (previously 0.8 or 0.9 depending on the model).",
+        ge=0.0,
+        le=1.0,
+    )
     live_enabled: Optional[bool] = Field(
         default=False,
         title="Live transcription",
@@ -445,6 +452,13 @@ class CameraAudioTranscriptionConfig(FrigateBaseModel):
     )
     enabled_in_config: Optional[bool] = Field(
         default=None, title="Original transcription state"
+    )
+    vad_threshold: Optional[float] = Field(
+        default=None,
+        title="Voice Activity Detection Threshold",
+        description="Override for the global Voice Activity Detection threshold for this camera.",
+        ge=0.0,
+        le=1.0,
     )
     live_enabled: Optional[bool] = Field(
         default=False,
