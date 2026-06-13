@@ -81,6 +81,9 @@ export class ApiMocker {
     await this.page.route("**/api/stats", (route) =>
       route.fulfill({ json: stats }),
     );
+    await this.page.route("**/api/stats/history**", (route) =>
+      route.fulfill({ json: [] }),
+    );
 
     // Reviews. The real backend exposes /review (singular) for the main
     // list and /review/summary for the summary — the previous plural glob
@@ -113,11 +116,7 @@ export class ApiMocker {
       route.fulfill({ json: [] }),
     );
 
-    // Sub-labels and attributes (for explore filters).
-    // Use trailing ** so query-string variants (e.g. ?split_joined=1) match.
-    await this.page.route("**/api/sub_labels**", (route) =>
-      route.fulfill({ json: [] }),
-    );
+
     await this.page.route("**/api/labels**", (route) =>
       route.fulfill({ json: ["person", "car"] }),
     );
@@ -129,6 +128,9 @@ export class ApiMocker {
     );
 
     // Events / search
+    await this.page.route("**/api/event_ids**", (route) =>
+      route.fulfill({ json: [] }),
+    );
     await this.page.route("**/api/events**", (route) =>
       route.fulfill({ json: events }),
     );
@@ -222,6 +224,12 @@ export class ApiMocker {
       // Fall through to more specific routes for GET requests
       return route.fallback();
     });
+
+    // Sub-labels and attributes (for explore filters).
+    // Use trailing ** so query-string variants (e.g. ?split_joined=1) match.
+    await this.page.route("**/api/sub_labels**", (route) =>
+      route.fulfill({ json: [] }),
+    );
   }
 }
 
@@ -234,6 +242,12 @@ export class MediaMocker {
 
   async install() {
     // Camera snapshots
+    await this.page.route("**/api/*/latest.webp**", (route) =>
+      route.fulfill({
+        contentType: "image/webp",
+        body: PLACEHOLDER_PNG,
+      }),
+    );
     await this.page.route("**/api/*/latest.jpg**", (route) =>
       route.fulfill({
         contentType: "image/png",
