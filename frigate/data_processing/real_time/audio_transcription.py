@@ -52,6 +52,11 @@ class AudioTranscriptionRealTimeProcessor(RealTimeProcessorApi):
                 # Whisper models need to be per-process and can only run one stream at a time
                 # TODO: try parallel: https://github.com/SYSTRAN/faster-whisper/issues/100
                 logger.debug(f"Loading Whisper model for {self.camera_config.name}")
+
+                vad_threshold = self.camera_config.audio_transcription.vad_threshold
+                if vad_threshold is None:
+                    vad_threshold = self.config.audio_transcription.vad_threshold
+
                 self.whisper_model = FasterWhisperASR(
                     modelsize="tiny",
                     device="cuda"
@@ -59,6 +64,7 @@ class AudioTranscriptionRealTimeProcessor(RealTimeProcessorApi):
                     else "cpu",
                     lan=self.config.audio_transcription.language,
                     model_dir=os.path.join(MODEL_CACHE_DIR, "whisper"),
+                    vad_threshold=vad_threshold,
                 )
                 self.whisper_model.use_vad()
                 self.stream = OnlineASRProcessor(
