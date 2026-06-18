@@ -352,8 +352,9 @@ def get_ort_providers(
                         "device_type": device,
                     }
                 )
-        elif provider == "MIGraphXExecutionProvider":
-            migraphx_cache_dir = os.path.join(MODEL_CACHE_DIR, "migraphx")
+        elif provider in ("MIGraphXExecutionProvider", "ROCmExecutionProvider"):
+            provider_type = "migraphx" if provider == "MIGraphXExecutionProvider" else "rocm"
+            migraphx_cache_dir = os.path.join(MODEL_CACHE_DIR, provider_type)
             os.makedirs(migraphx_cache_dir, exist_ok=True)
 
             providers.append(provider)

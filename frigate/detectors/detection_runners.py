@@ -616,10 +616,10 @@ def get_optimized_runner(
 
     if (
         providers
-        and providers[0] == "MIGraphXExecutionProvider"
+        and providers[0] in ("MIGraphXExecutionProvider", "ROCmExecutionProvider")
         and ONNXModelRunner.is_migraphx_complex_model(model_type)
     ):
-        # Don't use MIGraphX for models that are not supported
+        # Don't use MIGraphX/ROCm for models that are not supported
         providers.pop(0)
         options.pop(0)
 
