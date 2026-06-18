@@ -50,9 +50,9 @@ RUN wget -q https://bootstrap.pypa.io/get-pip.py -O get-pip.py \
     && python3 get-pip.py "pip" --break-system-packages
 RUN python3 -m pip config set global.break-system-packages true
 
-COPY docker/rocm/requirements-wheels-rocm.txt /requirements.txt
-RUN pip3 uninstall -y onnxruntime \
-    && pip3 install -r /requirements.txt
+# MIGraphX detector uses Python MIGraphX bindings directly from ROCm install
+# Keep standard onnxruntime for embeddings/non-detection tasks
+# No need for onnxruntime-rocm wheel - migraphx detector bypasses ONNX Runtime
 
 #######################################################################
 FROM scratch AS rocm-dist
