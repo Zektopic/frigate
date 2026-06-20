@@ -1,5 +1,8 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
-import { convertLocalDateToTimestamp, formatUnixTimestampToDateTime } from "./dateUtil";
+import {
+  convertLocalDateToTimestamp,
+  formatUnixTimestampToDateTime,
+} from "./dateUtil";
 
 describe("convertLocalDateToTimestamp", () => {
   afterEach(() => {
@@ -36,7 +39,7 @@ describe("convertLocalDateToTimestamp", () => {
       () =>
         ({
           formatToParts,
-        }) as any,
+        }) as unknown as Intl.DateTimeFormat,
     );
   };
 
@@ -85,7 +88,7 @@ describe("convertLocalDateToTimestamp", () => {
       () =>
         ({
           formatToParts,
-        }) as any,
+        }) as unknown as Intl.DateTimeFormat,
     );
 
     expect(convertLocalDateToTimestamp("10102023")).toBe(0);
@@ -150,7 +153,8 @@ describe("formatUnixTimestampToDateTime", () => {
   });
 
   test("should uppercase AM/PM for a formats", () => {
-    const result = formatUnixTimestampToDateTime(1672585200, { // 15:00:00 UTC
+    const result = formatUnixTimestampToDateTime(1672585200, {
+      // 15:00:00 UTC
       timezone: "UTC",
       date_format: "h:mm a",
     });

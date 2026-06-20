@@ -1,5 +1,14 @@
 """Tests for WebSocket authorization checks."""
 
+import sys
+from unittest.mock import MagicMock
+if "ws4py.server.wsgirefserver" not in sys.modules:
+    sys.modules["ws4py"] = MagicMock()
+    sys.modules["ws4py.server"] = MagicMock()
+    sys.modules["ws4py.server.wsgirefserver"] = MagicMock()
+    sys.modules["ws4py.server.wsgiutils"] = MagicMock()
+    sys.modules["ws4py.websocket"] = MagicMock()
+
 import unittest
 
 from frigate.comms.ws import _check_ws_authorization
