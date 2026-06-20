@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { getUTCOffset, getDurationFromTimestamps } from "../dateUtil";
-import * as i18n from "@/utils/i18n";
 
 vi.mock("@/utils/i18n", () => ({
   default: {
@@ -76,7 +75,9 @@ describe("getDurationFromTimestamps", () => {
     // 1 hour, 2 minutes, 3 seconds
     const start = 1000;
     const end = start + 3600 + 120 + 3;
-    expect(getDurationFromTimestamps(start, end, false)).toBe("time.hour_one time.minute_other time.second_other");
+    expect(getDurationFromTimestamps(start, end, false)).toBe(
+      "time.hour_one time.minute_other time.second_other",
+    );
   });
 
   it("should return correct abbreviated duration with hours, minutes, and seconds", () => {
@@ -92,7 +93,9 @@ describe("getDurationFromTimestamps", () => {
     const end = start + 3600 + 1;
 
     // Non-abbreviated
-    expect(getDurationFromTimestamps(start, end, false)).toBe("time.hour_one time.second_one");
+    expect(getDurationFromTimestamps(start, end, false)).toBe(
+      "time.hour_one time.second_one",
+    );
 
     // Abbreviated
     expect(getDurationFromTimestamps(start, end, true)).toBe("1h 1s");
