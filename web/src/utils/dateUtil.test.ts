@@ -1,5 +1,8 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
-import { convertLocalDateToTimestamp, formatSecondsToDuration } from "./dateUtil";
+import {
+  convertLocalDateToTimestamp,
+  formatSecondsToDuration,
+} from "./dateUtil";
 
 describe("formatSecondsToDuration", () => {
   test("should handle invalid durations", () => {
@@ -58,7 +61,7 @@ describe("convertLocalDateToTimestamp", () => {
       () =>
         ({
           formatToParts,
-        }) as any,
+        }) as unknown as Intl.DateTimeFormat,
     );
   };
 
@@ -107,7 +110,7 @@ describe("convertLocalDateToTimestamp", () => {
       () =>
         ({
           formatToParts,
-        }) as any,
+        }) as unknown as Intl.DateTimeFormat,
     );
 
     expect(convertLocalDateToTimestamp("10102023")).toBe(0);
