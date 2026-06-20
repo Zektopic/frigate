@@ -13,14 +13,14 @@ ARG ROCM
 
 RUN apt update -qq && \
     apt install -y wget gpg && \
-    wget -O rocm.deb https://repo.radeon.com/amdgpu-install/7.2.3/ubuntu/jammy/amdgpu-install_7.2.3.70203-1_all.deb && \
+    wget -O rocm.deb https://repo.radeon.com/amdgpu-install/6.4.3/ubuntu/jammy/amdgpu-install_6.4.60403-1_all.deb && \
     apt install -y ./rocm.deb && \
     apt update && \
     apt install -qq -y rocm
 
 RUN mkdir -p /opt/rocm-dist/opt/rocm-$ROCM/lib
 RUN cd /opt/rocm-$ROCM/lib && \
-    cp -dpr libMIOpen*.so* libamd*.so* libhip*.so* libhsa*.so* libmigraphx*.so* librocm*.so* librocblas*.so* libroctracer*.so* librocsolver*.so* librocfft*.so* librocprofiler*.so* libroctx*.so*  librocroller.so* /opt/rocm-dist/opt/rocm-$ROCM/lib/ && \
+    cp -dpr libMIOpen*.so* libamd*.so* libhip*.so* libhsa*.so* libmigraphx*.so* librocm*.so* librocblas*.so* libroctracer*.so* librocsolver*.so* librocfft*.so* librocprofiler*.so* libroctx*.so* /opt/rocm-dist/opt/rocm-$ROCM/lib/ && \
     mkdir -p /opt/rocm-dist/opt/rocm-$ROCM/lib/migraphx/lib && \
     cp -dpr migraphx/lib/* /opt/rocm-dist/opt/rocm-$ROCM/lib/migraphx/lib
 RUN cd /opt/rocm-dist/opt/ && ln -s rocm-$ROCM rocm
@@ -50,9 +50,9 @@ RUN wget -q https://bootstrap.pypa.io/get-pip.py -O get-pip.py \
     && python3 get-pip.py "pip" --break-system-packages
 RUN python3 -m pip config set global.break-system-packages true
 
-COPY docker/rocm/requirements-wheels-rocm.txt /requirements.txt
-RUN pip3 uninstall -y onnxruntime \
-    && pip3 install -r /requirements.txt
+# MIGraphX detector uses Python MIGraphX bindings directly from ROCm install
+# Keep standard onnxruntime for embeddings/non-detection tasks
+# No need for onnxruntime-rocm wheel - migraphx detector bypasses ONNX Runtime
 
 #######################################################################
 FROM scratch AS rocm-dist
