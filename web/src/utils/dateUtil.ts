@@ -304,6 +304,10 @@ export const formatSecondsToDuration = (
     return "Invalid duration";
   }
 
+  if (seconds === 0) {
+    return "0 seconds";
+  }
+
   const duration = intervalToDuration({ start: 0, end: seconds * 1000 });
   return formatDuration(duration, {
     format: ["hours", "minutes", "seconds"],
