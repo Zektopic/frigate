@@ -6,6 +6,7 @@ on:
 
 permissions:
   pull-requests: write
+  issues: write
 
 jobs:
   check_template:
@@ -91,16 +92,14 @@ jobs:
 
             const prNumber = context.payload.pull_request.number;
             const message = [
-              '## PR template validation failed',
+              '## PR template validation notice',
               '',
-              'This PR was automatically closed because the description does not follow the [pull request template](https://github.com/blakeblackshear/frigate/blob/dev/.github/pull_request_template.md).',
+              'The PR description could not be validated against the [pull request template](https://github.com/blakeblackshear/frigate/blob/dev/.github/pull_request_template.md).',
               '',
-              '**Issues found:**',
+              '**Items to review:**',
               ...errors.map((e) => `- ${e}`),
               '',
-              'Please update your PR description to include all required sections from the template, then reopen this PR.',
-              '',
-              '> If you used an AI tool to generate this PR, please see our [contributing guidelines](https://github.com/blakeblackshear/frigate/blob/dev/CONTRIBUTING.md) for details.',
+              'Please consider updating your PR description to include all required sections from the template.',
             ].join('\n');
 
             await github.rest.issues.createComment({
@@ -110,11 +109,4 @@ jobs:
               body: message,
             });
 
-            await github.rest.pulls.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-              state: 'closed',
-            });
-
-            core.setFailed('PR description does not follow the template.');
+            console.warn('PR description could not be validated against the template.');
