@@ -4,11 +4,11 @@ from frigate.config import FrigateConfig
 from frigate.config.camera.ffmpeg import FFMPEG_INPUT_ARGS_DEFAULT
 from unittest.mock import patch
 
+from frigate.const import FFMPEG_HWACCEL_VAAPI
 from frigate.ffmpeg_presets import (
     parse_preset_hardware_acceleration_decode,
     parse_preset_input,
 )
-from frigate.const import FFMPEG_HWACCEL_VAAPI
 
 
 class TestFfmpegPresets(unittest.TestCase):
