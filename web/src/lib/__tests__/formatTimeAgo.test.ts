@@ -18,9 +18,13 @@ describe("formatTimeAgo", () => {
 
   it("should format past times correctly", () => {
     // seconds
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:30Z"))).toBe("30 seconds ago");
+    expect(formatTimeAgo(new Date("2024-01-01T11:59:30Z"))).toBe(
+      "30 seconds ago",
+    );
     // minutes
-    expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toBe("10 minutes ago");
+    expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toBe(
+      "10 minutes ago",
+    );
     // hours
     expect(formatTimeAgo(new Date("2024-01-01T07:00:00Z"))).toBe("5 hours ago");
     // days
@@ -28,16 +32,22 @@ describe("formatTimeAgo", () => {
     // weeks
     expect(formatTimeAgo(new Date("2023-12-18T12:00:00Z"))).toBe("2 weeks ago");
     // months
-    expect(formatTimeAgo(new Date("2023-10-01T12:00:00Z"))).toBe("3 months ago");
+    expect(formatTimeAgo(new Date("2023-10-01T12:00:00Z"))).toBe(
+      "3 months ago",
+    );
     // years
     expect(formatTimeAgo(new Date("2022-01-01T12:00:00Z"))).toBe("2 years ago");
   });
 
   it("should format future times correctly", () => {
     // seconds
-    expect(formatTimeAgo(new Date("2024-01-01T12:00:30Z"))).toBe("in 30 seconds");
+    expect(formatTimeAgo(new Date("2024-01-01T12:00:30Z"))).toBe(
+      "in 30 seconds",
+    );
     // minutes
-    expect(formatTimeAgo(new Date("2024-01-01T12:10:00Z"))).toBe("in 10 minutes");
+    expect(formatTimeAgo(new Date("2024-01-01T12:10:00Z"))).toBe(
+      "in 10 minutes",
+    );
     // hours
     expect(formatTimeAgo(new Date("2024-01-01T17:00:00Z"))).toBe("in 5 hours");
     // days
@@ -52,9 +62,13 @@ describe("formatTimeAgo", () => {
 
   it("should round the duration appropriately", () => {
     // 59 seconds ago -> seconds
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:01Z"))).toBe("59 seconds ago");
+    expect(formatTimeAgo(new Date("2024-01-01T11:59:01Z"))).toBe(
+      "59 seconds ago",
+    );
     // 60 seconds ago -> 1 minute ago
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:00Z"))).toBe("1 minute ago");
+    expect(formatTimeAgo(new Date("2024-01-01T11:59:00Z"))).toBe(
+      "1 minute ago",
+    );
     // 1 hour and 29 minutes ago -> 1 hour ago
     expect(formatTimeAgo(new Date("2024-01-01T10:31:00Z"))).toBe("1 hour ago");
     // 1 hour and 30 minutes ago -> duration=-5400s -> -90m -> -1.5h. Math.round(-1.5) = -1
