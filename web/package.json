@@ -143,9 +143,7 @@
     "@radix-ui/react-compose-refs": "1.1.2",
     "@radix-ui/react-popper": "1.2.8",
     "@radix-ui/react-slot": "1.2.4",
-    "brace-expansion": "2.1.1",
     "braces": "3.0.3",
-    "glob": "11.1.0",
     "micromatch": "4.0.8",
     "object-path": "0.11.8",
     "tinyglobby": {
