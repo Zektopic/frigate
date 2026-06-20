@@ -76,10 +76,10 @@ def migrate_frigate_config(config_file: str):
         logger.error("Config file is read-only, unable to migrate config file.")
         return
 
-    yaml = YAML()
-    yaml.indent(mapping=2, sequence=4, offset=2)
+    yaml_parser = YAML()
+    yaml_parser.indent(mapping=2, sequence=4, offset=2)
     with open(config_file, "r") as f:
-        config: dict[str, dict[str, Any]] = yaml.load(f)
+        config: dict[str, dict[str, Any]] = yaml_parser.load(f)
 
     if config is None:
         logger.error(f"Failed to load config at {config_file}")
@@ -98,7 +98,7 @@ def migrate_frigate_config(config_file: str):
         logger.info(f"Migrating frigate config from {previous_version} to 0.14...")
         new_config = migrate_014(config)
         with open(config_file, "w") as f:
-            yaml.dump(new_config, f)
+            yaml_parser.dump(new_config, f)
         previous_version = "0.14"
 
         logger.info("Migrating export file names...")
@@ -116,35 +116,35 @@ def migrate_frigate_config(config_file: str):
         logger.info(f"Migrating frigate config from {previous_version} to 0.15-0...")
         new_config = migrate_015_0(config)
         with open(config_file, "w") as f:
-            yaml.dump(new_config, f)
+            yaml_parser.dump(new_config, f)
         previous_version = "0.15-0"
 
     if previous_version < "0.15-1":
         logger.info(f"Migrating frigate config from {previous_version} to 0.15-1...")
         new_config = migrate_015_1(config)
         with open(config_file, "w") as f:
-            yaml.dump(new_config, f)
+            yaml_parser.dump(new_config, f)
         previous_version = "0.15-1"
 
     if previous_version < "0.16-0":
         logger.info(f"Migrating frigate config from {previous_version} to 0.16-0...")
         new_config = migrate_016_0(config)
         with open(config_file, "w") as f:
-            yaml.dump(new_config, f)
+            yaml_parser.dump(new_config, f)
         previous_version = "0.16-0"
 
     if previous_version < "0.17-0":
         logger.info(f"Migrating frigate config from {previous_version} to 0.17-0...")
         new_config = migrate_017_0(config)
         with open(config_file, "w") as f:
-            yaml.dump(new_config, f)
+            yaml_parser.dump(new_config, f)
         previous_version = "0.17-0"
 
     if previous_version < "0.18-0":
         logger.info(f"Migrating frigate config from {previous_version} to 0.18-0...")
         new_config = migrate_018_0(config)
         with open(config_file, "w") as f:
-            yaml.dump(new_config, f)
+            yaml_parser.dump(new_config, f)
         previous_version = "0.18-0"
 
     logger.info("Finished frigate config migration...")
