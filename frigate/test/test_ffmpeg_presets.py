@@ -2,7 +2,12 @@ import unittest
 
 from frigate.config import FrigateConfig
 from frigate.config.camera.ffmpeg import FFMPEG_INPUT_ARGS_DEFAULT
-from frigate.ffmpeg_presets import parse_preset_input
+from frigate.const import FFMPEG_HVC1_ARGS
+from frigate.ffmpeg_presets import (
+    PRESETS_RECORD_OUTPUT,
+    parse_preset_input,
+    parse_preset_output_record,
+)
 
 
 class TestFfmpegPresets(unittest.TestCase):
@@ -139,6 +144,29 @@ class TestFfmpegPresets(unittest.TestCase):
         frigate_config = FrigateConfig(**self.default_ffmpeg)
         assert "-some output" in (
             " ".join(frigate_config.cameras["back"].ffmpeg_cmds[0]["cmd"])
+        )
+
+    def test_parse_preset_output_record(self):
+        """Test parse_preset_output_record with valid and invalid inputs."""
+        # Not a string
+        self.assertIsNone(parse_preset_output_record(123, False))
+        self.assertIsNone(parse_preset_output_record(None, False))
+
+        # Not a valid preset
+        self.assertIsNone(parse_preset_output_record("nonexistent-preset", False))
+
+        # Valid preset, no hvc1
+        preset_name = "preset-record-generic"
+        expected = PRESETS_RECORD_OUTPUT[preset_name]
+        self.assertEqual(
+            parse_preset_output_record(preset_name, False),
+            expected
+        )
+
+        # Valid preset, force hvc1
+        self.assertEqual(
+            parse_preset_output_record(preset_name, True),
+            expected + FFMPEG_HVC1_ARGS
         )
 
 
