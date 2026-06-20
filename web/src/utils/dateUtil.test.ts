@@ -33,6 +33,7 @@ describe("convertLocalDateToTimestamp", () => {
 
     const formatToParts = vi.fn().mockReturnValue(partsMap[type]);
     vi.spyOn(Intl, "DateTimeFormat").mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       () =>
         ({
           formatToParts,
@@ -82,6 +83,7 @@ describe("convertLocalDateToTimestamp", () => {
       // missing day
     ]);
     vi.spyOn(Intl, "DateTimeFormat").mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       () =>
         ({
           formatToParts,
