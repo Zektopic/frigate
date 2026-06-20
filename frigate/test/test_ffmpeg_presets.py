@@ -2,7 +2,12 @@ import unittest
 
 from frigate.config import FrigateConfig
 from frigate.config.camera.ffmpeg import FFMPEG_INPUT_ARGS_DEFAULT
-from frigate.ffmpeg_presets import parse_preset_input
+from unittest.mock import patch
+from frigate.ffmpeg_presets import (
+    parse_preset_input,
+    parse_preset_hardware_acceleration_encode,
+    EncodeTypeEnum,
+)
 
 
 class TestFfmpegPresets(unittest.TestCase):
@@ -142,5 +147,95 @@ class TestFfmpegPresets(unittest.TestCase):
         )
 
 
+
+
+class TestParsePresetHardwareAccelerationEncode(unittest.TestCase):
+    def setUp(self):
+        self.ffmpeg_path = "/usr/lib/ffmpeg/ffmpeg"
+        self.input = "-i input.mp4"
+        self.output = "output.mp4"
+
+    @patch("frigate.ffmpeg_presets._gpu_selector.get_gpu_arg", return_value="")
+    def test_birdseye_default_when_not_string(self, mock_get_gpu_arg):
+        result = parse_preset_hardware_acceleration_encode(
+            self.ffmpeg_path,
+            None,
+            self.input,
+            self.output,
+            EncodeTypeEnum.birdseye,
+        )
+        self.assertIn("libx264", result)
+        self.assertIn(self.ffmpeg_path, result)
+        self.assertIn(self.input, result)
+        self.assertIn(self.output, result)
+
+    @patch("frigate.ffmpeg_presets._gpu_selector.get_gpu_arg", return_value="")
+    def test_timelapse_preset_intel_qsv_h264(self, mock_get_gpu_arg):
+        result = parse_preset_hardware_acceleration_encode(
+            self.ffmpeg_path,
+            "preset-intel-qsv-h264",
+            self.input,
+            self.output,
+            EncodeTypeEnum.timelapse,
+        )
+        self.assertIn("h264_qsv", result)
+        self.assertIn(self.ffmpeg_path, result)
+
+    @patch("frigate.ffmpeg_presets._gpu_selector.get_gpu_arg", return_value="")
+    def test_preview_default(self, mock_get_gpu_arg):
+        result = parse_preset_hardware_acceleration_encode(
+            self.ffmpeg_path,
+            "preset-intel-qsv-h264",  # Should fall back to default as preview only has default
+            self.input,
+            self.output,
+            EncodeTypeEnum.preview,
+        )
+        self.assertIn("libx264", result)
+        self.assertIn("ultrafast", result)
+
+    @patch("frigate.ffmpeg_presets._gpu_selector.get_gpu_arg", return_value="")
+    @patch("os.path.exists")
+    def test_jetson_fallback_when_hw_encoder_missing(
+        self, mock_exists, mock_get_gpu_arg
+    ):
+        mock_exists.side_effect = lambda path: path != "/dev/nvhost-msenc"
+        result = parse_preset_hardware_acceleration_encode(
+            self.ffmpeg_path,
+            "preset-jetson-h264",
+            self.input,
+            self.output,
+            EncodeTypeEnum.birdseye,
+        )
+        self.assertIn("libx264", result)  # default fallback
+        mock_exists.assert_any_call("/dev/nvhost-msenc")
+
+    @patch("frigate.ffmpeg_presets._gpu_selector.get_gpu_arg", return_value="")
+    @patch("os.path.exists")
+    def test_jetson_uses_hw_when_available(self, mock_exists, mock_get_gpu_arg):
+        mock_exists.return_value = True
+        result = parse_preset_hardware_acceleration_encode(
+            self.ffmpeg_path,
+            "preset-jetson-h264",
+            self.input,
+            self.output,
+            EncodeTypeEnum.birdseye,
+        )
+        self.assertIn("h264_nvmpi", result)
+        mock_exists.assert_any_call("/dev/nvhost-msenc")
+
+    @patch("frigate.ffmpeg_presets._gpu_selector.get_gpu_arg", return_value="--gpu_arg")
+    def test_gpu_arg_formatting(self, mock_get_gpu_arg):
+        # vaapi presets use `{3}` for the gpu_arg
+        result = parse_preset_hardware_acceleration_encode(
+            self.ffmpeg_path,
+            "hwaccel_vaapi",
+            self.input,
+            self.output,
+            EncodeTypeEnum.timelapse,
+        )
+        self.assertIn("vaapi", result)
+        self.assertIn("--gpu_arg", result)
+
 if __name__ == "__main__":
+
     unittest.main(verbosity=2)
