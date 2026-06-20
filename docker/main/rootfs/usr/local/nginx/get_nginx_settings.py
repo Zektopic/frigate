@@ -12,7 +12,7 @@ from frigate.util.config import find_config_file
 
 sys.path.remove("/opt/frigate")
 
-yaml = YAML()
+yaml = YAML(typ="safe")
 
 config_file = find_config_file()
 
