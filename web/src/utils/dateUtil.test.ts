@@ -1,5 +1,62 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
-import { convertLocalDateToTimestamp } from "./dateUtil";
+import { convertLocalDateToTimestamp, longToDate, epochToLong, dateToLong } from "./dateUtil";
+
+describe("longToDate", () => {
+  test("should convert a unix timestamp in seconds to a Date object", () => {
+    // 2023-01-01T00:00:00.000Z is 1672531200
+    const timestamp = 1672531200;
+    const expectedDate = new Date("2023-01-01T00:00:00.000Z");
+    expect(longToDate(timestamp)).toEqual(expectedDate);
+  });
+
+  test("should handle 0", () => {
+    const timestamp = 0;
+    const expectedDate = new Date("1970-01-01T00:00:00.000Z");
+    expect(longToDate(timestamp)).toEqual(expectedDate);
+  });
+
+  test("should handle negative timestamps", () => {
+    const timestamp = -1;
+    const expectedDate = new Date("1969-12-31T23:59:59.000Z");
+    expect(longToDate(timestamp)).toEqual(expectedDate);
+  });
+});
+
+describe("epochToLong", () => {
+  test("should convert epoch milliseconds to a unix timestamp in seconds", () => {
+    // 2023-01-01T00:00:00.000Z is 1672531200000 ms
+    const ms = 1672531200000;
+    const expectedSeconds = 1672531200;
+    expect(epochToLong(ms)).toBe(expectedSeconds);
+  });
+
+  test("should handle 0", () => {
+    expect(epochToLong(0)).toBe(0);
+  });
+
+  test("should handle negative epoch milliseconds", () => {
+    expect(epochToLong(-1000)).toBe(-1);
+  });
+});
+
+describe("dateToLong", () => {
+  test("should convert a Date object to a unix timestamp in seconds", () => {
+    // 2023-01-01T00:00:00.000Z
+    const date = new Date("2023-01-01T00:00:00.000Z");
+    const expectedSeconds = 1672531200;
+    expect(dateToLong(date)).toBe(expectedSeconds);
+  });
+
+  test("should handle epoch 0", () => {
+    const date = new Date("1970-01-01T00:00:00.000Z");
+    expect(dateToLong(date)).toBe(0);
+  });
+
+  test("should handle dates before epoch", () => {
+    const date = new Date("1969-12-31T23:59:59.000Z");
+    expect(dateToLong(date)).toBe(-1);
+  });
+});
 
 describe("convertLocalDateToTimestamp", () => {
   afterEach(() => {
