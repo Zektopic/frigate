@@ -1,5 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { getUTCOffset } from "../dateUtil";
+import { getUTCOffset, epochToLong } from "../dateUtil";
+
+describe("epochToLong", () => {
+  it("should convert positive epoch time to long correctly", () => {
+    expect(epochToLong(1700000000000)).toBe(1700000000);
+    expect(epochToLong(1000)).toBe(1);
+    expect(epochToLong(1500)).toBe(1.5);
+  });
+
+  it("should convert zero correctly", () => {
+    expect(epochToLong(0)).toBe(0);
+  });
+
+  it("should convert negative epoch time correctly", () => {
+    expect(epochToLong(-1000)).toBe(-1);
+    expect(epochToLong(-1700000000000)).toBe(-1700000000);
+  });
+});
 
 describe("getUTCOffset", () => {
   it("should calculate correct offset from a UTC string", () => {
