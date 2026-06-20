@@ -1,5 +1,12 @@
-import { describe, it, expect } from "vitest";
-import { getUTCOffset } from "../dateUtil";
+import { describe, it, expect, vi } from "vitest";
+import { getUTCOffset, getDurationFromTimestamps } from "../dateUtil";
+import * as i18n from "@/utils/i18n";
+
+vi.mock("@/utils/i18n", () => ({
+  default: {
+    t: (key: string) => key,
+  },
+}));
 
 describe("getUTCOffset", () => {
   it("should calculate correct offset from a UTC string", () => {
@@ -49,5 +56,51 @@ describe("getUTCOffset", () => {
 
     // Intl.DateTimeFormat throws a RangeError for invalid time zone
     expect(() => getUTCOffset(date, "Invalid/Zone")).toThrow();
+  });
+});
+
+describe("getDurationFromTimestamps", () => {
+  it("should return invalid start time if start time is NaN", () => {
+    expect(getDurationFromTimestamps(NaN, 1000)).toBe("time.invalidStartTime");
+  });
+
+  it("should return in progress if end time is null", () => {
+    expect(getDurationFromTimestamps(1000, null)).toBe("time.inProgress");
+  });
+
+  it("should return invalid end time if end time is NaN", () => {
+    expect(getDurationFromTimestamps(1000, NaN)).toBe("time.invalidEndTime");
+  });
+
+  it("should return correct full duration with hours, minutes, and seconds", () => {
+    // 1 hour, 2 minutes, 3 seconds
+    const start = 1000;
+    const end = start + 3600 + 120 + 3;
+    expect(getDurationFromTimestamps(start, end, false)).toBe("time.hour_one time.minute_other time.second_other");
+  });
+
+  it("should return correct abbreviated duration with hours, minutes, and seconds", () => {
+    // 2 hours, 1 minute, 1 second
+    const start = 1000;
+    const end = start + 7200 + 60 + 1;
+    expect(getDurationFromTimestamps(start, end, true)).toBe("2h 1m 1s");
+  });
+
+  it("should handle omitted units that are 0", () => {
+    // 1 hour, 0 minutes, 1 second
+    const start = 1000;
+    const end = start + 3600 + 1;
+
+    // Non-abbreviated
+    expect(getDurationFromTimestamps(start, end, false)).toBe("time.hour_one time.second_one");
+
+    // Abbreviated
+    expect(getDurationFromTimestamps(start, end, true)).toBe("1h 1s");
+  });
+
+  it("should default abbreviated to false", () => {
+    const start = 1000;
+    const end = start + 60; // 1 minute
+    expect(getDurationFromTimestamps(start, end)).toBe("time.minute_one");
   });
 });
