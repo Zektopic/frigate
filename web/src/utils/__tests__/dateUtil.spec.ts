@@ -1,5 +1,58 @@
 import { describe, it, expect } from "vitest";
-import { getUTCOffset } from "../dateUtil";
+import { dateToLong, epochToLong, getUTCOffset, longToDate } from "../dateUtil";
+
+describe("longToDate", () => {
+  it("should correctly convert a UNIX timestamp (seconds) to a Date object", () => {
+    // 1672574400 is "2023-01-01T12:00:00.000Z"
+    const timestamp = 1672574400;
+    const date = longToDate(timestamp);
+
+    expect(date).toBeInstanceOf(Date);
+    expect(date.getTime()).toBe(timestamp * 1000);
+    expect(date.toISOString()).toBe("2023-01-01T12:00:00.000Z");
+  });
+
+  it("should handle 0 timestamp", () => {
+    const timestamp = 0;
+    const date = longToDate(timestamp);
+    expect(date.toISOString()).toBe("1970-01-01T00:00:00.000Z");
+  });
+
+  it("should handle negative timestamp (dates before 1970)", () => {
+    // -1 day before epoch
+    const timestamp = -86400;
+    const date = longToDate(timestamp);
+    expect(date.toISOString()).toBe("1969-12-31T00:00:00.000Z");
+  });
+});
+
+describe("epochToLong", () => {
+  it("should correctly convert milliseconds to seconds", () => {
+    expect(epochToLong(1672574400000)).toBe(1672574400);
+    expect(epochToLong(0)).toBe(0);
+    expect(epochToLong(1000)).toBe(1);
+    expect(epochToLong(-1000)).toBe(-1);
+  });
+});
+
+describe("dateToLong", () => {
+  it("should correctly convert a Date object to a UNIX timestamp in seconds", () => {
+    const date = new Date("2023-01-01T12:00:00.000Z");
+    const timestamp = dateToLong(date);
+
+    expect(timestamp).toBe(1672574400);
+  });
+
+  it("should handle the epoch Date correctly", () => {
+    const date = new Date("1970-01-01T00:00:00.000Z");
+    expect(dateToLong(date)).toBe(0);
+  });
+
+  it("should handle pre-epoch Dates correctly", () => {
+    const date = new Date("1969-12-31T00:00:00.000Z");
+    expect(dateToLong(date)).toBe(-86400);
+  });
+});
 
 describe("getUTCOffset", () => {
   it("should calculate correct offset from a UTC string", () => {
