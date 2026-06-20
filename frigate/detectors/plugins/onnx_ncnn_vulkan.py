@@ -91,7 +91,8 @@ class ONNXDetector(DetectionApi):
         import cv2
 
         _, _, h, w = tensor_input.shape
-        mat_in = self.ncnn.Mat(tensor_input.squeeze(0).astype(np.float32))
+        # ncnn YOLOv5s expects 0-255 range, Frigate normalizes to 0-1
+        mat_in = self.ncnn.Mat((tensor_input.squeeze(0) * 255.0).astype(np.float32))
 
         with self.net.create_extractor() as ex:
             ex.input("in0", mat_in)
