@@ -19,7 +19,7 @@ from frigate.util.services import is_restricted_go2rtc_source
 
 sys.path.remove("/opt/frigate")
 
-yaml = YAML()
+yaml = YAML(typ="safe")
 
 config_file = find_config_file()
 
