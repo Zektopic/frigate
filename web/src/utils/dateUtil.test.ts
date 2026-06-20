@@ -36,7 +36,7 @@ describe("convertLocalDateToTimestamp", () => {
       () =>
         ({
           formatToParts,
-        }) as any,
+        }) as unknown as Intl.DateTimeFormat,
     );
   };
 
@@ -85,7 +85,7 @@ describe("convertLocalDateToTimestamp", () => {
       () =>
         ({
           formatToParts,
-        }) as any,
+        }) as unknown as Intl.DateTimeFormat,
     );
 
     expect(convertLocalDateToTimestamp("10102023")).toBe(0);
