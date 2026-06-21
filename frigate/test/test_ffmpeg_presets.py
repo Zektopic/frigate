@@ -1,8 +1,12 @@
 import unittest
 
+from unittest.mock import patch
+
 from frigate.config import FrigateConfig
 from frigate.config.camera.ffmpeg import FFMPEG_INPUT_ARGS_DEFAULT
+from frigate.const import FFMPEG_HWACCEL_VAAPI
 from frigate.ffmpeg_presets import (
+    parse_preset_hardware_acceleration_decode,
     parse_preset_hardware_acceleration_scale,
     parse_preset_input,
 )
@@ -144,6 +148,61 @@ class TestFfmpegPresets(unittest.TestCase):
             " ".join(frigate_config.cameras["back"].ffmpeg_cmds[0]["cmd"])
         )
 
+    def test_parse_preset_hardware_acceleration_decode(self):
+        # Test non-string input
+        self.assertIsNone(
+            parse_preset_hardware_acceleration_decode(123, 5, 1920, 1080, 0)
+        )
+        self.assertIsNone(
+            parse_preset_hardware_acceleration_decode(None, 5, 1920, 1080, 0)
+        )
+
+        # Test invalid preset
+        self.assertIsNone(
+            parse_preset_hardware_acceleration_decode(
+                "invalid-preset", 5, 1920, 1080, 0
+            )
+        )
+
+        # Test valid preset without replacements
+        self.assertEqual(
+            parse_preset_hardware_acceleration_decode(
+                "preset-rpi-64-h264", 5, 1920, 1080, 0
+            ),
+            ["-c:v:1", "h264_v4l2m2m"],
+        )
+
+        # Test valid preset with resize replacements
+        self.assertEqual(
+            parse_preset_hardware_acceleration_decode(
+                "preset-jetson-h264", 5, 1920, 1080, 0
+            ),
+            ["-c:v", "h264_nvmpi", "-resize", "1920x1080"],
+        )
+
+        # Test valid preset with GPU replacement using vaapi
+        with patch(
+            "frigate.ffmpeg_presets._gpu_selector.get_gpu_arg",
+            return_value="/dev/dri/renderD128",
+        ):
+            # FFMPEG_HWACCEL_VAAPI = "preset-vaapi"
+            result = parse_preset_hardware_acceleration_decode(
+                FFMPEG_HWACCEL_VAAPI, 5, 1920, 1080, 0
+            )
+            self.assertEqual(
+                result,
+                [
+                    "-hwaccel_flags",
+                    "allow_profile_mismatch",
+                    "-hwaccel",
+                    "vaapi",
+                    "-hwaccel_device",
+                    "/dev/dri/renderD128",
+                    "-hwaccel_output_format",
+                    "vaapi",
+                ],
+            )
+
     def test_parse_preset_hardware_acceleration_scale_default_when_not_string(self):
         result = parse_preset_hardware_acceleration_scale(
             None, ["detect"], 5, 1920, 1080
@@ -186,7 +245,5 @@ class TestFfmpegPresets(unittest.TestCase):
         self.assertEqual(
             result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"]
         )
-
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)
