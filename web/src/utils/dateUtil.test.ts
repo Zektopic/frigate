@@ -2,6 +2,7 @@ import { describe, test, expect, vi, afterEach } from "vitest";
 import {
   convertLocalDateToTimestamp,
   formatSecondsToDuration,
+  formatUnixTimestampToDateTime,
   getNowYesterdayInLong,
 } from "./dateUtil";
 
@@ -135,5 +136,83 @@ describe("convertLocalDateToTimestamp", () => {
     );
 
     expect(convertLocalDateToTimestamp("10102023")).toBe(0);
+  });
+});
+
+describe("formatUnixTimestampToDateTime", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const TEST_TIMESTAMP = 1672574400; // 2023-01-01T12:00:00.000Z
+
+  test("should return 'Invalid time' for NaN", () => {
+    expect(formatUnixTimestampToDateTime(NaN)).toBe("Invalid time");
+  });
+
+  test("should format with default configuration", () => {
+    const result = formatUnixTimestampToDateTime(TEST_TIMESTAMP, {
+      timezone: "UTC",
+    });
+    // Default Intl formatter string can depend on Node/Vitest version,
+    // but typically looks like "1/1/2023" for en-US without time options
+    expect(result).toContain("1/1/2023");
+  });
+
+  test("should format with explicit timezone", () => {
+    const result = formatUnixTimestampToDateTime(TEST_TIMESTAMP, {
+      timezone: "America/New_York",
+      time_style: "short",
+    });
+    // 12:00:00 UTC -> 07:00:00 EST
+    expect(result).toContain("7:00");
+  });
+
+  test("should format with 12hour format", () => {
+    const result = formatUnixTimestampToDateTime(TEST_TIMESTAMP, {
+      timezone: "UTC",
+      time_format: "12hour",
+      time_style: "short",
+    });
+    // Should have AM/PM uppercased
+    expect(result).toMatch(/12:00\s?(AM|PM)/);
+  });
+
+  test("should format with 24hour format", () => {
+    const result = formatUnixTimestampToDateTime(TEST_TIMESTAMP, {
+      timezone: "UTC",
+      time_format: "24hour",
+      time_style: "short",
+    });
+    expect(result).toContain("12:00");
+    expect(result).not.toMatch(/(AM|PM)/i);
+  });
+
+  test("should format with explicit date_format", () => {
+    const result = formatUnixTimestampToDateTime(TEST_TIMESTAMP, {
+      timezone: "UTC",
+      date_format: "yyyy-MM-dd HH:mm:ss",
+    });
+    expect(result).toBe("2023-01-01 12:00:00");
+  });
+
+  test("should uppercase AM/PM for a formats", () => {
+    const result = formatUnixTimestampToDateTime(1672585200, {
+      // 15:00:00 UTC
+      timezone: "UTC",
+      date_format: "h:mm a",
+    });
+    // i18n should uppercase pm
+    expect(result).toMatch(/3:00\s?(AM|PM)/);
+  });
+
+  test("should handle locale string", () => {
+    const result = formatUnixTimestampToDateTime(TEST_TIMESTAMP, {
+      timezone: "UTC",
+      locale: "en-GB",
+      date_style: "short",
+    });
+    // en-GB uses DD/MM/YYYY
+    expect(result).toContain("01/01/23");
   });
 });

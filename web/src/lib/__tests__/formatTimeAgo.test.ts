@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
 import { formatTimeAgo } from "../formatTimeAgo";
 
 describe("formatTimeAgo", () => {
@@ -9,11 +9,15 @@ describe("formatTimeAgo", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
-  it("should format 0 seconds ago correctly", () => {
-    const date = new Date("2024-01-01T12:00:00Z"); // 0 seconds ago
-    expect(formatTimeAgo(date)).toBe("in 0 seconds");
+  test("should format time in the past correctly", () => {
+    const timestamp = new Date("2024-01-01T11:59:30Z").getTime() / 1000;
+    expect(formatTimeAgo(new Date(timestamp * 1000))).toBe("30 seconds ago");
+    expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toBe(
+      "10 minutes ago",
+    );
   });
 
   it("should format past times correctly", () => {
@@ -75,5 +79,10 @@ describe("formatTimeAgo", () => {
     expect(formatTimeAgo(new Date("2024-01-01T10:30:00Z"))).toBe("1 hour ago");
     // 1 hour and 31 minutes ago -> duration=-5460s -> -91m -> -1.5166h. Math.round(-1.5166) = -2
     expect(formatTimeAgo(new Date("2024-01-01T10:29:00Z"))).toBe("2 hours ago");
+  });
+
+  test("should format exact edge cases", () => {
+    const d = new Date("2024-01-01T12:00:00Z");
+    expect(formatTimeAgo(d)).toBe("in 0 seconds");
   });
 });

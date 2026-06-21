@@ -2,6 +2,18 @@
 
 import json
 import threading
+import sys
+from unittest.mock import MagicMock
+if "ws4py.server.wsgirefserver" not in sys.modules:
+    sys.modules["ws4py"] = MagicMock()
+    sys.modules["ws4py.server"] = MagicMock()
+    sys.modules["ws4py.server.wsgirefserver"] = MagicMock()
+    sys.modules["ws4py.server.wsgiutils"] = MagicMock()
+    sys.modules["ws4py.websocket"] = MagicMock()
+
+if "pydantic" not in sys.modules:
+    sys.modules["pydantic"] = MagicMock()
+
 import unittest
 from types import SimpleNamespace
 from typing import Any

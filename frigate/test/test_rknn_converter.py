@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import subprocess
 
-# We remove the sys.modules patch from here to avoid breaking CI tests.
-# CI has cv2 and numpy installed.
+# Mock dependencies before any imports
 
 from frigate.util.rknn_converter import is_rknn_compatible
 from frigate.util.rknn_converter import ensure_rknn_toolkit
