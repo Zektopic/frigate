@@ -3,12 +3,14 @@ from unittest.mock import MagicMock, patch
 
 from frigate.config import FrigateConfig
 from frigate.config.camera.ffmpeg import FFMPEG_INPUT_ARGS_DEFAULT
-from frigate.const import FFMPEG_HWACCEL_VAAPI
+from frigate.const import FFMPEG_HVC1_ARGS, FFMPEG_HWACCEL_VAAPI
 from frigate.ffmpeg_presets import (
     LibvaGpuSelector,
+    PRESETS_RECORD_OUTPUT,
     parse_preset_hardware_acceleration_decode,
     parse_preset_hardware_acceleration_scale,
     parse_preset_input,
+    parse_preset_output_record,
 )
 
 
@@ -333,6 +335,29 @@ class TestLibvaGpuSelector(unittest.TestCase):
         # Index 5 is out of bounds (only 2 devices)
         self.assertEqual(
             self.selector.get_gpu_arg("preset-vaapi", 5), "/dev/dri/renderD128"
+        )
+
+    def test_parse_preset_output_record(self):
+        """Test parse_preset_output_record with valid and invalid inputs."""
+        # Not a string
+        self.assertIsNone(parse_preset_output_record(123, False))
+        self.assertIsNone(parse_preset_output_record(None, False))
+
+        # Not a valid preset
+        self.assertIsNone(parse_preset_output_record("nonexistent-preset", False))
+
+        # Valid preset, no hvc1
+        preset_name = "preset-record-generic"
+        expected = PRESETS_RECORD_OUTPUT[preset_name]
+        self.assertEqual(
+            parse_preset_output_record(preset_name, False),
+            expected
+        )
+
+        # Valid preset, force hvc1
+        self.assertEqual(
+            parse_preset_output_record(preset_name, True),
+            expected + FFMPEG_HVC1_ARGS
         )
 
 
