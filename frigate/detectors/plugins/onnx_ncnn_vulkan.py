@@ -20,18 +20,18 @@ from frigate.detectors.detector_config import BaseDetectorConfig
 import time
 logger = logging.getLogger(__name__)
 
-DETECTOR_KEY = "onnx_ncnn_vulkan"
+DETECTOR_KEY = "ncnn"
 
 
-class ONNXNcnnVulkanDetectorConfig(BaseDetectorConfig):
+class NCNNDetectorConfig(BaseDetectorConfig):
     type: Literal[DETECTOR_KEY]
     device: str = Field(default="AUTO", title="Device Type")
 
 
-class ONNXNcnnVulkanDetector(DetectionApi):
+class NCNNDetector(DetectionApi):
     type_key = DETECTOR_KEY
 
-    def __init__(self, detector_config: ONNXNcnnVulkanDetectorConfig):
+    def __init__(self, detector_config: NCNNDetectorConfig):
         super().__init__(detector_config)
 
         import ncnn
