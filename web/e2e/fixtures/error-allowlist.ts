@@ -56,6 +56,13 @@ export const GLOBAL_ALLOWLIST: RegExp[] = [
   // Fix: change the mock route to "**/api/sub_labels**" in api-mocker.ts.
   /500 Internal Server Error.*\/api\/sub_labels/,
 
+  // TODO(real-bug): MediaMocker handles /api/*/latest.jpg but the app also
+  // requests /api/*/latest.webp (webp format) for camera snapshots.
+  // Affects: live.spec.ts, review.spec.ts, auth.spec.ts, navigation.spec.ts.
+  // Fix: add route handler for /api/*/latest.webp in MediaMocker.install().
+  /500 Internal Server Error.*\/api\/[^/]+\/latest\.webp/,
+  /failed: net::ERR_ABORTED.*\/api\/[^/]+\/latest\.webp/,
+
   // -------------------------------------------------------------------------
   // Mock infrastructure gap — WebSocket streams.
   //
