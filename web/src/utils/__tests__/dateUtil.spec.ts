@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { dateToLong, epochToLong, getDurationFromTimestamps, getUTCOffset, longToDate } from "../dateUtil";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { dateToLong, epochToLong, getDurationFromTimestamps, getUTCOffset, isCurrentHour, longToDate } from "../dateUtil";
 
 vi.mock("@/utils/i18n", () => ({
   default: {
@@ -29,6 +29,39 @@ describe("longToDate", () => {
     const timestamp = -86400;
     const date = longToDate(timestamp);
     expect(date.toISOString()).toBe("1969-12-31T00:00:00.000Z");
+  });
+});
+
+describe("isCurrentHour", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("should return true for a timestamp in the current hour", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2023-10-10T14:30:00Z"));
+
+    // Timestamp for 14:15:00
+    const timestamp = new Date("2023-10-10T14:15:00Z").getTime() / 1000;
+    expect(isCurrentHour(timestamp)).toBe(true);
+  });
+
+  it("should return false for a timestamp in the previous hour", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2023-10-10T14:30:00Z"));
+
+    // Timestamp for 13:45:00
+    const timestamp = new Date("2023-10-10T13:45:00Z").getTime() / 1000;
+    expect(isCurrentHour(timestamp)).toBe(false);
+  });
+
+  it("should return false for a timestamp exactly at the start of the hour", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2023-10-10T14:30:00Z"));
+
+    // Timestamp for 14:00:00 (which is exactly equal to the threshold, so > returns false)
+    const timestamp = new Date("2023-10-10T14:00:00Z").getTime() / 1000;
+    expect(isCurrentHour(timestamp)).toBe(false);
   });
 });
 
