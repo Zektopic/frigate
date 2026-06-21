@@ -1,5 +1,23 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
-import { convertLocalDateToTimestamp } from "./dateUtil";
+import { convertLocalDateToTimestamp, getNowYesterdayInLong } from "./dateUtil";
+
+describe("getNowYesterdayInLong", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("should return timestamp of exactly 24 hours ago in seconds", () => {
+    // Set a fixed time: 2023-10-31T12:00:00.000Z
+    const mockCurrentTime = new Date("2023-10-31T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(mockCurrentTime);
+
+    // Expected is 24 hours earlier: 2023-10-30T12:00:00.000Z in seconds
+    const expectedTimeInSeconds = new Date("2023-10-30T12:00:00.000Z").getTime() / 1000;
+
+    expect(getNowYesterdayInLong()).toBe(expectedTimeInSeconds);
+  });
+});
 
 describe("convertLocalDateToTimestamp", () => {
   afterEach(() => {
