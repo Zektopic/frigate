@@ -1112,7 +1112,7 @@ class FrigateConfig(FrigateBaseModel):
         if is_json:
             config = json.load(config)
         else:
-            config = yaml.load(config)
+            config = YAML(typ="safe").load(config)
 
         # load minimal Frigate config after the full config did not validate
         if safe_load:
