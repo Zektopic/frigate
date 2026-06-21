@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { dateToLong, epochToLong, getDurationFromTimestamps, getUTCOffset, longToDate } from "../dateUtil";
+import { dateToLong, epochToLong, getDurationFromTimestamps, getUTCOffset, longToDate, formatSecondsToDuration } from "../dateUtil";
 
 vi.mock("@/utils/i18n", () => ({
   default: {
@@ -167,5 +167,27 @@ describe("getDurationFromTimestamps", () => {
     const start = 1000;
     const end = start + 60; // 1 minute
     expect(getDurationFromTimestamps(start, end)).toBe("time.minute_one");
+  });
+});
+
+describe("formatSecondsToDuration", () => {
+  it("should handle invalid durations", () => {
+    expect(formatSecondsToDuration(NaN)).toBe("Invalid duration");
+    expect(formatSecondsToDuration(-5)).toBe("Invalid duration");
+  });
+
+  it("should format 0 seconds", () => {
+    expect(formatSecondsToDuration(0)).toBe("0 seconds");
+  });
+
+  it("should format seconds into minutes and seconds", () => {
+    expect(formatSecondsToDuration(65)).toBe("1 minute, 5 seconds");
+    expect(formatSecondsToDuration(120)).toBe("2 minutes");
+  });
+
+  it("should format seconds into hours, minutes, and seconds", () => {
+    expect(formatSecondsToDuration(3665)).toBe("1 hour, 1 minute, 5 seconds");
+    expect(formatSecondsToDuration(7200)).toBe("2 hours");
+    expect(formatSecondsToDuration(7325)).toBe("2 hours, 2 minutes, 5 seconds");
   });
 });
