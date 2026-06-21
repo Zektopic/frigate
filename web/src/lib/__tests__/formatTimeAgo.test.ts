@@ -18,12 +18,14 @@ describe("formatTimeAgo", () => {
     expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toBe(
       "10 minutes ago",
     );
-  it("should format 0 seconds ago correctly", () => {
+  });
+
+  test("should format 0 seconds ago correctly", () => {
     const date = new Date("2024-01-01T12:00:00Z"); // 0 seconds ago
     expect(formatTimeAgo(date)).toMatch(/in\s0\sseconds/);
   });
 
-  it("should format past times correctly", () => {
+  test("should format past times correctly", () => {
     // seconds
     expect(formatTimeAgo(new Date("2024-01-01T11:59:30Z"))).toBe(
       "30 seconds ago",
@@ -31,12 +33,6 @@ describe("formatTimeAgo", () => {
     // minutes
     expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toBe(
       "10 minutes ago",
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:30Z"))).toMatch(
-      /30\sseconds\sago/,
-    );
-    // minutes
-    expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toMatch(
-      /10\sminutes\sago/,
     );
     // hours
     expect(formatTimeAgo(new Date("2024-01-01T07:00:00Z"))).toMatch(
@@ -53,8 +49,6 @@ describe("formatTimeAgo", () => {
     // months
     expect(formatTimeAgo(new Date("2023-10-01T12:00:00Z"))).toBe(
       "3 months ago",
-    expect(formatTimeAgo(new Date("2023-10-01T12:00:00Z"))).toMatch(
-      /3\smonths\sago/,
     );
     // years
     expect(formatTimeAgo(new Date("2022-01-01T12:00:00Z"))).toMatch(
@@ -62,7 +56,7 @@ describe("formatTimeAgo", () => {
     );
   });
 
-  it("should format future times correctly", () => {
+  test("should format future times correctly", () => {
     // seconds
     expect(formatTimeAgo(new Date("2024-01-01T12:00:30Z"))).toBe(
       "in 30 seconds",
@@ -70,12 +64,6 @@ describe("formatTimeAgo", () => {
     // minutes
     expect(formatTimeAgo(new Date("2024-01-01T12:10:00Z"))).toBe(
       "in 10 minutes",
-    expect(formatTimeAgo(new Date("2024-01-01T12:00:30Z"))).toMatch(
-      /in\s30\sseconds/,
-    );
-    // minutes
-    expect(formatTimeAgo(new Date("2024-01-01T12:10:00Z"))).toMatch(
-      /in\s10\sminutes/,
     );
     // hours
     expect(formatTimeAgo(new Date("2024-01-01T17:00:00Z"))).toMatch(
@@ -99,7 +87,7 @@ describe("formatTimeAgo", () => {
     );
   });
 
-  it("should round the duration appropriately", () => {
+  test("should round the duration appropriately", () => {
     // 59 seconds ago -> seconds
     expect(formatTimeAgo(new Date("2024-01-01T11:59:01Z"))).toBe(
       "59 seconds ago",
@@ -107,12 +95,6 @@ describe("formatTimeAgo", () => {
     // 60 seconds ago -> 1 minute ago
     expect(formatTimeAgo(new Date("2024-01-01T11:59:00Z"))).toBe(
       "1 minute ago",
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:01Z"))).toMatch(
-      /59\sseconds\sago/,
-    );
-    // 60 seconds ago -> 1 minute ago
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:00Z"))).toMatch(
-      /1\sminute\sago/,
     );
     // 1 hour and 29 minutes ago -> 1 hour ago
     expect(formatTimeAgo(new Date("2024-01-01T10:31:00Z"))).toMatch(
