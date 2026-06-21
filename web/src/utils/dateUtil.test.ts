@@ -1,5 +1,9 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
-import { convertLocalDateToTimestamp, getNowYesterdayInLong } from "./dateUtil";
+import {
+  convertLocalDateToTimestamp,
+  formatSecondsToDuration,
+  getNowYesterdayInLong,
+} from "./dateUtil";
 
 describe("getNowYesterdayInLong", () => {
   afterEach(() => {
@@ -16,6 +20,28 @@ describe("getNowYesterdayInLong", () => {
     const expectedTimeInSeconds = new Date("2023-10-30T12:00:00.000Z").getTime() / 1000;
 
     expect(getNowYesterdayInLong()).toBe(expectedTimeInSeconds);
+  });
+});
+
+describe("formatSecondsToDuration", () => {
+  test("should handle invalid durations", () => {
+    expect(formatSecondsToDuration(NaN)).toBe("Invalid duration");
+    expect(formatSecondsToDuration(-5)).toBe("Invalid duration");
+  });
+
+  test("should format 0 seconds", () => {
+    expect(formatSecondsToDuration(0)).toBe("0 seconds");
+  });
+
+  test("should format seconds into minutes and seconds", () => {
+    expect(formatSecondsToDuration(65)).toBe("1 minute, 5 seconds");
+    expect(formatSecondsToDuration(120)).toBe("2 minutes");
+  });
+
+  test("should format seconds into hours, minutes, and seconds", () => {
+    expect(formatSecondsToDuration(3665)).toBe("1 hour, 1 minute, 5 seconds");
+    expect(formatSecondsToDuration(7200)).toBe("2 hours");
+    expect(formatSecondsToDuration(7325)).toBe("2 hours, 2 minutes, 5 seconds");
   });
 });
 
