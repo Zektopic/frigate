@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { dateToLong, epochToLong, getDurationFromTimestamps, getUTCOffset, longToDate } from "../dateUtil";
+import { dateToLong, epochToLong, getBeginningOfDayTimestamp, getDurationFromTimestamps, getUTCOffset, longToDate } from "../dateUtil";
 
 vi.mock("@/utils/i18n", () => ({
   default: {
@@ -47,6 +47,28 @@ describe("epochToLong", () => {
 
   it("should convert negative epoch time correctly", () => {
     expect(epochToLong(-1700000000000)).toBe(-1700000000);
+  });
+});
+
+describe("getBeginningOfDayTimestamp", () => {
+  it("should return the correct timestamp for the beginning of the day", () => {
+    // 2023-01-01T15:30:45.123 in local time
+    const date = new Date(2023, 0, 1, 15, 30, 45, 123);
+    const result = getBeginningOfDayTimestamp(date);
+
+    // The result should be the timestamp for 2023-01-01T00:00:00.000 local time
+    const expectedDate = new Date(2023, 0, 1, 0, 0, 0, 0);
+    expect(result).toBe(expectedDate.getTime() / 1000);
+  });
+
+  it("should mutate the original Date object", () => {
+    const date = new Date(2023, 0, 1, 15, 30, 45, 123);
+    getBeginningOfDayTimestamp(date);
+
+    expect(date.getHours()).toBe(0);
+    expect(date.getMinutes()).toBe(0);
+    expect(date.getSeconds()).toBe(0);
+    expect(date.getMilliseconds()).toBe(0);
   });
 });
 
