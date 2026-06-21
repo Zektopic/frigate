@@ -1,11 +1,11 @@
 import unittest
-
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from frigate.config import FrigateConfig
 from frigate.config.camera.ffmpeg import FFMPEG_INPUT_ARGS_DEFAULT
 from frigate.const import FFMPEG_HWACCEL_VAAPI
 from frigate.ffmpeg_presets import (
+    LibvaGpuSelector,
     parse_preset_hardware_acceleration_decode,
     parse_preset_hardware_acceleration_scale,
     parse_preset_input,
@@ -245,5 +245,96 @@ class TestFfmpegPresets(unittest.TestCase):
         self.assertEqual(
             result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"]
         )
+class TestLibvaGpuSelector(unittest.TestCase):
+    def setUp(self):
+        self.selector = LibvaGpuSelector()
+        # Reset _valid_gpus before each test
+        LibvaGpuSelector._valid_gpus = None
+
+    def test_nvidia_preset(self):
+        self.assertEqual(self.selector.get_gpu_arg("preset-nvidia-h264", 2), "2")
+        self.assertIsNone(self.selector._valid_gpus)  # Should not be initialized
+
+    @patch("frigate.ffmpeg_presets.os.path.exists")
+    def test_no_dri_dir(self, mock_exists):
+        mock_exists.return_value = False
+        self.assertEqual(self.selector.get_gpu_arg("preset-vaapi", 0), "")
+        self.assertEqual(self.selector._valid_gpus, [])
+
+    @patch("frigate.ffmpeg_presets.os.listdir")
+    @patch("frigate.ffmpeg_presets.os.path.exists")
+    def test_no_render_devices(self, mock_exists, mock_listdir):
+        mock_exists.return_value = True
+        mock_listdir.return_value = ["card0"]
+        self.assertEqual(
+            self.selector.get_gpu_arg("preset-vaapi", 0), "/dev/dri/renderD128"
+        )
+        self.assertEqual(self.selector._valid_gpus, ["/dev/dri/renderD128"])
+
+    @patch("frigate.ffmpeg_presets.os.listdir")
+    @patch("frigate.ffmpeg_presets.os.path.exists")
+    def test_one_render_device(self, mock_exists, mock_listdir):
+        mock_exists.return_value = True
+        mock_listdir.return_value = ["card0", "renderD128"]
+        self.assertEqual(
+            self.selector.get_gpu_arg("preset-vaapi", 0), "/dev/dri/renderD128"
+        )
+        self.assertEqual(self.selector._valid_gpus, ["/dev/dri/renderD128"])
+
+    @patch("frigate.ffmpeg_presets.vainfo_hwaccel")
+    @patch("frigate.ffmpeg_presets.os.listdir")
+    @patch("frigate.ffmpeg_presets.os.path.exists")
+    def test_multiple_render_devices_all_valid(
+        self, mock_exists, mock_listdir, mock_vainfo
+    ):
+        mock_exists.return_value = True
+        mock_listdir.return_value = ["card0", "renderD128", "renderD129"]
+        mock_vainfo.return_value.returncode = 0
+
+        self.assertEqual(
+            self.selector.get_gpu_arg("preset-vaapi", 1), "/dev/dri/renderD129"
+        )
+        self.assertEqual(
+            self.selector._valid_gpus, ["/dev/dri/renderD128", "/dev/dri/renderD129"]
+        )
+
+    @patch("frigate.ffmpeg_presets.vainfo_hwaccel")
+    @patch("frigate.ffmpeg_presets.os.listdir")
+    @patch("frigate.ffmpeg_presets.os.path.exists")
+    def test_multiple_render_devices_some_valid(
+        self, mock_exists, mock_listdir, mock_vainfo
+    ):
+        mock_exists.return_value = True
+        mock_listdir.return_value = ["card0", "renderD128", "renderD129"]
+
+        def vainfo_side_effect(device_name):
+            mock_result = MagicMock()
+            if device_name == "renderD128":
+                mock_result.returncode = 1  # Invalid
+            else:
+                mock_result.returncode = 0  # Valid
+            return mock_result
+
+        mock_vainfo.side_effect = vainfo_side_effect
+
+        self.assertEqual(
+            self.selector.get_gpu_arg("preset-vaapi", 0), "/dev/dri/renderD129"
+        )
+        self.assertEqual(self.selector._valid_gpus, ["/dev/dri/renderD129"])
+
+    @patch("frigate.ffmpeg_presets.vainfo_hwaccel")
+    @patch("frigate.ffmpeg_presets.os.listdir")
+    @patch("frigate.ffmpeg_presets.os.path.exists")
+    def test_invalid_gpu_index(self, mock_exists, mock_listdir, mock_vainfo):
+        mock_exists.return_value = True
+        mock_listdir.return_value = ["card0", "renderD128", "renderD129"]
+        mock_vainfo.return_value.returncode = 0
+
+        # Index 5 is out of bounds (only 2 devices)
+        self.assertEqual(
+            self.selector.get_gpu_arg("preset-vaapi", 5), "/dev/dri/renderD128"
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
