@@ -1149,11 +1149,11 @@ def _remove_camera_from_config(config_file: str, camera_name: str) -> dict:
                 old_raw_config = f.read()
 
             try:
-                yaml = YAML()
+                yaml = YAML(typ='rt')
                 yaml.indent(mapping=2, sequence=4, offset=2)
 
                 with open(config_file, "r") as f:
-                    data = yaml.load(f)
+                    data = yaml.load(f) # nosec
 
                 # Remove camera from config
                 if "cameras" in data and camera_name in data["cameras"]:
