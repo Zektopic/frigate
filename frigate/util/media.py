@@ -382,17 +382,32 @@ def sync_event_thumbnails(dry_run: bool = False, force: bool = False) -> SyncRes
 
         # Find orphans - files where event doesn't exist or event has inline thumbnail
         orphans: list[str] = []
-        for file_path, camera, event_id in thumbnail_files:
-            if (camera, event_id) not in events_with_file_thumbs:
-                # Check if event exists with inline thumbnail
-                event_exists = Event.select().where(Event.id == event_id).exists()
-                if not event_exists:
-                    orphans.append(file_path)
-                # If event exists with inline thumbnail, the file is also orphaned
-                elif event_exists:
-                    event = Event.get_or_none(Event.id == event_id)
-                    if event and event.thumbnail:
-                        orphans.append(file_path)
+
+        # Collect items that are not in events_with_file_thumbs
+        missing_events = [
+            (file_path, camera, event_id)
+            for file_path, camera, event_id in thumbnail_files
+            if (camera, event_id) not in events_with_file_thumbs
+        ]
+
+        # Batch query for missing events in chunks to avoid large IN clauses
+        events_with_inline_thumbnails = {}
+        if missing_events:
+            missing_event_ids = [event_id for _, _, event_id in missing_events]
+            for chunk in chunked(missing_event_ids, 500):
+                for event in Event.select(Event.id, Event.thumbnail).where(
+                    Event.id << chunk
+                ):
+                    events_with_inline_thumbnails[event.id] = bool(event.thumbnail)
+
+        for file_path, camera, event_id in missing_events:
+            # If event doesn't exist, it's an orphan
+            # If event exists with inline thumbnail, the file is also orphaned
+            if (
+                event_id not in events_with_inline_thumbnails
+                or events_with_inline_thumbnails[event_id]
+            ):
+                orphans.append(file_path)
 
         result.orphans_found = len(orphans)
         result.orphan_paths = orphans
