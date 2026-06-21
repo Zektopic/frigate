@@ -33,6 +33,15 @@ describe("epochToLong", () => {
     expect(epochToLong(1000)).toBe(1);
     expect(epochToLong(-1000)).toBe(-1);
   });
+
+  it("should convert positive epoch time to long correctly", () => {
+    expect(epochToLong(1700000000000)).toBe(1700000000);
+    expect(epochToLong(1500)).toBe(1.5);
+  });
+
+  it("should convert negative epoch time correctly", () => {
+    expect(epochToLong(-1700000000000)).toBe(-1700000000);
+  });
 });
 
 describe("dateToLong", () => {
