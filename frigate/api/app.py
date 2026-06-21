@@ -82,6 +82,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=[Tags.app])
 
+
+class LabelCache:
+    def __init__(self, ttl: int = 60) -> None:
+        self.ttl = ttl
+        self.cache: Dict[str, Dict[str, Any]] = {}
+
+    def get(self, camera: str, allowed_cameras: List[str]) -> Optional[List[str]]:
+        now = datetime.now().timestamp()
+        key = camera if camera else ",".join(sorted(allowed_cameras))
+        if key in self.cache and now - self.cache[key]["time"] < self.ttl:
+            return self.cache[key]["labels"]
+        return None
+
+    def set(self, camera: str, allowed_cameras: List[str], labels: List[str]) -> None:
+        now = datetime.now().timestamp()
+        key = camera if camera else ",".join(sorted(allowed_cameras))
+        self.cache[key] = {"time": now, "labels": labels}
+
+
+label_cache = LabelCache(ttl=60)
+
 # Short timeout for the /genai/probe path. The probe is interactive — fail
 # fast on hung providers rather than holding an API worker thread.
 _PROBE_TIMEOUT_SECONDS = 10
@@ -1233,16 +1254,21 @@ def get_labels(
     camera: str = "",
     allowed_cameras: List[str] = Depends(get_allowed_cameras_for_filter),
 ):
+    if camera and camera not in allowed_cameras:
+        return JSONResponse(
+            content={
+                "success": False,
+                "message": f"Access denied to camera '{camera}'",
+            },
+            status_code=403,
+        )
+
+    cached_labels = label_cache.get(camera, allowed_cameras)
+    if cached_labels is not None:
+        return JSONResponse(content=cached_labels)
+
     try:
         if camera:
-            if camera not in allowed_cameras:
-                return JSONResponse(
-                    content={
-                        "success": False,
-                        "message": f"Access denied to camera '{camera}'",
-                    },
-                    status_code=403,
-                )
             events = Event.select(Event.label).where(Event.camera == camera).distinct()
         else:
             events = (
@@ -1258,6 +1284,7 @@ def get_labels(
         )
 
     labels = sorted([e.label for e in events])
+    label_cache.set(camera, allowed_cameras, labels)
     return JSONResponse(content=labels)
 
 
