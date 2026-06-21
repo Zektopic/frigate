@@ -448,12 +448,22 @@ class Embeddings:
                 self.reindex_thread = None
 
     def sync_triggers(self) -> None:
+        camera_names = list(self.config.cameras.keys())
+        if not camera_names:
+            return
+
+        # Fetch all triggers for all configured cameras to avoid N+1 query
+        triggers_by_camera: dict[str, dict[str, Trigger]] = {}
+        from peewee import chunked
+        for chunk in chunked(camera_names, 900):
+            for trigger in Trigger.select().where(Trigger.camera << chunk):
+                if trigger.camera not in triggers_by_camera:
+                    triggers_by_camera[trigger.camera] = {}
+                triggers_by_camera[trigger.camera][trigger.name] = trigger
+
         for camera in self.config.cameras.values():
             # Get all existing triggers for this camera
-            existing_triggers = {
-                trigger.name: trigger
-                for trigger in Trigger.select().where(Trigger.camera == camera.name)
-            }
+            existing_triggers = triggers_by_camera.get(camera.name, {})
 
             # Get all configured trigger names
             configured_trigger_names = set(camera.semantic_search.triggers or {})
