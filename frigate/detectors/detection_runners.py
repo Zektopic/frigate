@@ -594,7 +594,7 @@ def get_optimized_runner(
         # In the default image, ONNXRuntime is used so we will only get CPUExecutionProvider
         # In other images we will get CUDA / ROCm which are preferred over OpenVINO
         # There is currently no way to prioritize OpenVINO over CUDA / ROCm in these images
-        if device != "CPU" and is_openvino_gpu_npu_available():
+        if device.lower() != "vulkan" and device != "CPU" and is_openvino_gpu_npu_available():
             return OpenVINOModelRunner(model_path, device, model_type, **kwargs)
 
     if (
