@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { dateToLong, epochToLong, getDurationFromTimestamps, getUTCOffset, longToDate, to24Hour } from "../dateUtil";
+import {
+  dateToLong,
+  epochToLong,
+  getDurationFromTimestamps,
+  getUTCOffset,
+  longToDate,
+  to24Hour,
+} from "../dateUtil";
 
 vi.mock("@/utils/i18n", () => ({
   default: {
@@ -37,8 +44,12 @@ describe("to24Hour", () => {
   });
 
   it("should throw an error for invalid formats when not 24hour", () => {
-    expect(() => to24Hour("13:00", "12hour")).toThrow("Invalid time format: 13:00");
-    expect(() => to24Hour("invalid", "12hour")).toThrow("Invalid time format: invalid");
+    expect(() => to24Hour("13:00", "12hour")).toThrow(
+      "Invalid time format: 13:00",
+    );
+    expect(() => to24Hour("invalid", "12hour")).toThrow(
+      "Invalid time format: invalid",
+    );
   });
 });
 
