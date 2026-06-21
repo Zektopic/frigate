@@ -339,6 +339,15 @@ def get_ort_providers(
                 )
             else:
                 continue
+        elif provider == "VulkanExecutionProvider":
+            if device and device.lower() == "vulkan":
+                device_id = 0
+                providers.append(provider)
+                options.append(
+                    {
+                        "device_id": device_id,
+                    }
+                )
         elif provider == "OpenVINOExecutionProvider":
             # OpenVINO is used directly
             if device == "OpenVINO":
