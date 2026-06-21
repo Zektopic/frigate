@@ -56,6 +56,9 @@ class TensorRTDetectorConfig(BaseDetectorConfig):
     device: int = Field(
         default=0, title="GPU Device Index", description="The GPU device index to use."
     )
+    conf_th: float = Field(
+        default=0.4, title="Confidence Threshold", description="Confidence threshold for the TensorRT detector."
+    )
 
 
 class HostDeviceMem(object):
@@ -253,7 +256,7 @@ class TensorRtDetector(DetectionApi):
             cuda.CUctx_flags.CU_CTX_MAP_HOST, detector_config.device
         )
 
-        self.conf_th = 0.4  ##TODO: model config parameter
+        self.conf_th = detector_config.conf_th
         self.nms_threshold = 0.4
         err, self.stream = cuda.cuStreamCreate(0)
         self.trt_logger = TrtLogger()
