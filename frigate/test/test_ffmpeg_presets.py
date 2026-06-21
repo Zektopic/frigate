@@ -2,7 +2,10 @@ import unittest
 
 from frigate.config import FrigateConfig
 from frigate.config.camera.ffmpeg import FFMPEG_INPUT_ARGS_DEFAULT
-from frigate.ffmpeg_presets import parse_preset_input
+from frigate.ffmpeg_presets import (
+    parse_preset_hardware_acceleration_scale,
+    parse_preset_input,
+)
 
 
 class TestFfmpegPresets(unittest.TestCase):
@@ -139,6 +142,49 @@ class TestFfmpegPresets(unittest.TestCase):
         frigate_config = FrigateConfig(**self.default_ffmpeg)
         assert "-some output" in (
             " ".join(frigate_config.cameras["back"].ffmpeg_cmds[0]["cmd"])
+        )
+
+    def test_parse_preset_hardware_acceleration_scale_default_when_not_string(self):
+        result = parse_preset_hardware_acceleration_scale(
+            None, ["detect"], 5, 1920, 1080
+        )
+        self.assertEqual(
+            result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"]
+        )
+
+    def test_parse_preset_hardware_acceleration_scale_default_when_space_in_string(
+        self,
+    ):
+        result = parse_preset_hardware_acceleration_scale(
+            "preset with space", ["detect"], 5, 1920, 1080
+        )
+        self.assertEqual(
+            result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"]
+        )
+
+    def test_parse_preset_hardware_acceleration_scale_valid_preset(self):
+        result = parse_preset_hardware_acceleration_scale(
+            "preset-intel-qsv-h264", ["detect"], 10, 2560, 1440
+        )
+        self.assertEqual(
+            result,
+            [
+                "-r",
+                "10",
+                "-vf",
+                "vpp_qsv=w=2560:h=1440:format=nv12,hwdownload,format=nv12,fps=10,format=yuv420p",
+                "detect",
+            ],
+        )
+
+    def test_parse_preset_hardware_acceleration_scale_invalid_preset_uses_default(
+        self,
+    ):
+        result = parse_preset_hardware_acceleration_scale(
+            "invalid-preset-name", ["detect"], 5, 1920, 1080
+        )
+        self.assertEqual(
+            result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"]
         )
 
 

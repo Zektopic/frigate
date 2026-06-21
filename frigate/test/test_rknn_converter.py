@@ -2,20 +2,12 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Mock dependencies before any imports
-sys.modules['cv2'] = MagicMock()
-sys.modules['numpy'] = MagicMock()
-sys.modules['peewee'] = MagicMock()
-sys.modules['playhouse'] = MagicMock()
-sys.modules['playhouse.sqlite_ext'] = MagicMock()
-sys.modules['playhouse.shortcuts'] = MagicMock()
-sys.modules['unidecode'] = MagicMock()
-sys.modules['PIL'] = MagicMock()
-sys.modules['tzlocal'] = MagicMock()
+import subprocess
+
+# We remove the sys.modules patch from here to avoid breaking CI tests.
+# CI has cv2 and numpy installed.
 
 from frigate.util.rknn_converter import is_rknn_compatible
-
-import subprocess
 from frigate.util.rknn_converter import ensure_rknn_toolkit
 
 class TestEnsureRknnToolkit(unittest.TestCase):
