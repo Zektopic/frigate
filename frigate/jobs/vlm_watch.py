@@ -207,6 +207,10 @@ class VLMWatchRunner(threading.Thread):
             logger.warning(
                 "VLM watch job %s: failed to parse VLM response: %s", self.job.id, e
             )
+            # Remove the user message and the unparseable assistant response
+            if len(self.conversation) >= 2:
+                self.conversation.pop()
+                self.conversation.pop()
             return 30
 
         self.job.last_reasoning = reasoning

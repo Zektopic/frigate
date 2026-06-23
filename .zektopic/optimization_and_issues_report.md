@@ -207,23 +207,26 @@ If you are using the Go-based `frigate-telegram` bridge, adjust its configuratio
 
 ## Part 5: Code Quality & Security Audit Findings
 
+**Status Update:** The four critical issues documented below have been patched and verified via isolated unit tests by Jules.
+
 Below is the summary of security and logical issues discovered in your codebase:
 
-### 1. `verify_password` AssertionError Crash / Bypass
+### 1. `verify_password` AssertionError Crash / Bypass (✅ RESOLVED)
 *   **File**: `frigate/api/auth.py`
 *   **Issue**: Uses `assert algorithm == PASSWORD_HASH_ALGORITHM`. If user data is corrupted or formatted with a legacy algorithm, the application will raise an unhandled `AssertionError` resulting in an HTTP 500 error. If python is run with `-O` compiler flags, the check is skipped entirely.
-*   **Fix**:
-    ```python
-    if algorithm != PASSWORD_HASH_ALGORITHM:
-        return False
-    ```
+*   **Fix**: Replaced the `assert` with a safe conditional return block.
 
-### 2. CSRF Mitigation Bypass on Missing Origin Header
+### 2. CSRF Mitigation Bypass on Missing Origin Header (✅ RESOLVED)
 *   **File**: `frigate/api/fastapi_app.py`
 *   **Issue**: CSRF protection returns `True` (bypasses validation) if the `Origin` header is missing from the incoming request.
-*   **Fix**: Validate both `Origin` and `Referer` headers, and verify that `x-csrf-token` matches a secure session token.
+*   **Fix**: Hardened validation to fail safely if `x-csrf-token` is missing, regardless of whether `Origin` or `Referer` headers exist.
 
-### 3. VLM Watch Context Memory Leak
+### 3. VLM Watch Context Memory Leak (✅ RESOLVED)
 *   **File**: `frigate/jobs/vlm_watch.py`
 *   **Issue**: If VLM responses fail to parse due to malformed JSON, the runner returns early but fails to pop the appended frame from `self.conversation`. Repeated failures lead to context window blowup and token bloat.
-*   **Fix**: Add history cleanup in the `except` block to pop the last turns.
+*   **Fix**: Added history cleanup via `self.conversation.pop()` in the `except` block for invalid JSON parsing.
+
+### 4. Broken Log Formatting in Dispatcher (✅ RESOLVED)
+*   **File**: `frigate/comms/dispatcher.py`
+*   **Issue**: Unformatted string bindings were utilized instead of f-strings or format arguments for `logger.error` on MQTT commands.
+*   **Fix**: Patched format arguments across `_on_motion_contour_area_command`, `_on_motion_threshold_command`, and `_on_global_notification_command`.
