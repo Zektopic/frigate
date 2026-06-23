@@ -42,7 +42,8 @@ describe("getNowYesterdayInLong", () => {
     vi.setSystemTime(mockCurrentTime);
 
     // Expected is 24 hours earlier: 2023-10-30T12:00:00.000Z in seconds
-    const expectedTimeInSeconds = new Date("2023-10-30T12:00:00.000Z").getTime() / 1000;
+    const expectedTimeInSeconds =
+      new Date("2023-10-30T12:00:00.000Z").getTime() / 1000;
 
     expect(getNowYesterdayInLong()).toBe(expectedTimeInSeconds);
   });
