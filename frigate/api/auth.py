@@ -386,7 +386,8 @@ def verify_password(password, password_hash):
         return False
     algorithm, iterations, salt, b64_hash = password_hash.split("$", 3)
     iterations = int(iterations)
-    assert algorithm == PASSWORD_HASH_ALGORITHM
+    if algorithm != PASSWORD_HASH_ALGORITHM:
+        return False
     compare_hash = hash_password(password, salt, iterations)
     return secrets.compare_digest(password_hash, compare_hash)
 

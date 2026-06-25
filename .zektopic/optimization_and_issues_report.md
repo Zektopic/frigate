@@ -209,21 +209,17 @@ If you are using the Go-based `frigate-telegram` bridge, adjust its configuratio
 
 Below is the summary of security and logical issues discovered in your codebase:
 
-### 1. `verify_password` AssertionError Crash / Bypass
+### 1. `verify_password` AssertionError Crash / Bypass (Fixed)
 *   **File**: `frigate/api/auth.py`
 *   **Issue**: Uses `assert algorithm == PASSWORD_HASH_ALGORITHM`. If user data is corrupted or formatted with a legacy algorithm, the application will raise an unhandled `AssertionError` resulting in an HTTP 500 error. If python is run with `-O` compiler flags, the check is skipped entirely.
-*   **Fix**:
-    ```python
-    if algorithm != PASSWORD_HASH_ALGORITHM:
-        return False
-    ```
+*   **Fix**: Implemented the fix by replacing `assert algorithm == PASSWORD_HASH_ALGORITHM` with an explicit conditional check that returns `False`.
 
-### 2. CSRF Mitigation Bypass on Missing Origin Header
+### 2. CSRF Mitigation Bypass on Missing Origin Header (Fixed)
 *   **File**: `frigate/api/fastapi_app.py`
 *   **Issue**: CSRF protection returns `True` (bypasses validation) if the `Origin` header is missing from the incoming request.
-*   **Fix**: Validate both `Origin` and `Referer` headers, and verify that `x-csrf-token` matches a secure session token.
+*   **Fix**: Implemented the fix by ensuring requests missing the `x-csrf-token` header are rejected directly, avoiding fail-open bypass logic.
 
-### 3. VLM Watch Context Memory Leak
+### 3. VLM Watch Context Memory Leak (Fixed)
 *   **File**: `frigate/jobs/vlm_watch.py`
 *   **Issue**: If VLM responses fail to parse due to malformed JSON, the runner returns early but fails to pop the appended frame from `self.conversation`. Repeated failures lead to context window blowup and token bloat.
-*   **Fix**: Add history cleanup in the `except` block to pop the last turns.
+*   **Fix**: Implemented the fix by adding history cleanup in the `except` block catching the decode error, popping the last turns to free memory.
