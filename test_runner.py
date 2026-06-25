@@ -1,4 +1,5 @@
 import sys
+import unittest
 from unittest.mock import MagicMock
 
 
@@ -47,10 +48,9 @@ sys.modules["ruamel"] = MagicMock()
 sys.modules["ruamel.yaml"] = MagicMock()
 sys.modules["psutil"] = MagicMock()
 sys.modules["py3nvml"] = MagicMock()
+
 sys.modules["py3nvml.py3nvml"] = MagicMock()
 sys.modules["frigate.version"] = MagicMock()
-
-import unittest
 
 if __name__ == "__main__":
     unittest.main(module=None, argv=["unittest", "discover", "frigate/test"])
