@@ -1,13 +1,11 @@
+import subprocess
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-import subprocess
-
 # Mock dependencies before any imports
+from frigate.util.rknn_converter import ensure_rknn_toolkit, is_rknn_compatible
 
-from frigate.util.rknn_converter import is_rknn_compatible
-from frigate.util.rknn_converter import ensure_rknn_toolkit
 
 class TestEnsureRknnToolkit(unittest.TestCase):
     def setUp(self):
@@ -97,37 +95,44 @@ class TestIsRknnCompatible(unittest.TestCase):
 
     @patch("frigate.util.rknn_converter.get_soc_type")
     @patch("frigate.util.rknn_converter.get_rknn_model_type")
-    def test_supported_soc_valid_inferred_model_type(self, mock_get_rknn_model_type, mock_get_soc_type):
+    def test_supported_soc_valid_inferred_model_type(
+        self, mock_get_rknn_model_type, mock_get_soc_type
+    ):
         mock_get_soc_type.return_value = "rk3588"
         mock_get_rknn_model_type.return_value = "yolox"
         self.assertTrue(is_rknn_compatible("yolox.onnx"))
 
     @patch("frigate.util.rknn_converter.get_soc_type")
     @patch("frigate.util.rknn_converter.get_rknn_model_type")
-    def test_supported_soc_invalid_inferred_model_type(self, mock_get_rknn_model_type, mock_get_soc_type):
+    def test_supported_soc_invalid_inferred_model_type(
+        self, mock_get_rknn_model_type, mock_get_soc_type
+    ):
         mock_get_soc_type.return_value = "rk3588"
         mock_get_rknn_model_type.return_value = None
         self.assertFalse(is_rknn_compatible("unknown.onnx"))
 
+
 class TestEnsureTorch(unittest.TestCase):
     def test_already_installed(self):
-        with patch.dict('sys.modules', {'torch': MagicMock()}):
+        with patch.dict("sys.modules", {"torch": MagicMock()}):
             from frigate.util.rknn_converter import ensure_torch_dependencies
+
             self.assertTrue(ensure_torch_dependencies())
 
-    @patch('subprocess.check_call')
+    @patch("subprocess.check_call")
     def test_install_success(self, mock_check_call):
         original_import = __import__
 
         def side_effect(name, *args, **kwargs):
-            if name == 'torch':
+            if name == "torch":
                 if mock_check_call.called:
                     return MagicMock()
                 raise ImportError("No module named 'torch'")
             return original_import(name, *args, **kwargs)
 
-        with patch('builtins.__import__', side_effect=side_effect):
+        with patch("builtins.__import__", side_effect=side_effect):
             from frigate.util.rknn_converter import ensure_torch_dependencies
+
             result = ensure_torch_dependencies()
 
         self.assertTrue(result)
@@ -137,41 +142,44 @@ class TestEnsureTorch(unittest.TestCase):
         self.assertIn("torch", mock_check_call.call_args[0][0])
         self.assertIn("torchvision", mock_check_call.call_args[0][0])
 
-    @patch('subprocess.check_call')
+    @patch("subprocess.check_call")
     def test_install_failure_subprocess(self, mock_check_call):
         original_import = __import__
 
         def side_effect(name, *args, **kwargs):
-            if name == 'torch':
+            if name == "torch":
                 raise ImportError("No module named 'torch'")
             return original_import(name, *args, **kwargs)
 
         import subprocess
-        mock_check_call.side_effect = subprocess.CalledProcessError(1, 'pip')
 
-        with patch('builtins.__import__', side_effect=side_effect):
+        mock_check_call.side_effect = subprocess.CalledProcessError(1, "pip")
+
+        with patch("builtins.__import__", side_effect=side_effect):
             from frigate.util.rknn_converter import ensure_torch_dependencies
+
             result = ensure_torch_dependencies()
 
         self.assertFalse(result)
         mock_check_call.assert_called_once()
 
-    @patch('subprocess.check_call')
+    @patch("subprocess.check_call")
     def test_install_failure_import(self, mock_check_call):
         original_import = __import__
 
         def side_effect(name, *args, **kwargs):
-            if name == 'torch':
+            if name == "torch":
                 raise ImportError("No module named 'torch'")
             return original_import(name, *args, **kwargs)
 
-        with patch('builtins.__import__', side_effect=side_effect):
+        with patch("builtins.__import__", side_effect=side_effect):
             from frigate.util.rknn_converter import ensure_torch_dependencies
+
             result = ensure_torch_dependencies()
 
         self.assertFalse(result)
         mock_check_call.assert_called_once()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

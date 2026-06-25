@@ -1,4 +1,29 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
+
+global.window = {
+  navigator: {
+    language: "en-US",
+  },
+} as unknown as Window & typeof globalThis;
+
+// mock Intl to fix TypeError: () => ({ formatToParts }) is not a constructor
+const mockFormatToParts = vi.fn().mockReturnValue([
+  { type: "month", value: "01" },
+  { type: "literal", value: "/" },
+  { type: "day", value: "01" },
+  { type: "literal", value: "/" },
+  { type: "year", value: "2024" },
+]);
+global.Intl.DateTimeFormat = vi.fn().mockImplementation(() => ({
+  formatToParts: mockFormatToParts,
+  format: vi.fn().mockReturnValue("01/01/2024"),
+})) as unknown as typeof Intl.DateTimeFormat;
+
+vi.mock("@/utils/i18n", () => ({
+  default: { t: (key: string) => key },
+  getTranslatedLabel: (label: string) => label,
+}));
+
 import {
   convertLocalDateToTimestamp,
   dateToLong,
@@ -42,7 +67,8 @@ describe("getNowYesterdayInLong", () => {
     vi.setSystemTime(mockCurrentTime);
 
     // Expected is 24 hours earlier: 2023-10-30T12:00:00.000Z in seconds
-    const expectedTimeInSeconds = new Date("2023-10-30T12:00:00.000Z").getTime() / 1000;
+    const expectedTimeInSeconds =
+      new Date("2023-10-30T12:00:00.000Z").getTime() / 1000;
 
     expect(getNowYesterdayInLong()).toBe(expectedTimeInSeconds);
   });

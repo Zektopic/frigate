@@ -3,13 +3,17 @@ from unittest.mock import MagicMock, patch
 
 try:
     from frigate.util.services import get_fs_type, is_restricted_go2rtc_source
+
     SERVICES_AVAILABLE = True
 except ImportError:
     SERVICES_AVAILABLE = False
     get_fs_type = None  # type: ignore[assignment]
     is_restricted_go2rtc_source = None  # type: ignore[assignment]
 
-@unittest.skipIf(not SERVICES_AVAILABLE, "OpenCV not installed — required by frigate.util.services")
+
+@unittest.skipIf(
+    not SERVICES_AVAILABLE, "OpenCV not installed — required by frigate.util.services"
+)
 class TestGetFsType(unittest.TestCase):
     def setUp(self):
         # Create mock disk partitions
@@ -55,7 +59,9 @@ class TestGetFsType(unittest.TestCase):
         self.assertEqual(get_fs_type("/mnt/data_old/file.txt"), "ext4")
 
 
-@unittest.skipIf(not SERVICES_AVAILABLE, "OpenCV not installed — required by frigate.util.services")
+@unittest.skipIf(
+    not SERVICES_AVAILABLE, "OpenCV not installed — required by frigate.util.services"
+)
 class TestIsRestrictedGo2rtcSource(unittest.TestCase):
     @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
     def test_restricted_sources_when_exec_not_allowed(self, mock_exec_allowed):

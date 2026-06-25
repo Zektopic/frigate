@@ -1,7 +1,6 @@
-import unittest
-import sys
 import os
-import importlib.util
+import unittest
+
 
 class TestExtractTranslationsFromSchema(unittest.TestCase):
     @classmethod
@@ -14,7 +13,9 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
 
         import ast
 
-        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        root_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         script_path = os.path.join(root_dir, "generate_config_translations.py")
 
         with open(script_path, "r") as f:
@@ -23,7 +24,10 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
         # Filter out import statements and top-level calls to isolate function definitions
         filtered_body = []
         for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and node.name == 'extract_translations_from_schema':
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "extract_translations_from_schema"
+            ):
                 filtered_body.append(node)
 
         # Create a new module AST containing only our target function
@@ -34,31 +38,28 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
         compiled = compile(new_tree, filename="<ast>", mode="exec")
         cls.namespace = {}
         # Provide typing dependency since it uses Dict/Any
-        from typing import Dict, Any
-        cls.namespace.update({'Dict': Dict, 'Any': Any})
+        from typing import Any, Dict
+
+        cls.namespace.update({"Dict": Dict, "Any": Any})
         exec(compiled, cls.namespace)
 
     def setUp(self):
-        self.extract_translations_from_schema = self.__class__.namespace['extract_translations_from_schema']
+        self.extract_translations_from_schema = self.__class__.namespace[
+            "extract_translations_from_schema"
+        ]
 
     def test_simple_schema(self):
         schema = {
             "title": "Camera Config",
             "description": "Configuration for a camera.",
             "properties": {
-                "name": {
-                    "title": "Camera Name",
-                    "description": "Name of the camera."
-                }
-            }
+                "name": {"title": "Camera Name", "description": "Name of the camera."}
+            },
         }
         expected = {
             "label": "Camera Config",
             "description": "Configuration for a camera.",
-            "name": {
-                "label": "Camera Name",
-                "description": "Name of the camera."
-            }
+            "name": {"label": "Camera Name", "description": "Name of the camera."},
         }
         self.assertEqual(self.extract_translations_from_schema(schema), expected)
 
@@ -69,23 +70,17 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
                 "mqtt": {
                     "title": "MQTT Config",
                     "properties": {
-                        "host": {
-                            "title": "Host",
-                            "description": "MQTT Host"
-                        }
-                    }
+                        "host": {"title": "Host", "description": "MQTT Host"}
+                    },
                 }
-            }
+            },
         }
         expected = {
             "label": "Config",
             "mqtt": {
                 "label": "MQTT Config",
-                "host": {
-                    "label": "Host",
-                    "description": "MQTT Host"
-                }
-            }
+                "host": {"label": "Host", "description": "MQTT Host"},
+            },
         }
         self.assertEqual(self.extract_translations_from_schema(schema), expected)
 
@@ -98,23 +93,18 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
                         "port": {
                             "title": "Port",
                         }
-                    }
+                    },
                 }
             },
             "properties": {
                 "mqtt": {
                     "$ref": "#/$defs/MqttConfig",
-                    "title": "MQTT Configuration Override"
+                    "title": "MQTT Configuration Override",
                 }
-            }
+            },
         }
         expected = {
-            "mqtt": {
-                "label": "MQTT Configuration Override",
-                "port": {
-                    "label": "Port"
-                }
-            }
+            "mqtt": {"label": "MQTT Configuration Override", "port": {"label": "Port"}}
         }
         self.assertEqual(self.extract_translations_from_schema(schema), expected)
 
@@ -130,23 +120,20 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
                             "properties": {
                                 "threshold": {
                                     "title": "Threshold",
-                                    "description": "Motion threshold"
+                                    "description": "Motion threshold",
                                 }
                             }
-                        }
-                    ]
+                        },
+                    ],
                 }
-            }
+            },
         }
         expected = {
             "label": "Camera Config",
             "motion": {
                 "label": "Motion Config",
-                "threshold": {
-                    "label": "Threshold",
-                    "description": "Motion threshold"
-                }
-            }
+                "threshold": {"label": "Threshold", "description": "Motion threshold"},
+            },
         }
         self.assertEqual(self.extract_translations_from_schema(schema), expected)
 
@@ -155,29 +142,18 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
             "$defs": {
                 "ZoneConfig": {
                     "title": "Zone Config",
-                    "properties": {
-                        "coordinates": {
-                            "title": "Coordinates"
-                        }
-                    }
+                    "properties": {"coordinates": {"title": "Coordinates"}},
                 }
             },
             "properties": {
                 "zones": {
                     "title": "Zones List",
-                    "items": {
-                        "$ref": "#/$defs/ZoneConfig"
-                    }
+                    "items": {"$ref": "#/$defs/ZoneConfig"},
                 }
-            }
+            },
         }
         expected = {
-            "zones": {
-                "label": "Zones List",
-                "coordinates": {
-                    "label": "Coordinates"
-                }
-            }
+            "zones": {"label": "Zones List", "coordinates": {"label": "Coordinates"}}
         }
         self.assertEqual(self.extract_translations_from_schema(schema), expected)
 
@@ -186,31 +162,19 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
             "$defs": {
                 "CameraConfig": {
                     "title": "Camera Configuration",
-                    "properties": {
-                        "name": {
-                            "title": "Name"
-                        }
-                    }
+                    "properties": {"name": {"title": "Name"}},
                 }
             },
             "properties": {
                 "cameras": {
                     "title": "Cameras Map",
-                    "additionalProperties": {
-                        "$ref": "#/$defs/CameraConfig"
-                    }
+                    "additionalProperties": {"$ref": "#/$defs/CameraConfig"},
                 }
-            }
+            },
         }
-        expected = {
-            "cameras": {
-                "label": "Cameras Map",
-                "name": {
-                    "label": "Name"
-                }
-            }
-        }
+        expected = {"cameras": {"label": "Cameras Map", "name": {"label": "Name"}}}
         self.assertEqual(self.extract_translations_from_schema(schema), expected)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

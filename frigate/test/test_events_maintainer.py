@@ -1,8 +1,8 @@
 import unittest
-from typing import Any
 from copy import deepcopy
 
 from frigate.events.maintainer import should_update_state
+
 
 class TestEventsMaintainer(unittest.TestCase):
     def setUp(self) -> None:

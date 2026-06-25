@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { dateToLong, epochToLong, getDurationFromTimestamps, getUTCOffset, isCurrentHour, longToDate } from "../dateUtil";
+import {
+  dateToLong,
+  epochToLong,
+  getDurationFromTimestamps,
+  getUTCOffset,
+  isCurrentHour,
+  longToDate,
+} from "../dateUtil";
 
 vi.mock("@/utils/i18n", () => ({
   default: {

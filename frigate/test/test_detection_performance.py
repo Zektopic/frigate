@@ -59,9 +59,7 @@ class TestDetectionPerformance(unittest.TestCase):
         min_ms = min(times)
         max_val_ms = max(times)
 
-        print(
-            f"\n  [{label}] {width}x{height} over {self.ITERATIONS} iterations:"
-        )
+        print(f"\n  [{label}] {width}x{height} over {self.ITERATIONS} iterations:")
         print(f"    avg={avg_ms:.3f}ms  min={min_ms:.3f}ms  max={max_val_ms:.3f}ms")
         print(f"    limit={max_ms}ms  {'PASS' if avg_ms < max_ms else 'FAIL'}")
 

@@ -2,23 +2,19 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from peewee import DoesNotExist
 
-from frigate.api.export import _validate_export_case
+from frigate.api.export import _validate_camera_name, _validate_export_case
 from frigate.jobs.export import (
     ExportJob,
     get_export_job_manager,
     reap_stale_exports,
     start_export_job,
 )
-from frigate.api.export import _validate_camera_name
 from frigate.models import Export, ExportCase, Previews, Recordings
 from frigate.test.http_api.base_http_test import AuthTestClient, BaseTestHttp
-import unittest
-from unittest.mock import MagicMock
-import json
 
 
 class TestExportUtils(unittest.TestCase):
@@ -36,7 +32,10 @@ class TestExportUtils(unittest.TestCase):
         result = _validate_camera_name(mock_request, "back_door")
         self.assertIsNotNone(result)
         self.assertEqual(result.status_code, 404)
-        self.assertEqual(json.loads(result.body), {"success": False, "message": "back_door is not a valid camera."})
+        self.assertEqual(
+            json.loads(result.body),
+            {"success": False, "message": "back_door is not a valid camera."},
+        )
 
     def test_validate_camera_name_empty(self):
         mock_request = MagicMock()
@@ -45,7 +44,10 @@ class TestExportUtils(unittest.TestCase):
         result = _validate_camera_name(mock_request, "")
         self.assertIsNotNone(result)
         self.assertEqual(result.status_code, 404)
-        self.assertEqual(json.loads(result.body), {"success": False, "message": " is not a valid camera."})
+        self.assertEqual(
+            json.loads(result.body),
+            {"success": False, "message": " is not a valid camera."},
+        )
 
 
 class TestHttpExport(BaseTestHttp):

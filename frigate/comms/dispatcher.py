@@ -591,7 +591,9 @@ class Dispatcher:
         try:
             payload = int(payload)
         except ValueError:
-            logger.error("Received unsupported value for motion contour area: %s", payload)
+            logger.error(
+                "Received unsupported value for motion contour area: %s", payload
+            )
             return
 
         motion_settings = self.config.cameras[camera_name].motion

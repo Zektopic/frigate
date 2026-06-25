@@ -211,9 +211,9 @@ class VLMWatchRunner(threading.Thread):
             # since the parsing failed and we shouldn't keep the assistant response
             # nor the user prompt that generated it.
             if len(self.conversation) > 0:
-                self.conversation.pop() # pop assistant message
+                self.conversation.pop()  # pop assistant message
             if len(self.conversation) > 0:
-                self.conversation.pop() # pop user message
+                self.conversation.pop()  # pop user message
             return 30
 
         self.job.last_reasoning = reasoning

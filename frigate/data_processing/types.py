@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Embeddings types."""
 
 from enum import Enum
