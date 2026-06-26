@@ -192,6 +192,7 @@ const sidebars: SidebarsConfig = {
     Development: [
       "development/contributing",
       "development/contributing-boards",
+      "development/rust-migration",
     ],
   },
 };
