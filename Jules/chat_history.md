@@ -16,7 +16,7 @@ This file logs the interaction history regarding the audit and optimization of t
 
 ### 1. Initial Request: Codebase Audit
 *   **User Action**: Requested a full audit of features, code issues, and improvements in the Frigate repository.
-*   **Agent Analysis**: 
+*   **Agent Analysis**:
     *   Audited the FastAPI backend application architecture, multi-processing layout, and AI-accelerated detectors module.
     *   Inspected the database/embedding architecture using `sqlite-vec` virtual tables (`vec0`).
     *   Inspected the GenAI features, VLM watch logic, and authentication middleware.
