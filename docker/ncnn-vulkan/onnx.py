@@ -124,7 +124,7 @@ def _post_process_yolov8(
         offset += n_cells
 
     if offset == 0:
-        return np.zeros((0, 6), dtype=np.float32)
+        return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
     x1 = np.concatenate([b[0] for b in box_parts])
     y1 = np.concatenate([b[1] for b in box_parts])
@@ -140,7 +140,7 @@ def _post_process_yolov8(
     # Filter & NMS
     keep = scores > score_thresh
     if not np.any(keep):
-        return np.zeros((0, 6), dtype=np.float32)
+        return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
     x1, y1, x2, y2 = x1[keep], y1[keep], x2[keep], y2[keep]
     scores, class_ids = scores[keep], class_ids[keep]
@@ -150,23 +150,35 @@ def _post_process_yolov8(
 
     valid = (x2 > x1) & (y2 > y1)
     if not np.any(valid):
-        return np.zeros((0, 6), dtype=np.float32)
+        return _pad_detections(np.zeros((0, 6), dtype=np.float32))
     x1, y1, x2, y2 = x1[valid], y1[valid], x2[valid], y2[valid]
     scores, class_ids = scores[valid], class_ids[valid]
 
     keep_idx = _nms(x1, y1, x2, y2, scores, nms_thresh)
     if keep_idx.size == 0:
-        return np.zeros((0, 6), dtype=np.float32)
+        return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
+    # Frigate expects: [label_idx, score, x1, y1, x2, y2]
     return np.stack([
+        class_ids[keep_idx].astype(np.float32), scores[keep_idx],
         x1[keep_idx], y1[keep_idx], x2[keep_idx], y2[keep_idx],
-        scores[keep_idx], class_ids[keep_idx].astype(np.float32),
     ], axis=1)
 
 
 # ---------------------------------------------------------------------------
 # Helpers — NMS
 # ---------------------------------------------------------------------------
+
+def _pad_detections(dets: np.ndarray, max_det: int = 20) -> np.ndarray:
+    """Pad/truncate to exactly max_det rows (Frigate expects fixed-size output)."""
+    if dets.shape[0] == 0:
+        return np.zeros((max_det, 6), dtype=np.float32)
+    if dets.shape[0] >= max_det:
+        return dets[:max_det]
+    padded = np.zeros((max_det, 6), dtype=np.float32)
+    padded[:dets.shape[0]] = dets
+    return padded
+
 
 def _nms(x1, y1, x2, y2, scores, iou_threshold):
     """Greedy class-agnostic NMS."""
@@ -278,24 +290,67 @@ class ONNXDetector(DetectionApi):
         import ncnn
         self.ncnn = ncnn
 
-        # ── resolve model paths ───────────────────────────────────────
-        model_dir = os.path.dirname(detector_config.model.path) \
-            if detector_config.model.path else "."
-        param_path = detector_config.model.path \
-            if detector_config.model.path and detector_config.model.path.endswith(".param") \
-            else None
-
-        if not param_path or not os.path.exists(param_path):
+        # ── resolve model path & backend ───────────────────────────────
+        model_path = detector_config.model.path
+        if not model_path or not os.path.exists(model_path):
             raise FileNotFoundError(
-                f"NCNN model .param not found: {param_path}. "
-                "Set model.path to a .param file in config/model_cache/."
+                f"Model not found: {model_path}. "
+                "Set model.path in config."
             )
+
+        if model_path.endswith(".onnx"):
+            self._init_onnxruntime(model_path, detector_config)
+        else:
+            self._init_ncnn(model_path, detector_config)
+
+    # ------------------------------------------------------------------
+    # ONNX Runtime backend (stable, works with any .onnx model)
+    # ------------------------------------------------------------------
+    def _init_onnxruntime(self, model_path: str, detector_config) -> None:
+        import onnxruntime as ort
+
+        logger.info("ONNX: loading %s", model_path)
+        self.backend = "onnxruntime"
+        self.arch = "onnx"
+
+        self._ort_sess = ort.InferenceSession(
+            model_path, providers=["CPUExecutionProvider"]
+        )
+
+        self._ort_in_name = self._ort_sess.get_inputs()[0].name
+        in_shape = self._ort_sess.get_inputs()[0].shape
+        self.model_input_size = in_shape[2] if len(in_shape) > 2 else 640
+        self._ort_out_name = self._ort_sess.get_outputs()[0].name
+        out_shape = self._ort_sess.get_outputs()[0].shape
+        logger.info(
+            "ONNX: input=%s %s, output=%s %s",
+            self._ort_in_name, in_shape,
+            self._ort_out_name, out_shape,
+        )
+
+        # Load labels
+        label_path = detector_config.model.labelmap_path
+        self._class_names = None
+        if label_path and os.path.exists(label_path):
+            with open(label_path) as f:
+                self._class_names = [line.strip() for line in f if line.strip()]
+
+        logger.info("ONNX: model loaded successfully (CPU)")
+
+    # ------------------------------------------------------------------
+    # NCNN backend (Vulkan GPU for YOLOv5/v7, CPU for YOLOv8/11)
+    # ------------------------------------------------------------------
+    def _init_ncnn(self, param_path: str, detector_config) -> None:
+        self.backend = "ncnn"
+
+        if not param_path.endswith(".param"):
+            raise ValueError(f"NCNN model must be a .param file, got: {param_path}")
 
         bin_path = param_path.replace(".param", ".bin")
         if not os.path.exists(bin_path):
             raise FileNotFoundError(f"NCNN model .bin not found: {bin_path}")
 
-        # ── detect architecture & outputs ─────────────────────────────
+        # ── detect architecture & outputs ───────────────────────────
         with open(param_path) as f:
             param_text = f.read()
 
@@ -315,25 +370,31 @@ class ONNXDetector(DetectionApi):
             logger.info("NCNN: YOLOv5/YOLOv7 anchor-based architecture detected")
             self._anchors = dict(_YOLOV5_ANCHORS)
 
-        logger.debug("NCNN: output blobs = %s", self._out_names)
-
-        # ── create network ────────────────────────────────────────────
-        gpu_count = ncnn.get_gpu_count()
+        # ── create network ──────────────────────────────────────────
+        gpu_count = self.ncnn.get_gpu_count()
         if gpu_count > 0:
-            logger.info("NCNN: Vulkan GPU detected - %s", ncnn.get_gpu_info(0))
+            logger.info("NCNN: Vulkan GPU detected - %s", self.ncnn.get_gpu_info(0))
         else:
             logger.warning("NCNN: No Vulkan GPU found, using CPU")
 
-        self.net = ncnn.Net()
-        self.net.opt.use_vulkan_compute = True
-        self.net.opt.use_fp16_arithmetic = True
-        self.net.opt.use_fp16_packed = True
-        self.net.opt.use_fp16_storage = True
+        self.net = self.ncnn.Net()
+
+        if self.arch == "yolov5":
+            self.net.opt.use_vulkan_compute = True
+            self.net.opt.use_fp16_arithmetic = True
+            self.net.opt.use_fp16_packed = True
+            self.net.opt.use_fp16_storage = True
+        else:
+            self.net.opt.use_vulkan_compute = False
+            logger.info(
+                "NCNN: CPU-only for YOLOv8/YOLO11 "
+                "(Vulkan unstable after fork on this GPU)"
+            )
 
         self.net.load_param(param_path)
         self.net.load_model(bin_path)
 
-        # ── labels ────────────────────────────────────────────────────
+        # ── labels ──────────────────────────────────────────────────
         label_path = detector_config.model.labelmap_path
         if label_path and os.path.exists(label_path):
             with open(label_path) as f:
@@ -348,6 +409,10 @@ class ONNXDetector(DetectionApi):
     # ------------------------------------------------------------------
     def detect_raw(self, tensor_input: np.ndarray) -> np.ndarray:
         """Run inference → (N, 6) detections [x1, y1, x2, y2, score, cls]."""
+        if self.backend == "onnxruntime":
+            return self._detect_onnx(tensor_input)
+
+        # NCNN backend
         _, _, h, w = tensor_input.shape
 
         mat_in = self.ncnn.Mat(
@@ -363,6 +428,76 @@ class ONNXDetector(DetectionApi):
                 return self._detect_anchor_based(ex, w, h)
 
     # ------------------------------------------------------------------
+    # ONNX Runtime inference
+    # ------------------------------------------------------------------
+    def _detect_onnx(self, tensor_input: np.ndarray) -> np.ndarray:
+        """YOLOv9 ONNX inference — output already decoded (no DFL needed)."""
+        _, _, h, w = tensor_input.shape
+
+        # This model expects 0-255 range, but Frigate normalizes to 0-1.
+        # Scale back to 0-255.
+        model_input = tensor_input.astype(np.float32) * 255.0
+
+        out = self._ort_sess.run(
+            [self._ort_out_name],
+            {self._ort_in_name: model_input},
+        )[0]  # (1, 84, N_dets)
+
+        # out[0] shape: (84, N_dets) where 84 = 4 bbox + 80 classes
+        dets = out[0]  # (84, N)
+        bboxes = dets[:4, :].T  # (N, 4) — cx, cy, w, h
+        scores = dets[4:, :].T  # (N, 80)
+
+        # Convert cx,cy,w,h → x1,y1,x2,y2
+        cx, cy, bw, bh = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
+        x1 = cx - bw / 2
+        y1 = cy - bh / 2
+        x2 = cx + bw / 2
+        y2 = cy + bh / 2
+
+        # Best class per detection
+        class_ids = np.argmax(scores, axis=1)
+        best_scores = scores[np.arange(scores.shape[0]), class_ids]
+
+        # Filter by score
+        keep = best_scores > 0.25
+        if not np.any(keep):
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+
+        x1, y1, x2, y2 = x1[keep], y1[keep], x2[keep], y2[keep]
+        best_scores = best_scores[keep]
+        class_ids = class_ids[keep]
+
+        # Clamp
+        x1 = np.clip(x1, 0, 1); y1 = np.clip(y1, 0, 1)
+        x2 = np.clip(x2, 0, 1); y2 = np.clip(y2, 0, 1)
+
+        # Remove degenerate
+        valid = (x2 > x1) & (y2 > y1)
+        if not np.any(valid):
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+        x1, y1, x2, y2 = x1[valid], y1[valid], x2[valid], y2[valid]
+        best_scores = best_scores[valid]
+        class_ids = class_ids[valid]
+
+        # NMS
+        keep_idx = _nms(x1, y1, x2, y2, best_scores, 0.45)
+        if keep_idx.size == 0:
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+
+        # Scale to pixel coords
+        x1 = x1[keep_idx] * w
+        y1 = y1[keep_idx] * h
+        x2 = x2[keep_idx] * w
+        y2 = y2[keep_idx] * h
+        best_scores = best_scores[keep_idx]
+        class_ids = class_ids[keep_idx]
+
+        # Frigate expects: [label_idx, score, x1, y1, x2, y2]
+        dets = np.stack([class_ids.astype(np.float32), best_scores, x1, y1, x2, y2], axis=1)
+        return _pad_detections(dets)
+
+    # ------------------------------------------------------------------
     # Anchor-free (YOLOv8 / YOLO11)
     # ------------------------------------------------------------------
     def _detect_anchor_free(self, ex, w: int, h: int) -> np.ndarray:
@@ -370,7 +505,7 @@ class ONNXDetector(DetectionApi):
         ret, out0 = ex.extract(out_name)
         if ret != 0:
             logger.warning("NCNN: extract out0 failed (rc=%d)", ret)
-            return np.zeros((0, 6), dtype=np.float32)
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
         raw = np.array(out0).copy()
 
@@ -378,14 +513,14 @@ class ONNXDetector(DetectionApi):
             logger.error(
                 "NCNN: unexpected output shape %s (expected (N, 144))", raw.shape
             )
-            return np.zeros((0, 6), dtype=np.float32)
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
         dets = _post_process_yolov8(
             raw, self.model_input_size, score_thresh=0.25, nms_thresh=0.45
         )
 
         if dets.size == 0:
-            return np.zeros((0, 6), dtype=np.float32)
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
         # Rescale to original frame size
         scale_x = w / self.model_input_size
@@ -406,7 +541,7 @@ class ONNXDetector(DetectionApi):
             ret, ncnn_mat = ex.extract(name)
             if ret != 0:
                 logger.warning("NCNN: extract %s failed (rc=%d)", name, ret)
-                return np.zeros((0, 6), dtype=np.float32)
+                return _pad_detections(np.zeros((0, 6), dtype=np.float32))
             arr = np.array(ncnn_mat).copy()
             arr = 1.0 / (1.0 + np.exp(-arr))  # sigmoid
             arr = np.expand_dims(arr, 0)
