@@ -259,6 +259,7 @@ def parse_preset_hardware_acceleration_encode(
     input: str,
     output: str,
     type: EncodeTypeEnum = EncodeTypeEnum.birdseye,
+    gpu: int = 0,
 ) -> str:
     """Return the correct scaling preset or default preset if none is set."""
     if type == EncodeTypeEnum.birdseye:
@@ -279,7 +280,7 @@ def parse_preset_hardware_acceleration_encode(
         ffmpeg_path,
         input,
         output,
-        _gpu_selector.get_gpu_arg(arg, 0),
+        _gpu_selector.get_gpu_arg(arg, gpu),
     )
 
 

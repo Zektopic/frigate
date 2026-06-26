@@ -254,7 +254,9 @@ rateLimiter = RateLimiter()
 
 
 def get_remote_addr(request: Request):
-    route = list(reversed(request.headers.get("x-forwarded-for").split(",")))
+    route = list(reversed(
+        (request.headers.get("x-forwarded-for") or "").split(",")
+    ))
     logger.debug(f"IP Route: {[r for r in route]}")
     trusted_proxies = []
     for proxy in request.app.frigate_config.auth.trusted_proxies:
@@ -262,6 +264,7 @@ def get_remote_addr(request: Request):
             network = ipaddress.ip_network(proxy)
         except ValueError:
             logger.warning(f"Unable to parse trusted network: {proxy}")
+            continue
         trusted_proxies.append(network)
 
     # return the first remote address that is not trusted

@@ -1272,10 +1272,30 @@ def set_file_limit() -> None:
     current_soft, current_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     logger.debug(f"Current file limits - Soft: {current_soft}, Hard: {current_hard}")
 
-    new_soft = min(soft_limit, current_hard)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, current_hard))
+    # Try to raise the hard limit first (needs CAP_SYS_RESOURCE)
+    if current_hard < soft_limit:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, soft_limit))
+            current_soft, current_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            logger.debug(
+                f"Raised hard file limit. New soft: {current_soft}, "
+                f"Hard: {current_hard}"
+            )
+        except (ValueError, OSError):
+            logger.warning(
+                f"Cannot raise file limit above hard cap of {current_hard}. "
+                f"Desired soft limit: {soft_limit}. "
+                f"File operations may be limited under heavy camera load."
+            )
+            new_soft = current_hard
+            resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, current_hard))
+    else:
+        new_soft = min(soft_limit, current_hard)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, current_hard))
+
+    final_soft, final_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     logger.debug(
-        f"File limit set. New soft limit: {new_soft}, Hard limit remains: {current_hard}"
+        f"File limit set. New soft limit: {final_soft}, Hard limit: {final_hard}"
     )
 
 

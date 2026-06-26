@@ -238,7 +238,8 @@ class AsyncDetectorRunner(FrigateProcess):
                 logger.warning(f"Failed to get frame {connection_id} from SHM")
                 continue
 
-            # mark start time and send to accelerator
+            # mark start time (for watchdog stuck detection) and send to accelerator
+            self.start_time.value = datetime.datetime.now().timestamp()
             self.send_times.append(time.perf_counter())
             assert self._detector is not None
             self._detector.async_send_input(input_frame, connection_id)
