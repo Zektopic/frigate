@@ -14,6 +14,7 @@ AMD's ROCm compute stack has broken GPU reset on iGPUs (Phoenix1/Radeon 760M). T
 | [ROCm-POSTMORTEM.md](ROCm-POSTMORTEM.md) | Why ROCm failed on Radeon 760M and what we learned |
 | [CONFIG.md](CONFIG.md) | Complete Frigate configuration reference |
 | [BUILD-GUIDE.md](BUILD-GUIDE.md) | How to build the custom Docker image |
+| [RUST-MIGRATION.md](RUST-MIGRATION.md) | Python to Rust split, migration status, and future roadmap |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and fixes |
 
 ## Quick Results
