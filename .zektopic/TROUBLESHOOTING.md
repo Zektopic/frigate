@@ -75,6 +75,9 @@ Check per-camera `objects.filters.person.min_area`. Default was 1000, lowered to
 ### 5. Record enabled: false
 Recording was disabled in config. Must be `record.enabled: true`.
 
+### 6. Gated GPU Inference / Zero Idle Load (Tuned)
+Frigate only forwards frames to the GPU for object detection when motion is detected. Because we tuned motion thresholds (`threshold: 30`, `contour_area: 50`, `improve_contrast: false`) to ignore background swaying trees and night-vision digital noise, the system will rest in a complete idle state (`detection_fps: 0.0`) when no actual motion is happening. This is normal and expected, preserving CPU and GPU resources. When motion occurs, the GPU detector instantly wakes up.
+
 ## Rust engines deployed
 
 | Engine | Size | Status |
