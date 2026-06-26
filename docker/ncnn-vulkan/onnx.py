@@ -575,7 +575,7 @@ def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
     return out
 
 # ── YOLO26 handler (decoded output, no DFL/sigmoid needed) ─────
-def process_yolo26(raw, fw, score_thresh=0.25, nms_thresh=0.45):
+def process_yolo26(raw, fw, score_thresh=0.1, nms_thresh=0.45):
     bboxes = raw[:4, :].T; scores = raw[4:, :].T
     cx,cy,bw,bh = bboxes[:,0],bboxes[:,1],bboxes[:,2],bboxes[:,3]
     x1=cx-bw/2;y1=cy-bh/2;x2=cx+bw/2;y2=cy+bh/2
