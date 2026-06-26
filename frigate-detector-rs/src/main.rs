@@ -125,6 +125,8 @@ fn process_rayon(raw: &[f32], n_cells: usize, model_size: f32,
         }) { continue; }
         keep.push(i);
     }
+    // Sort keep by score descending (Frigate expects this for early-break)
+    keep.sort_unstable_by(|&a, &b| candidates[b].4.partial_cmp(&candidates[a].4).unwrap_or(std::cmp::Ordering::Equal));
     for (k,&idx) in keep.iter().enumerate() {
         let (x1,y1,x2,y2,s,c) = candidates[idx];
         let o=k*6; out[o]=c as f32;out[o+1]=s;out[o+2]=x1;out[o+3]=y1;out[o+4]=x2;out[o+5]=y2;
