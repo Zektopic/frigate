@@ -1,132 +1,132 @@
 # Troubleshooting
 
-Common issues and fixes for the ncnn Vulkan detector.
+Common issues and fixes for the ncnn Vulkan detector with Rust acceleration.
 
 ## Current Setup (2026-06-26)
 
-**Model**: YOLOv5s (ncnn Vulkan, in-process)  
-**Architecture**: In-process ncnn Vulkan (no worker subprocess)  
-**Speed**: ~75ms inference, ~2.1-2.9 detection FPS per camera  
+**Model**: YOLO26n (ncnn Vulkan, Rust binary)  
+**Architecture**: Rust detector binary (`frigate-detector-rs`) + Python ncnn subprocess  
+**Speed**: ~94ms inference, ~2.8 detection FPS per camera  
 **Branch**: `perf/cpu-ram-optimization`
 
-### Why YOLOv5s instead of YOLO26n
+### Architecture
 
-YOLO26n (and all anchor-free models: YOLOv8, YOLOv9, YOLO11) crash with SIGSEGV when running Vulkan in-process after Frigate's fork(). This is an AMD RADV Vulkan bug affecting the DFL grid-decode code path on Radeon 760M (gfx1103).
+```
+Frigate Python (detector plugin)
+  │
+  ├── pipe(stdin) → frame (float16, 2.5MB)
+  │
+  ▼
+┌─────────────────────────────────────────┐
+│ frigate-detector-rs (Rust, 535KB)       │
+│                                         │
+│  crossbeam channels + Arc<Frame>        │
+│  Python ncnn subprocess (GPU forward)   │
+│  rayon-parallel argmax + NMS            │
+│  sorted descending output               │
+└─────────────────────────────────────────┘
+  │
+  ├── pipe(stdout) → detections (480B, 20×6 float32)
+  │
+  ▼
+Frigate Python (event logic)
+```
 
-The worker subprocess workaround was tried but caused:
-- 223% CPU overhead from pipe IPC + Python subprocess
-- Fragile communication (broken pipes, silent failures)
-- 94ms inference (slower than in-process 75ms)
+### Why Rust binary instead of inline Python worker
 
-YOLOv5s (anchor-based) uses a different Vulkan code path that is stable after fork. Runs at 75ms in-process with zero worker overhead.
+The inline Python worker had:
+- numpy argmax/NMS in Python (70% of CPU)
+- Pipe I/O overhead
+- Fragile inline code (f-strings in f-strings)
+
+The Rust binary:
+- Rayon-parallel argmax + NMS (zero numpy)
+- Same pipe protocol (drop-in compatible)
+- Proper binary (compiled, tested)
+- Architecture auto-detection (YOLO26n, YOLO11n)
+
+### Available models
+
+| Model | Size | Path | Status |
+|-------|------|------|--------|
+| **YOLO26n** | 9.3MB | `yolo26n.param` | **Active** |
+| YOLOv5s | 14MB | `yolov5s.ncnn.param` | Fallback (in-process, 72ms) |
+| YOLO11n | 10.2MB | `yolo11n.param` | Exported, class mapping issues |
 
 ### Quick verification
 ```bash
-# Check model loaded correctly
-docker logs frigate | grep "model loaded"
-# Should show: NCNN: model loaded (arch=yolov5, Vulkan=on)
+# Check model loaded
+docker logs frigate | grep "model loaded\|Rust detector ready"
 
 # Check inference speed
 curl -s http://localhost:5000/api/stats | jq '.detectors."ncnn_vulkan".inference_speed'
-# Should be ~75ms (YOLOv5s in-process)
 
-# Verify NO worker subprocess
-docker exec frigate ps aux | grep "python3 -c" | grep -c ncnn
-# Should be 0
+# Verify Rust binary active
+docker exec frigate ls -lh /opt/frigate/frigate-detector-rs
 
-# Check for segfaults
-docker logs frigate | grep -c "segfault\|Fatal"
+# Verify no errors
+docker logs frigate | grep -c "short read\|buffer size\|ValueError"
 # Should be 0
 ```
 
-## No detections (events not triggering)
+## No detections / No events
 
-### Symptom
-Detection FPS shows in stats but no events are generated.
+### 1. Container just restarted
+Motion detectors need 2-5 minutes to calibrate. Detection FPS ramps up as cameras stabilize.
 
-### Common causes
+### 2. min_area too high
+Check per-camera `objects.filters.person.min_area`. If the detected bounding box is smaller, it's filtered out. Default was 1000, lowered to 500.
 
-1. **Container just restarted** — Motion detectors need 30-60 seconds to calibrate. Detection FPS will ramp up as cameras stabilize.
+### 3. Detection format bugs (fixed)
+- X/Y swap in Rust output: `[cls,score,y1,x1,...]` vs Frigate's `[cls,score,x1,y1,...]`
+- Row-major layout: ncnn output is (84 rows × 8400 cols), not column-major
+- Unsorted output: Frigate's early-break expects descending scores
+- Pipe partial read: `os.read` can return partial data, need loop
 
-2. **score_thresh too high** — Worker uses 0.05 internally. Camera `min_score` is 0.2 in config.
+### 4. Record enabled: false
+Recording was disabled in config. Must be `record.enabled: true`.
 
-3. **Frigate detect() threshold** — Default is 0.2 (lowered from 0.4). Patched in `object_detection/base.py`.
+### 5. Offline cameras
+`back_garden` at 192.168.1.20:554 is unreachable. Detection disabled for this camera.
 
-4. **Model output format mismatch** — YOLOv5s outputs 3 scales × 255 channels. The plugin's `_detect_architecture` auto-detects from `.param` file.
+## Rust engines deployed
 
-## Switching between YOLOv5s and YOLO26n
+| Engine | Size | Status |
+|--------|------|--------|
+| `frigate-detector-rs` | 535KB binary | Active (YOLO26n/11n) |
+| `libfrigate_motion_rs.so` | 284KB | Built, 10/10 tests |
+| `libfrigate_yolo_rs.so` | 284KB | Deployed |
+| `libfrigate_frame_rs.so` | 278KB | Deployed |
 
-### YOLOv5s (current — recommended)
-```yaml
-model:
-  path: /config/model_cache/yolov5s.ncnn.param
-  width: 640
-  height: 640
+## GPU info
+
 ```
-- In-process Vulkan (no worker)
-- 75ms inference
-- Stable, no crashes
-- More false positives but reliable
+GPU 0: AMD Radeon Graphics (RADV GFX1103_R1)
+  Vulkan compute: ✅ (queueC=1)
+  FP16 arithmetic: ✅
+  INT8 compute: ❌ (int8-cm=0)
+  INT8 storage: ✅
+```
 
-### YOLO26n (faster, more accurate, but needs worker)
+INT8 quantization saves VRAM but not speed. FP16 is optimal.
+
+## Switching models
 ```yaml
+# YOLO26n (current)
 model:
   path: /config/model_cache/yolo26n.param
-  width: 640
-  height: 640
-```
-- Worker subprocess required (pipe IPC)
-- ~94ms inference with worker
-- Higher CPU usage (~223% worker process)
-- Fewer false positives
-- Fragile pipe communication
 
-## GPU not detected by ncnn
-
-### Symptom
-```
-NCNN: no GPU found, using CPU fallback
+# YOLOv5s (in-process, no Rust binary)
+model:
+  path: /config/model_cache/yolov5s.ncnn.param
 ```
 
-### Fix
-1. Verify Mesa Vulkan drivers: `apt install mesa-vulkan-drivers`
-2. Check GPU visible: `docker exec frigate python3 -c "import ncnn; print(ncnn.get_gpu_count())"`
-3. Check `/dev/dri/renderD128` passthrough in docker-compose
-4. Verify render group access: `ls -la /dev/dri/renderD128` (should be `root:render`, gid 992)
-
-## Detection is slow (>200ms)
-
-1. Verify Vulkan: `docker logs frigate | grep "Vulkan=on"`
-2. Check no worker process: `docker exec frigate ps aux | grep "python3 -c"`
-3. Verify model is YOLOv5s (in-process path)
-
-## Model cache cleanup
-
-Only keep working models:
+## Exporting new models to NCNN
 ```bash
-ls /mnt/docker/frigate/config/model_cache/
-# Keep: yolov5s.ncnn.param, yolov5s.ncnn.bin
-# Keep: yolo26n.param, yolo26n.bin (for future use)
-# Remove: yolov8*, yolov9*, yolo11*, yolov7-tiny* (all crash on this GPU)
-```
-
-## Address already in use (OSError 98)
-
-Harmless — Frigate's internal auth service port conflict during startup. Retries and starts correctly.
-
-## Rust SIMD engines
-
-Three Rust `.so` engines are deployed at `/opt/frigate/`:
-- `libfrigate_motion_rs.so` — Motion detection (mask bug fixed, 10/10 tests)
-- `libfrigate_yolo_rs.so` — YOLO post-processing (YOLO26 + anchor-free + NMS)
-- `libfrigate_frame_rs.so` — Frame preprocessing (YUV ops, resize, normalize)
-
-Verify they're loadable:
-```bash
-docker exec frigate python3 -c "
-from frigate.motion.rust_engine import motion_available
-from frigate.detectors.rust_yolo import yolo_available
-print(f'motion_rs: {motion_available()}')
-print(f'yolo_rs: {yolo_available()}')
+pip install --break-system-packages ultralytics ncnn pnnx
+python3 -c "
+from ultralytics import YOLO
+model = YOLO('yolo11n.pt')
+model.export(format='ncnn', imgsz=640)
 "
 ```
