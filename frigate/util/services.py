@@ -118,11 +118,20 @@ def get_cpu_stats() -> dict[str, dict]:
     }
 
     keywords = ["ffmpeg", "go2rtc", "frigate.", "python3"]
-    for process in psutil.process_iter(["pid", "name", "cpu_percent", "cmdline"]):
-        pid = str(process.info["pid"])
+    try:
+        main_proc = psutil.Process()
+        our_processes = [main_proc] + main_proc.children(recursive=True)
+    except Exception:
+        our_processes = []
+
+    for process in our_processes:
         try:
-            cpu_percent = process.info["cpu_percent"]
-            cmdline = " ".join(process.info["cmdline"]).rstrip()
+            info = process.as_dict(attrs=["pid", "name", "cpu_percent", "cmdline"])
+            pid = str(info["pid"])
+            cpu_percent = info["cpu_percent"]
+            if info["cmdline"] is None:
+                continue
+            cmdline = " ".join(info["cmdline"]).rstrip()
 
             if not any(keyword in cmdline for keyword in keywords):
                 continue

@@ -82,8 +82,21 @@ def capture_frames(
             frame_name = f"{config.name}_frame{frame_index}"
             frame_buffer = frame_manager.write(frame_name)
             try:
-                frame_buffer[:] = ffmpeg_process.stdout.read(frame_size)
-            except Exception:
+                if frame_buffer is None:
+                    raise ValueError("frame_buffer is None")
+
+                from frigate.util.frame_rs import frame_rs_available, read_ffmpeg_frame_to_ptr
+
+                if frame_rs_available():
+                    import ctypes
+                    addr = ctypes.addressof(ctypes.c_char.from_buffer(frame_buffer))
+                    fd = ffmpeg_process.stdout.fileno()
+                    rc = read_ffmpeg_frame_to_ptr(fd, addr, frame_size)
+                    if rc <= 0:
+                        raise OSError("Rust frame reader failed or EOF")
+                else:
+                    frame_buffer[:] = ffmpeg_process.stdout.read(frame_size)
+            except Exception as exc:
                 # shutdown has been initiated
                 if stop_event.is_set():
                     break
