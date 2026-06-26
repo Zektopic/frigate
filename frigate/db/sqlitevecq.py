@@ -19,6 +19,7 @@ class SqliteVecQueueDatabase(SqliteQueueDatabase):
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
         conn.execute("PRAGMA temp_store=MEMORY;")
+        conn.execute("PRAGMA mmap_size=268435456;")  # 256 MB — reduces read() syscalls
         if self.load_vec_extension:
             self._load_vec_extension(conn)
 

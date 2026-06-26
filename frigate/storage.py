@@ -155,6 +155,10 @@ class StorageMaintainer(threading.Thread):
         event_start = 0
         deleted_recordings = []
         for recording in recordings:
+            if self.stop_event.is_set():
+                logger.debug("Storage cleanup interrupted by stop event")
+                break
+
             # check if 1 hour of storage has been reclaimed
             if deleted_segments_size > hourly_bandwidth:
                 break
@@ -214,6 +218,12 @@ class StorageMaintainer(threading.Thread):
             )
 
             for recording in recordings:
+                if self.stop_event.is_set():
+                    logger.debug(
+                        "Storage cleanup (retained) interrupted by stop event"
+                    )
+                    break
+
                 if deleted_segments_size > hourly_bandwidth:
                     break
 

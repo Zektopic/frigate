@@ -63,15 +63,22 @@ def capture_frames(
         config_subscriber.check_for_updates()
         return config.enabled
 
+    # Throttle cross-process shared-value writes to 1 Hz — watchdogs poll
+    # at 1 Hz so per-frame updates waste kernel lock acquisitions.
+    _last_metrics_update = 0.0
+
     try:
         while not stop_event.is_set():
             if not get_enabled_state():
                 logger.debug(f"Stopping capture thread for disabled {config.name}")
                 break
 
-            fps.value = frame_rate.eps()
-            skipped_fps.value = skipped_eps.eps()
-            current_frame.value = datetime.now().timestamp()
+            now_ts = datetime.now().timestamp()
+            if now_ts - _last_metrics_update >= 1.0:
+                fps.value = frame_rate.eps()
+                skipped_fps.value = skipped_eps.eps()
+                current_frame.value = now_ts
+                _last_metrics_update = now_ts
             frame_name = f"{config.name}_frame{frame_index}"
             frame_buffer = frame_manager.write(frame_name)
             try:

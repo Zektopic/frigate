@@ -97,7 +97,18 @@ class FrigateApp:
         self.metrics_manager = manager
         self.audio_process: Optional[mp.Process] = None
         self.stop_event = stop_event
-        self.detection_queue: Queue = mp.Queue()
+        # Bound to prevent unbounded RAM growth if detector stalls;
+        # mirrors the detected_frames_queue formula.
+        self.detection_queue: Queue = mp.Queue(
+            maxsize=(
+                sum(
+                    camera.enabled_in_config == True
+                    for camera in config.cameras.values()
+                )
+                + 2
+            )
+            * 2
+        )
         self.detectors: dict[str, ObjectDetectProcess] = {}
         self.detection_shms: list[mp.shared_memory.SharedMemory] = []
         self.log_queue: Queue = mp.Queue()
