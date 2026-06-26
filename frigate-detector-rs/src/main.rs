@@ -89,14 +89,19 @@ fn process_rayon(raw: &[f32], n_cells: usize, model_size: f32,
                   score_thresh: f32, nms_thresh: f32,
                   out: &mut [f32; 120]) -> usize
 {
-    let candidates: Vec<_> = (0..n_cells).into_par_iter().filter_map(|i| {
-        let b = i * 84;
-        let cx=raw[b]; let cy=raw[b+1]; let bw=raw[b+2]; let bh=raw[b+3];
+    // ncnn output layout: (84 rows × n_cells columns), row-major flat.
+    // Row 0=cl, 1=cy, 2=bw, 3=bh, rows 4-83=class_scores[0..79].
+    let candidates: Vec<_> = (0..n_cells).into_par_iter().filter_map(|j| {
+        let cx=raw[j]; let cy=raw[n_cells+j];
+        let bw=raw[2*n_cells+j]; let bh=raw[3*n_cells+j];
         let x1=(cx-bw*0.5).max(0.0); let y1=(cy-bh*0.5).max(0.0);
         let x2=(cx+bw*0.5).min(model_size); let y2=(cy+bh*0.5).min(model_size);
         if x2<=x1||y2<=y1 { return None; }
         let mut bs=0.0f32; let mut bc=0i32;
-        for c in 0..80 { let s=raw[b+4+c]; if s>bs { bs=s; bc=c as i32; } }
+        for c in 0..80 {
+            let s=raw[(4+c)*n_cells + j];
+            if s>bs { bs=s; bc=c as i32; }
+        }
         if bs<score_thresh { return None; }
         Some((x1,y1,x2,y2,bs,bc))
     }).collect();
