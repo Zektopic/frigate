@@ -615,11 +615,11 @@ while True:
         chunk = os.read(0, size - len(data))
         if not chunk: break
         data += chunk
-    frame = np.frombuffer(data, dtype=np.float32).copy()
+    # Frigate sends float16 to halve pipe I/O; convert to float32 for ncnn
+    frame = np.frombuffer(data, dtype=np.float16).astype(np.float32).copy()
     _, c, fh, fw = 1, 3, model_size, model_size
     frame = frame.reshape(1, c, fh, fw)
-    # Denormalise (Frigate sends 0-1, model expects 0-255)
-    frame *= 255.0
+    frame *= 255.0  # denormalise (Frigate sends 0-1, model expects 0-255)
 
     mat_in = ncnn.Mat(frame)
     with net.create_extractor() as ex:
@@ -749,8 +749,9 @@ while True:
     # Worker subprocess inference (YOLOv8/YOLO11 Vulkan)
     # ------------------------------------------------------------------
     def _detect_worker(self, tensor_input: np.ndarray) -> np.ndarray:
-        """Send frame to the persistent ncnn Vulkan worker, get detections."""
-        data = tensor_input.astype(np.float32).tobytes()
+        """Send frame to the persistent ncnn Vulkan worker, get detections.
+        Uses float16 to halve pipe I/O (2.5MB vs 5MB per frame)."""
+        data = tensor_input.astype(np.float16).tobytes()
         try:
             os.write(self._worker.stdin.fileno(), struct.pack('>I', len(data)))
             os.write(self._worker.stdin.fileno(), data)
