@@ -19,6 +19,11 @@ IMPORTANT — lazy ncnn import:
 import logging
 import os
 import re
+import select
+import struct
+import subprocess
+import sys
+import time
 from typing import Optional
 
 import numpy as np
@@ -379,17 +384,21 @@ class ONNXDetector(DetectionApi):
 
         self.net = self.ncnn.Net()
 
-        if self.arch == "yolov5":
+        if self.arch == "yolov8":
+            # YOLOv8/YOLO11 Vulkan crashes inside Frigate's forked detector
+            # process (works fine in a plain fork, but Frigate's process
+            # environment — logging, faulthandler, shared memory, ZMQ —
+            # triggers a segfault in ncnn Vulkan).  Work around by spawning
+            # a clean subprocess that loads the model and handles inference
+            # via pipes.
+            self._init_ncnn_worker(param_path, bin_path)
+            return
+        else:
+            # YOLOv5/v7 — Vulkan is stable for anchor-based models
             self.net.opt.use_vulkan_compute = True
             self.net.opt.use_fp16_arithmetic = True
             self.net.opt.use_fp16_packed = True
             self.net.opt.use_fp16_storage = True
-        else:
-            self.net.opt.use_vulkan_compute = False
-            logger.info(
-                "NCNN: CPU-only for YOLOv8/YOLO11 "
-                "(Vulkan unstable after fork on this GPU)"
-            )
 
         self.net.load_param(param_path)
         self.net.load_model(bin_path)
@@ -407,12 +416,198 @@ class ONNXDetector(DetectionApi):
         )
 
     # ------------------------------------------------------------------
+    # Worker subprocess for YOLOv8/YOLO11 Vulkan (isolates ncnn from
+    # Frigate's forked-process environment which triggers segfaults)
+    # ------------------------------------------------------------------
+    def _init_ncnn_worker(self, param_path: str, bin_path: str) -> None:
+        """Spawn a clean subprocess that loads ncnn Vulkan and handles
+        inference via pipes.  This bypasses whatever Frigate environment
+        quirk (logging, faulthandler, shared memory, ZMQ, ...) causes
+        ncnn Vulkan to segfault with YOLOv8/YOLO11 models."""
+
+        # Read param file for architecture detection in the worker
+        with open(param_path) as f:
+            param_text = f.read()
+
+        arch = _detect_architecture(param_text)
+        in_name, out_names = _parse_blobs(param_path)
+
+        worker_code = f'''
+import sys, os, struct, numpy as np
+
+param = {param_path!r}
+binf = {bin_path!r}
+in_name = {in_name!r}
+out_names = {out_names!r}
+model_size = 640
+
+# ── load ncnn Vulkan (suppress stdout — used for IPC data) ───
+_real_stdout_fd = os.dup(1)
+null_fd = os.open(os.devnull, os.O_WRONLY)
+os.dup2(null_fd, 1)
+os.close(null_fd)
+import ncnn
+ncnn.destroy_gpu_instance()
+ncnn.create_gpu_instance()
+
+net = ncnn.Net()
+if ncnn.get_gpu_count() > 0:
+    dev = ncnn.get_gpu_device(0)
+    net.set_vulkan_device(dev)
+net.opt.use_vulkan_compute = True
+net.opt.use_fp16_arithmetic = False
+net.opt.use_fp16_packed = False
+net.opt.use_fp16_storage = False
+net.load_param(param)
+net.load_model(binf)
+# Restore stdout for IPC
+os.dup2(_real_stdout_fd, 1)
+os.close(_real_stdout_fd)
+sys.stderr.write(f"NCNN_WORKER_READY\\n")
+sys.stderr.flush()
+
+# ── inference helpers ─────────────────────────────────────────
+_STRIDES = (8, 16, 32)
+_REG_MAX = 16
+
+def _dfl_decode(reg_feat):
+    n = reg_feat.shape[0]
+    reg_feat = reg_feat.reshape(n, 4, 16)
+    reg_feat = np.exp(reg_feat - reg_feat.max(axis=-1, keepdims=True))
+    reg_feat /= reg_feat.sum(axis=-1, keepdims=True)
+    bins = np.arange(16, dtype=np.float32)
+    return (reg_feat * bins).sum(axis=-1)
+
+def _make_grid(fh, fw, stride):
+    ys, xs = np.mgrid[0:fh, 0:fw].astype(np.float32)
+    return np.stack([(xs.reshape(-1) + 0.5) * stride,
+                     (ys.reshape(-1) + 0.5) * stride], axis=1)
+
+def _nms(x1, y1, x2, y2, scores, iou):
+    areas = (x2-x1)*(y2-y1)
+    order = scores.argsort()[::-1]
+    keep = []
+    while order.size:
+        i = order[0]; keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+        w = np.maximum(0., xx2-xx1); h = np.maximum(0., yy2-yy1)
+        inter = w*h
+        iou_vals = inter/(areas[i]+areas[order[1:]]-inter)
+        order = order[np.where(iou_vals <= iou)[0]+1]
+    return np.array(keep)
+
+def process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
+    reg_raw = raw[:, :64]
+    cls_raw = raw[:, 64:]
+    dist = _dfl_decode(reg_raw)
+    box_parts = []; offset = 0
+    for stride in _STRIDES:
+        grid = model_size // stride
+        n = grid*grid
+        if offset+n > raw.shape[0]: break
+        pts = _make_grid(grid, grid, stride)
+        d = dist[offset:offset+n]
+        box_parts.append((pts[:,0]-d[:,0], pts[:,1]-d[:,1],
+                          pts[:,0]+d[:,2], pts[:,1]+d[:,3]))
+        offset += n
+    if offset == 0: return np.zeros((20,6), dtype=np.float32)
+    x1=np.concatenate([b[0] for b in box_parts])
+    y1=np.concatenate([b[1] for b in box_parts])
+    x2=np.concatenate([b[2] for b in box_parts])
+    y2=np.concatenate([b[3] for b in box_parts])
+    cls_raw=cls_raw-cls_raw.max(axis=1,keepdims=True)
+    cls_scores=1./(1.+np.exp(-cls_raw))
+    cid=np.argmax(cls_scores,axis=1)
+    scores=cls_scores[np.arange(cls_scores.shape[0]),cid]
+    keep=scores>score_thresh
+    if not np.any(keep): return np.zeros((20,6),dtype=np.float32)
+    x1,y1,x2,y2=x1[keep],y1[keep],x2[keep],y2[keep]
+    scores,cid=scores[keep],cid[keep]
+    x1=np.clip(x1,0,model_size);y1=np.clip(y1,0,model_size)
+    x2=np.clip(x2,0,model_size);y2=np.clip(y2,0,model_size)
+    valid=(x2>x1)&(y2>y1)
+    if not np.any(valid): return np.zeros((20,6),dtype=np.float32)
+    x1,y1,x2,y2=x1[valid],y1[valid],x2[valid],y2[valid]
+    scores,cid=scores[valid],cid[valid]
+    ki=_nms(x1,y1,x2,y2,scores,nms_thresh)
+    if ki.size==0: return np.zeros((20,6),dtype=np.float32)
+    scale_x=w/model_size;scale_y=h/model_size
+    dets=np.stack([cid[ki].astype(np.float32),scores[ki],
+                   x1[ki]*scale_x,y1[ki]*scale_y,
+                   x2[ki]*scale_x,y2[ki]*scale_y],axis=1)
+    out=np.zeros((20,6),dtype=np.float32)
+    n=min(len(dets),20); out[:n]=dets[:n]
+    return out
+
+# ── main loop ─────────────────────────────────────────────────
+while True:
+    # read frame size (4 bytes) then frame data via os.read (fast)
+    header = os.read(0, 4)
+    if not header: break
+    size = struct.unpack('>I', header)[0]
+    data = b''
+    while len(data) < size:
+        chunk = os.read(0, size - len(data))
+        if not chunk: break
+        data += chunk
+    frame = np.frombuffer(data, dtype=np.float32).copy()
+    _, c, fh, fw = 1, 3, model_size, model_size
+    frame = frame.reshape(1, c, fh, fw)
+    # Denormalise (Frigate sends 0-1, model expects 0-255)
+    frame *= 255.0
+
+    mat_in = ncnn.Mat(frame)
+    with net.create_extractor() as ex:
+        ex.input(in_name, mat_in)
+        ret, out0 = ex.extract(out_names[0] if out_names else "out0")
+        if ret != 0:
+            dets = np.zeros((20, 6), dtype=np.float32)
+        else:
+            raw = np.array(out0).copy()
+            dets = process(raw, fw, fw)
+    result = dets.tobytes()
+    os.write(1, struct.pack('>I', len(result)))
+    os.write(1, result)
+'''
+        self._worker = subprocess.Popen(
+            [sys.executable, "-c", worker_code],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        # Wait for ready signal on stderr (skip ncnn GPU-info lines)
+        deadline = time.time() + 30
+        ready = False
+        while time.time() < deadline:
+            r, _, _ = select.select([self._worker.stderr], [], [], 5)
+            if not r:
+                continue
+            line = self._worker.stderr.readline().decode().strip()
+            if "NCNN_WORKER_READY" in line:
+                ready = True
+                break
+            if line:
+                logger.debug("NCNN worker stderr: %s", line)
+        if not ready:
+            self._worker.kill()
+            raise RuntimeError("NCNN worker did not become ready within 30s")
+        logger.info("NCNN: Vulkan inference worker ready (pid=%d)", self._worker.pid)
+        self._use_worker = True
+
+    # ------------------------------------------------------------------
     def detect_raw(self, tensor_input: np.ndarray) -> np.ndarray:
         """Run inference → (N, 6) detections [x1, y1, x2, y2, score, cls]."""
         if self.backend == "onnxruntime":
             return self._detect_onnx(tensor_input)
 
-        # NCNN backend
+        # Worker subprocess path (YOLOv8/YOLO11 Vulkan)
+        if getattr(self, "_use_worker", False):
+            return self._detect_worker(tensor_input)
+
+        # NCNN in-process backend (YOLOv5/v7 Vulkan)
         _, _, h, w = tensor_input.shape
 
         mat_in = self.ncnn.Mat(
@@ -426,6 +621,28 @@ class ONNXDetector(DetectionApi):
                 return self._detect_anchor_free(ex, w, h)
             else:
                 return self._detect_anchor_based(ex, w, h)
+
+    # ------------------------------------------------------------------
+    # Worker subprocess inference (YOLOv8/YOLO11 Vulkan)
+    # ------------------------------------------------------------------
+    def _detect_worker(self, tensor_input: np.ndarray) -> np.ndarray:
+        """Send frame to the persistent ncnn Vulkan worker, get detections."""
+        data = tensor_input.astype(np.float32).tobytes()
+        try:
+            # Use direct fd writes for speed (avoid Python buffer overhead)
+            os.write(self._worker.stdin.fileno(), struct.pack('>I', len(data)))
+            os.write(self._worker.stdin.fileno(), data)
+            header = os.read(self._worker.stdout.fileno(), 4)
+            if not header:
+                logger.error("NCNN worker: no response")
+                return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+            size = struct.unpack('>I', header)[0]
+            result = os.read(self._worker.stdout.fileno(), size)
+            dets = np.frombuffer(result, dtype=np.float32).reshape(-1, 6)
+            return dets
+        except (BrokenPipeError, OSError) as exc:
+            logger.error("NCNN worker: pipe error — %s", exc)
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
     # ------------------------------------------------------------------
     # ONNX Runtime inference
