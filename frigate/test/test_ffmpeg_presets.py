@@ -446,7 +446,7 @@ class TestParsePresetHardwareAccelerationEncode(unittest.TestCase):
         # vaapi presets use `{3}` for the gpu_arg
         result = parse_preset_hardware_acceleration_encode(
             self.ffmpeg_path,
-            "hwaccel_vaapi",
+            "preset-vaapi",
             self.input,
             self.output,
             EncodeTypeEnum.timelapse,
