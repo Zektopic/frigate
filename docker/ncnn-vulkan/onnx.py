@@ -752,7 +752,6 @@ while True:
         """Send frame to the persistent ncnn Vulkan worker, get detections."""
         data = tensor_input.astype(np.float32).tobytes()
         try:
-            # Use direct fd writes for speed (avoid Python buffer overhead)
             os.write(self._worker.stdin.fileno(), struct.pack('>I', len(data)))
             os.write(self._worker.stdin.fileno(), data)
             header = os.read(self._worker.stdout.fileno(), 4)
