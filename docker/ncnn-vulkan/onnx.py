@@ -491,9 +491,10 @@ def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
 
     # ── Step 1: fast class check (cheap) — find promising candidates ──
     cls = raw[:, 64:]
-    cls -= cls.max(axis=1, keepdims=True)
-    np.exp(cls, out=cls)
-    cls /= (1.0 + cls)  # sigmoid, in-place
+    # Numerically stable sigmoid: 1/(1+exp(-x))
+    # Clamp to avoid overflow in exp
+    cls = np.clip(cls, -20.0, 20.0)
+    cls = 1.0 / (1.0 + np.exp(-cls))  # sigmoid, in-place
     cid_all = np.argmax(cls, axis=1)
     scores_all = cls[np.arange(N), cid_all]
 
@@ -568,6 +569,7 @@ def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
     return out
 
 # ── main loop ─────────────────────────────────────────────────
+_frame_count = 0
 while True:
     # read frame size (4 bytes) then frame data via os.read (fast)
     header = os.read(0, 4)
@@ -593,6 +595,17 @@ while True:
         else:
             raw = np.array(out0).copy()
             dets = _process(raw, fw, fw)
+            _frame_count += 1
+            if _frame_count % 50 == 0:
+                nonzero = (dets[:, 1] > 0).sum()
+                top = dets[dets[:, 1] > 0][:3]
+                if nonzero > 0:
+                    sys.stderr.write(
+                        "[worker #" + str(_frame_count) + "] " + str(nonzero)
+                        + " detections, top score=" + str(float(top[0,1]))
+                        + " class=" + str(int(top[0,0])) + "\\n"
+                    )
+                sys.stderr.flush()
     result = dets.tobytes()
     os.write(1, struct.pack('>I', len(result)))
     os.write(1, result)
