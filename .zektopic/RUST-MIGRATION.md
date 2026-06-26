@@ -44,18 +44,17 @@ The core coordination layer and non-performance-critical logic remain in Python:
 
 To achieve a minimal CPU/RAM footprint and completely remove the Python GIL overhead in critical pipelines, the following modules are planned for future Rust migration:
 
-### 1. Frame Capture Pipe Reader (`frigate/video/capture.py`)
-* **Current State**: Python reads raw video bytes from FFmpeg pipes, parses frame boundaries, and pushes them into shared memory.
-* **Rust Target**: Native Rust pipe reader doing zero-copy writes directly into `/dev/shm`, lowering pipe IO overhead under high FPS/resolution.
+### 1. Frame Capture Pipe Reader (`frigate/video/ffmpeg.py`)
+* **Current State**: **Migrated to Rust FFI** (`read_ffmpeg_frame`). FFmpeg stdout pipe reading is offloaded directly to Rust via raw file descriptors and buffer pointers, eliminating Python-level raw byte handling and GC overhead.
 
 ### 2. Tracker & Association Association (`frigate/object_processing.py`)
-* **Current State**: Frame-to-frame box tracking (overlapping bounding boxes, Kalman filters, and tracks association) runs in Python.
-* **Rust Target**: Parallel tracking engine in Rust for swift tracking computations across dozens of active objects.
+* **Current State**: **IoU calculations migrated to Rust FFI** (`intersection_over_union`). Bounding box overlap calculations are executed in Rust FFI with a fallback to Python. Kalman filter and track assignment remain target candidates.
+* **Rust Target**: Complete parallel tracking engine in Rust for swift tracking computations across dozens of active objects.
 
 ### 3. Event Loop Triggers (`frigate/events/`)
 * **Current State**: Evaluates object confidence, zone overlaps, and thresholds to register new events and review segments.
 * **Rust Target**: Shift event state classification (start, active, end) to Rust to prevent GIL lag during busy periods.
 
 ### 4. Telemetry Collector
-* **Current State**: Aggregates CPU, GPU, and camera stats via Python processes.
-* **Rust Target**: A lightweight background stats-gathering thread, freeing up Python overhead.
+* **Current State**: **Optimized**. Refactored `get_cpu_stats` to query only Frigate's descendant processes (ffmpeg, go2rtc, python, workers) recursively instead of scanning all system-wide processes, avoiding high CPU/RAM overhead and GIL lag.
+* **Rust Target**: Complete lightweight background stats-gathering thread in Rust to entirely bypass Python `psutil` dependencies.
