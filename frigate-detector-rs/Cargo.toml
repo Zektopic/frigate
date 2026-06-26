@@ -1,0 +1,17 @@
+[package]
+name = "frigate-detector-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone Rust detector binary — ncnn Vulkan via FFI + SHM IPC"
+
+[[bin]]
+name = "frigate-detector-rs"
+path = "src/main.rs"
+
+[dependencies]
+libloading = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
