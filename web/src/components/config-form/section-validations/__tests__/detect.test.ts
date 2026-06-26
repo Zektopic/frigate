@@ -56,7 +56,9 @@ describe("validateDetectDimensions", () => {
 
     validateDetectDimensions(formData, errors, mockT);
 
-    expect(widthAddError).toHaveBeenCalledWith("Dimension must be an even number.");
+    expect(widthAddError).toHaveBeenCalledWith(
+      "Dimension must be an even number.",
+    );
     expect(heightAddError).not.toHaveBeenCalled();
   });
 
@@ -72,7 +74,9 @@ describe("validateDetectDimensions", () => {
     validateDetectDimensions(formData, errors, mockT);
 
     expect(widthAddError).not.toHaveBeenCalled();
-    expect(heightAddError).toHaveBeenCalledWith("Dimension must be an even number.");
+    expect(heightAddError).toHaveBeenCalledWith(
+      "Dimension must be an even number.",
+    );
   });
 
   it("should add errors for both odd width and odd height", () => {
@@ -86,8 +90,12 @@ describe("validateDetectDimensions", () => {
 
     validateDetectDimensions(formData, errors, mockT);
 
-    expect(widthAddError).toHaveBeenCalledWith("Dimension must be an even number.");
-    expect(heightAddError).toHaveBeenCalledWith("Dimension must be an even number.");
+    expect(widthAddError).toHaveBeenCalledWith(
+      "Dimension must be an even number.",
+    );
+    expect(heightAddError).toHaveBeenCalledWith(
+      "Dimension must be an even number.",
+    );
   });
 
   it("should ignore missing width and height", () => {
@@ -128,7 +136,9 @@ describe("validateDetectDimensions", () => {
     } as unknown as FormValidation;
 
     // Should not throw
-    expect(() => validateDetectDimensions(formData, errors, mockT)).not.toThrow();
+    expect(() =>
+      validateDetectDimensions(formData, errors, mockT),
+    ).not.toThrow();
   });
 
   it("should handle missing width/height in errors object", () => {
@@ -136,6 +146,8 @@ describe("validateDetectDimensions", () => {
     const errors: FormValidation = {} as unknown as FormValidation;
 
     // Should not throw
-    expect(() => validateDetectDimensions(formData, errors, mockT)).not.toThrow();
+    expect(() =>
+      validateDetectDimensions(formData, errors, mockT),
+    ).not.toThrow();
   });
 });

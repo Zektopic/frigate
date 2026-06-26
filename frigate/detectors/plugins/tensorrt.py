@@ -57,7 +57,9 @@ class TensorRTDetectorConfig(BaseDetectorConfig):
         default=0, title="GPU Device Index", description="The GPU device index to use."
     )
     conf_th: float = Field(
-        default=0.4, title="Confidence Threshold", description="Confidence threshold for the TensorRT detector."
+        default=0.4,
+        title="Confidence Threshold",
+        description="Confidence threshold for the TensorRT detector.",
     )
 
 

@@ -47,13 +47,17 @@ class SqliteVecQueueDatabase(SqliteQueueDatabase):
         if not event_ids:
             return
         ids = ",".join(["?" for _ in event_ids])
-        self.execute_sql(f"DELETE FROM vec_thumbnails WHERE id IN ({ids})", tuple(event_ids))
+        self.execute_sql(
+            f"DELETE FROM vec_thumbnails WHERE id IN ({ids})", tuple(event_ids)
+        )
 
     def delete_embeddings_description(self, event_ids: list[str]) -> None:
         if not event_ids:
             return
         ids = ",".join(["?" for _ in event_ids])
-        self.execute_sql(f"DELETE FROM vec_descriptions WHERE id IN ({ids})", tuple(event_ids))
+        self.execute_sql(
+            f"DELETE FROM vec_descriptions WHERE id IN ({ids})", tuple(event_ids)
+        )
 
     def drop_embeddings_tables(self) -> None:
         self.execute_sql("""

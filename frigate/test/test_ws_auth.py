@@ -2,6 +2,7 @@
 
 import sys
 from unittest.mock import MagicMock
+
 if "ws4py.server.wsgirefserver" not in sys.modules:
     sys.modules["ws4py"] = MagicMock()
     sys.modules["ws4py.server"] = MagicMock()

@@ -455,6 +455,7 @@ class Embeddings:
         # Fetch all triggers for all configured cameras to avoid N+1 query
         triggers_by_camera: dict[str, dict[str, Trigger]] = {}
         from peewee import chunked
+
         for chunk in chunked(camera_names, 900):
             for trigger in Trigger.select().where(Trigger.camera << chunk):
                 if trigger.camera not in triggers_by_camera:

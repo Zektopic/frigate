@@ -207,6 +207,13 @@ class VLMWatchRunner(threading.Thread):
             logger.warning(
                 "VLM watch job %s: failed to parse VLM response: %s", self.job.id, e
             )
+            # Both assistant and user messages need to be popped to revert the turn
+            # since the parsing failed and we shouldn't keep the assistant response
+            # nor the user prompt that generated it.
+            if len(self.conversation) > 0:
+                self.conversation.pop()  # pop assistant message
+            if len(self.conversation) > 0:
+                self.conversation.pop()  # pop user message
             return 30
 
         self.job.last_reasoning = reasoning

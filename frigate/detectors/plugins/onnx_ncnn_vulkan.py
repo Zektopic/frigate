@@ -16,8 +16,6 @@ from typing_extensions import Literal
 from frigate.detectors.detection_api import DetectionApi
 from frigate.detectors.detector_config import BaseDetectorConfig
 
-
-import time
 logger = logging.getLogger(__name__)
 
 DETECTOR_KEY = "ncnn"
@@ -84,11 +82,12 @@ class NCNNDetector(DetectionApi):
             with open(label_path) as f:
                 self._class_names = [line.strip() for line in f if line.strip()]
 
-        logger.info(f"NCNN: model loaded successfully (Vulkan={'on' if gpu_count > 0 else 'off'})")
+        logger.info(
+            f"NCNN: model loaded successfully (Vulkan={'on' if gpu_count > 0 else 'off'})"
+        )
 
     def detect_raw(self, tensor_input: np.ndarray):
         """YOLOv5s inference via ncnn Vulkan, using Frigate's existing YOLO postprocessing."""
-        import cv2
 
         _, _, h, w = tensor_input.shape
         # ncnn YOLOv5s expects 0-255 range, Frigate normalizes to 0-1
@@ -116,6 +115,7 @@ class NCNNDetector(DetectionApi):
 
         # Use Frigate's own YOLO postprocessing
         from frigate.util.model import post_process_yolo
+
         return post_process_yolo(outputs, self.model_input_size, self.model_input_size)
 
     @staticmethod

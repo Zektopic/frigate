@@ -14,7 +14,6 @@ on NPU, it automatically falls back to the GPU device.
 """
 
 import logging
-import os
 from pathlib import Path
 from typing import Literal
 
@@ -74,9 +73,7 @@ class XdNPUDetector(DetectionApi):
             )
             raise
 
-        assert detector_config.model.path is not None, (
-            "xdnpu: No model.path configured"
-        )
+        assert detector_config.model.path is not None, "xdnpu: No model.path configured"
         assert detector_config.model.labelmap_path is not None, (
             "xdnpu: No model.labelmap_path configured"
         )
@@ -94,14 +91,10 @@ class XdNPUDetector(DetectionApi):
             logger.info("xdnpu: AMD XDNA NPU detected, using NPU device")
             device = "NPU"
         elif "GPU" in available_devices:
-            logger.warning(
-                "xdnpu: NPU not available, falling back to GPU device"
-            )
+            logger.warning("xdnpu: NPU not available, falling back to GPU device")
             device = "GPU"
         else:
-            logger.warning(
-                "xdnpu: Neither NPU nor GPU available, falling back to CPU"
-            )
+            logger.warning("xdnpu: Neither NPU nor GPU available, falling back to CPU")
             device = "CPU"
 
         self.device = device
@@ -138,8 +131,7 @@ class XdNPUDetector(DetectionApi):
         except Exception as e:
             if device == "NPU":
                 logger.warning(
-                    f"xdnpu: Model compilation failed on NPU ({e}), "
-                    "falling back to GPU"
+                    f"xdnpu: Model compilation failed on NPU ({e}), falling back to GPU"
                 )
                 device = "GPU"
                 self.device = device
@@ -214,12 +206,14 @@ class XdNPUDetector(DetectionApi):
 
         if self.npu_model_type == ModelTypeEnum.dfine:
             # Multi-input model: images + orig_target_sizes
-            result = self.infer_request.infer({
-                model_inputs[0]: tensor_input,
-                model_inputs[1]: np.array(
-                    [[self.height, self.width]], dtype=np.int64
-                ),
-            })
+            result = self.infer_request.infer(
+                {
+                    model_inputs[0]: tensor_input,
+                    model_inputs[1]: np.array(
+                        [[self.height, self.width]], dtype=np.int64
+                    ),
+                }
+            )
             return post_process_dfine(result, self.width, self.height)
 
         input_name = model_inputs[0].get_any_name()
@@ -240,9 +234,12 @@ class XdNPUDetector(DetectionApi):
                 if class_id < 0:
                     break
                 detections[i] = [
-                    class_id, confidence,
-                    y_min / self.height, x_min / self.width,
-                    y_max / self.height, x_max / self.width,
+                    class_id,
+                    confidence,
+                    y_min / self.height,
+                    x_min / self.width,
+                    y_max / self.height,
+                    x_max / self.width,
                 ]
             return detections
         elif self.npu_model_type == ModelTypeEnum.yologeneric:
@@ -250,8 +247,10 @@ class XdNPUDetector(DetectionApi):
         elif self.npu_model_type == ModelTypeEnum.yolox:
             return post_process_yolox(
                 tensor_output[0],
-                self.width, self.height,
-                self.grids, self.expanded_strides,
+                self.width,
+                self.height,
+                self.grids,
+                self.expanded_strides,
             )
         else:
             raise Exception(
