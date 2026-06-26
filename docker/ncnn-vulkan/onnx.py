@@ -637,12 +637,31 @@ while True:
     os.write(1, struct.pack('>I', len(result)))
     os.write(1, result)
 '''
-        self._worker = subprocess.Popen(
-            [sys.executable, "-c", worker_code],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        rust_bin = "/opt/frigate/frigate-detector-rs"
+        if self.arch == "yolo26" and os.path.exists(rust_bin):
+            logger.info("Spawning Rust NCNN worker: %s", rust_bin)
+            self._worker = subprocess.Popen(
+                [
+                    rust_bin,
+                    param_path,
+                    bin_path,
+                    in_name,
+                    out_names[0] if out_names else "out0",
+                    str(self.model_input_size),
+                    self.arch,
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        else:
+            logger.info("Spawning Python NCNN worker")
+            self._worker = subprocess.Popen(
+                [sys.executable, "-c", worker_code],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
         # Wait for ready signal on stderr (skip ncnn GPU-info lines)
         deadline = time.time() + 30
         ready = False
@@ -651,7 +670,7 @@ while True:
             if not r:
                 continue
             line = self._worker.stderr.readline().decode().strip()
-            if "NCNN_WORKER_READY" in line:
+            if "NCNN_WORKER_READY" in line or "NCNN_READY" in line:
                 ready = True
                 break
             if line:
@@ -736,18 +755,28 @@ while True:
         if keep_idx.size == 0:
             return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
-        scale_x = w / self.model_input_size
-        scale_y = h / self.model_input_size
+        # Frigate expects: [class_id, score, ymin_norm, xmin_norm, ymax_norm, xmax_norm]
         dets = np.column_stack([
             class_ids[keep_idx].astype(np.float32), best_scores[keep_idx],
-            x1[keep_idx] * scale_x, y1[keep_idx] * scale_y,
-            x2[keep_idx] * scale_x, y2[keep_idx] * scale_y,
+            y1[keep_idx] / self.model_input_size, x1[keep_idx] / self.model_input_size,
+            y2[keep_idx] / self.model_input_size, x2[keep_idx] / self.model_input_size,
         ])
         return _pad_detections(dets)
 
     # ------------------------------------------------------------------
     # Worker subprocess inference (YOLOv8/YOLO11 Vulkan)
     # ------------------------------------------------------------------
+    @staticmethod
+    def _pipe_read(fd: int, nbytes: int) -> bytes:
+        """Read exactly *nbytes* from file descriptor, looping on partial reads."""
+        buf = b""
+        while len(buf) < nbytes:
+            chunk = os.read(fd, nbytes - len(buf))
+            if not chunk:
+                raise OSError("pipe EOF during read")
+            buf += chunk
+        return buf
+
     def _detect_worker(self, tensor_input: np.ndarray) -> np.ndarray:
         """Send frame to the persistent ncnn Vulkan worker, get detections.
         Uses float16 to halve pipe I/O (2.5MB vs 5MB per frame)."""
@@ -755,13 +784,21 @@ while True:
         try:
             os.write(self._worker.stdin.fileno(), struct.pack('>I', len(data)))
             os.write(self._worker.stdin.fileno(), data)
-            header = os.read(self._worker.stdout.fileno(), 4)
-            if not header:
-                logger.error("NCNN worker: no response")
-                return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+            header = self._pipe_read(self._worker.stdout.fileno(), 4)
             size = struct.unpack('>I', header)[0]
-            result = os.read(self._worker.stdout.fileno(), size)
-            dets = np.frombuffer(result, dtype=np.float32).reshape(-1, 6)
+            result = self._pipe_read(self._worker.stdout.fileno(), size)
+            dets = np.frombuffer(result, dtype=np.float32).reshape(-1, 6).copy()
+            # worker output is [class_id, score, x1, y1, x2, y2] in 0..model_input_size range
+            # Frigate expects: [class_id, score, ymin_norm, xmin_norm, ymax_norm, xmax_norm]
+            if len(dets) > 0:
+                x1 = dets[:, 2] / self.model_input_size
+                y1 = dets[:, 3] / self.model_input_size
+                x2 = dets[:, 4] / self.model_input_size
+                y2 = dets[:, 5] / self.model_input_size
+                dets[:, 2] = y1
+                dets[:, 3] = x1
+                dets[:, 4] = y2
+                dets[:, 5] = x2
             return dets
         except (BrokenPipeError, OSError) as exc:
             logger.error("NCNN worker: pipe error — %s", exc)
@@ -825,16 +862,15 @@ while True:
         if keep_idx.size == 0:
             return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
-        # Scale to pixel coords
-        x1 = x1[keep_idx] * w
-        y1 = y1[keep_idx] * h
-        x2 = x2[keep_idx] * w
-        y2 = y2[keep_idx] * h
         best_scores = best_scores[keep_idx]
         class_ids = class_ids[keep_idx]
+        y1_norm = y1[keep_idx]
+        x1_norm = x1[keep_idx]
+        y2_norm = y2[keep_idx]
+        x2_norm = x2[keep_idx]
 
-        # Frigate expects: [label_idx, score, x1, y1, x2, y2]
-        dets = np.stack([class_ids.astype(np.float32), best_scores, x1, y1, x2, y2], axis=1)
+        # Frigate expects: [label_idx, score, ymin_norm, xmin_norm, ymax_norm, xmax_norm]
+        dets = np.stack([class_ids.astype(np.float32), best_scores, y1_norm, x1_norm, y2_norm, x2_norm], axis=1)
         return _pad_detections(dets)
 
     # ------------------------------------------------------------------
@@ -862,15 +898,20 @@ while True:
         if dets.size == 0:
             return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
-        # Rescale to original frame size
-        scale_x = w / self.model_input_size
-        scale_y = h / self.model_input_size
-        dets[:, 0] *= scale_x
-        dets[:, 2] *= scale_x
-        dets[:, 1] *= scale_y
-        dets[:, 3] *= scale_y
+        # Normalise to 0..1 and format as [class_id, score, ymin_norm, xmin_norm, ymax_norm, xmax_norm]
+        # dets format from post_process is: [class_id, score, x1, y1, x2, y2]
+        x1_norm = dets[:, 2] / self.model_input_size
+        y1_norm = dets[:, 3] / self.model_input_size
+        x2_norm = dets[:, 4] / self.model_input_size
+        y2_norm = dets[:, 5] / self.model_input_size
 
-        return dets
+        norm_dets = np.stack([
+            dets[:, 0], dets[:, 1],
+            y1_norm, x1_norm,
+            y2_norm, x2_norm
+        ], axis=1)
+
+        return _pad_detections(norm_dets)
 
     # ------------------------------------------------------------------
     # Anchor-based (YOLOv5 / YOLOv7)

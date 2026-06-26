@@ -119,8 +119,8 @@ fn process_rayon(raw: &[f32], n_cells: usize, model_size: f32,
         let (ax1,ay1,ax2,ay2,_,_) = candidates[i];
         if keep.iter().any(|&j| {
             let (bx1,by1,bx2,by2,_,_) = candidates[j];
-            let w=(ax1.max(bx1)-ax2.min(bx2)).max(0.0);
-            let h=(ay1.max(by1)-ay2.min(by2)).max(0.0);
+            let w=(ax2.min(bx2)-ax1.max(bx1)).max(0.0);
+            let h=(ay2.min(by2)-ay1.max(by1)).max(0.0);
             (w*h)/(areas[i]+areas[j]-w*h) > nms_thresh
         }) { continue; }
         keep.push(i);
