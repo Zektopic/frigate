@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 def check_csrf(request: Request) -> bool:
     if request.method in ["GET", "HEAD", "OPTIONS", "TRACE"]:
         return True
-    if "origin" in request.headers and "x-csrf-token" not in request.headers:
+    if "x-csrf-token" not in request.headers:
         return False
 
     return True

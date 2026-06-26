@@ -1,6 +1,5 @@
-import logging
-
 import ctypes
+import logging
 import sys
 from pathlib import Path
 from typing import Literal
@@ -17,12 +16,21 @@ logger = logging.getLogger(__name__)
 
 DETECTOR_KEY = "migraphx"
 
+
 class migraphxDetectorConfig(BaseDetectorConfig):
     type: Literal[DETECTOR_KEY]
     device: str = Field(default="gpu", title="Device Type (gpu or cpu)")
-    conserve_cpu: bool = Field(default=True, title="Conserve CPU at the expense of latency")
-    fast_math: bool = Field(default=True, title="Optimize math functions to use faster approximate versions")
-    exhaustive_tune: bool = Field(default=False, title="Use exhaustive search to find the fastest generated kernels")
+    conserve_cpu: bool = Field(
+        default=True, title="Conserve CPU at the expense of latency"
+    )
+    fast_math: bool = Field(
+        default=True, title="Optimize math functions to use faster approximate versions"
+    )
+    exhaustive_tune: bool = Field(
+        default=False,
+        title="Use exhaustive search to find the fastest generated kernels",
+    )
+
 
 class migraphxDetector(DetectionApi):
     type_key = DETECTOR_KEY
@@ -35,25 +43,34 @@ class migraphxDetector(DetectionApi):
         try:
             sys.path.append("/opt/rocm/lib")
             import migraphx
-            logger.info(f"migraphx: loaded migraphx module")
+
+            logger.info("migraphx: loaded migraphx module")
         except ModuleNotFoundError:
             logger.error("migraphx: module loading failed, missing migraphx")
             raise
 
-        assert detector_config.model.path is not None, "No model.path configured, please configure model.path"
-        assert detector_config.model.labelmap_path is not None, "No model.labelmap_path configured, please configure model.labelmap_path"
+        assert detector_config.model.path is not None, (
+            "No model.path configured, please configure model.path"
+        )
+        assert detector_config.model.labelmap_path is not None, (
+            "No model.labelmap_path configured, please configure model.labelmap_path"
+        )
 
         device = detector_config.device.lower()
-        assert device in ["gpu", "cpu"], "Invalid device set, must be gpu (default) or cpu"
+        assert device in ["gpu", "cpu"], (
+            "Invalid device set, must be gpu (default) or cpu"
+        )
 
         try:
             if device == "gpu":
                 if detector_config.conserve_cpu:
-                    logger.info(f"migraphx: enabling hipDeviceScheduleYield to forcefully conserve CPU (conserve_cpu=true)")
-                    ctypes.CDLL('/opt/rocm/lib/libamdhip64.so').hipSetDeviceFlags(4)
+                    logger.info(
+                        "migraphx: enabling hipDeviceScheduleYield to forcefully conserve CPU (conserve_cpu=true)"
+                    )
+                    ctypes.CDLL("/opt/rocm/lib/libamdhip64.so").hipSetDeviceFlags(4)
                 else:
                     # Default to hipDeviceScheduleAuto
-                    ctypes.CDLL('/opt/rocm/lib/libamdhip64.so').hipSetDeviceFlags(0)
+                    ctypes.CDLL("/opt/rocm/lib/libamdhip64.so").hipSetDeviceFlags(0)
         except Exception as e:
             logger.warning(f"migraphx: could not set hipSetDeviceFlags: {e}")
 
@@ -61,7 +78,11 @@ class migraphxDetector(DetectionApi):
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         path = Path(detector_config.model.path)
-        filename = path.stem + ('_cpu' if device == 'cpu' else ('_tune' if detector_config.exhaustive_tune else ''))
+        filename = path.stem + (
+            "_cpu"
+            if device == "cpu"
+            else ("_tune" if detector_config.exhaustive_tune else "")
+        )
         mxr_cache_path = cache_dir / f"{filename}.mxr"
         mxr_path = path.parent / f"{filename}.mxr"
 
@@ -75,17 +96,19 @@ class migraphxDetector(DetectionApi):
 
         else:
             logger.info(f"migraphx: loading model from {path}")
-            if path.suffix == '.onnx':
+            if path.suffix == ".onnx":
                 self.model = migraphx.parse_onnx(str(path))
             else:
                 raise Exception(f"migraphx: unknown model format {path}")
 
-            logger.info(f"migraphx: compiling the model... (fast_math: {detector_config.fast_math}, exhaustive_tune: {detector_config.exhaustive_tune})")
+            logger.info(
+                f"migraphx: compiling the model... (fast_math: {detector_config.fast_math}, exhaustive_tune: {detector_config.exhaustive_tune})"
+            )
             self.model.compile(
                 migraphx.get_target(device),
                 offload_copy=True,
                 fast_math=detector_config.fast_math,
-                exhaustive_tune=detector_config.exhaustive_tune
+                exhaustive_tune=detector_config.exhaustive_tune,
             )
 
             logger.info(f"migraphx: saving compiled model into cache {mxr_cache_path}")
@@ -99,13 +122,17 @@ class migraphxDetector(DetectionApi):
         # E2E YOLO (v26 style): [1, 300, 6]
         self.model_is_e2e = len(output_shape) == 3 and output_shape[2] <= 7
         if self.model_is_e2e:
-            logger.info(f"migraphx: detected end-to-end model (yolo26)")
+            logger.info("migraphx: detected end-to-end model (yolo26)")
 
         self.model_param_name = self.model.get_parameter_names()[0]
-        self.model_input_shape_obj = self.model.get_parameter_shapes()[self.model_param_name]
+        self.model_input_shape_obj = self.model.get_parameter_shapes()[
+            self.model_param_name
+        ]
         self.model_input_shape = tuple(self.model_input_shape_obj.lens())
         self.model_input_arg = migraphx.generate_argument(self.model_input_shape_obj)
-        self.model_input_array = np.frombuffer(self.model_input_arg, dtype=np.float32).reshape(self.model_input_shape)
+        self.model_input_array = np.frombuffer(
+            self.model_input_arg, dtype=np.float32
+        ).reshape(self.model_input_shape)
 
         logger.info(f"migraphx: model loaded (input: {self.model_input_shape})")
 
@@ -135,10 +162,9 @@ class migraphxDetector(DetectionApi):
 
         outputs = self.model.run({self.model_param_name: self.model_input_arg})
 
-        tensor_output = np.frombuffer(
-            outputs[0],
-            dtype=np.float32
-        ).reshape(outputs[0].get_shape().lens())
+        tensor_output = np.frombuffer(outputs[0], dtype=np.float32).reshape(
+            outputs[0].get_shape().lens()
+        )
 
         return self.optimized_process_yolo(tensor_output)
 
@@ -147,12 +173,17 @@ class migraphxDetector(DetectionApi):
         tensor_output,
         confidence_threshold=0.4,
         intersection_over_union_threshold=0.4,
-        top_k=100
+        top_k=100,
     ):
         if self.model_is_e2e:
             return self._process_yolo_e2e(tensor_output, confidence_threshold)
         else:
-            return self._process_yolo(tensor_output, confidence_threshold, intersection_over_union_threshold, top_k)
+            return self._process_yolo(
+                tensor_output,
+                confidence_threshold,
+                intersection_over_union_threshold,
+                top_k,
+            )
 
     def _process_yolo_e2e(self, tensor_output, confidence_threshold):
         detections = tensor_output[0]
@@ -174,11 +205,11 @@ class migraphxDetector(DetectionApi):
 
         # Map to Frigate format: [class_id, score, y1, x1, y2, x2]
         # Note: E2E models usually output absolute pixel coordinates [x1, y1, x2, y2]
-        results[:num_dets, 0] = final_set[:, 5] # class_id
-        results[:num_dets, 1] = final_set[:, 4] # confidence
-        results[:num_dets, 2] = final_set[:, 1] / self.height # y1
+        results[:num_dets, 0] = final_set[:, 5]  # class_id
+        results[:num_dets, 1] = final_set[:, 4]  # confidence
+        results[:num_dets, 2] = final_set[:, 1] / self.height  # y1
         results[:num_dets, 3] = final_set[:, 0] / self.width  # x1
-        results[:num_dets, 4] = final_set[:, 3] / self.height # y2
+        results[:num_dets, 4] = final_set[:, 3] / self.height  # y2
         results[:num_dets, 5] = final_set[:, 2] / self.width  # x2
 
         return results
@@ -188,7 +219,7 @@ class migraphxDetector(DetectionApi):
         tensor_output,
         confidence_threshold=0.4,
         intersection_over_union_threshold=0.4,
-        top_k=100
+        top_k=100,
     ):
         # Transpose the raw output so each row represents one candidate detection
         # Typical YOLO format: [batch, features, candidates] -> [candidates, features]
@@ -225,12 +256,10 @@ class migraphxDetector(DetectionApi):
 
         # Pre-calculate an inversion scale to convert pixels to 0.0-1.0 range
         # This replaces multiple division operations with a single multiplication later
-        normalization_scale_vector = np.array([
-            1.0 / self.width,
-            1.0 / self.height,
-            1.0 / self.width,
-            1.0 / self.height
-        ], dtype=np.float32)
+        normalization_scale_vector = np.array(
+            [1.0 / self.width, 1.0 / self.height, 1.0 / self.width, 1.0 / self.height],
+            dtype=np.float32,
+        )
 
         # Calculate half-widths and half-heights to find box corners
         half_dimensions = center_coordinates_and_dimensions[:, 2:4] * 0.5
@@ -239,10 +268,14 @@ class migraphxDetector(DetectionApi):
         corner_format_boxes = np.empty_like(center_coordinates_and_dimensions)
 
         # Calculate Top-Left corners (x1, y1)
-        corner_format_boxes[:, :2] = (center_coordinates_and_dimensions[:, :2] - half_dimensions)
+        corner_format_boxes[:, :2] = (
+            center_coordinates_and_dimensions[:, :2] - half_dimensions
+        )
 
         # Calculate Bottom-Right corners (x2, y2)
-        corner_format_boxes[:, 2:4] = (center_coordinates_and_dimensions[:, :2] + half_dimensions)
+        corner_format_boxes[:, 2:4] = (
+            center_coordinates_and_dimensions[:, :2] + half_dimensions
+        )
 
         # Transform pixel coordinates into normalized values (0.0 to 1.0)
         normalized_boxes = corner_format_boxes * normalization_scale_vector
@@ -250,9 +283,7 @@ class migraphxDetector(DetectionApi):
         # Apply Non-Maximum Suppression (NMS) to remove redundant, overlapping boxes
         # returns indices of detections to keep
         nms_kept_indices = self.optimized_nms(
-            normalized_boxes, 
-            filtered_scores, 
-            intersection_over_union_threshold
+            normalized_boxes, filtered_scores, intersection_over_union_threshold
         )
 
         # Limit the number of detections to the top 20
@@ -265,14 +296,26 @@ class migraphxDetector(DetectionApi):
 
         # Bulk assign data into results using the NMS indices
         # We explicitly swap X and Y during assignment to meet the [y1, x1, y2, x2] requirement
-        results[:number_of_detections_to_save, 0] = filtered_class_ids[top_detection_indices] # class_id
-        results[:number_of_detections_to_save, 1] = filtered_scores[top_detection_indices]    # confidence
+        results[:number_of_detections_to_save, 0] = filtered_class_ids[
+            top_detection_indices
+        ]  # class_id
+        results[:number_of_detections_to_save, 1] = filtered_scores[
+            top_detection_indices
+        ]  # confidence
 
         # Coordinate Mapping
-        results[:number_of_detections_to_save, 2] = normalized_boxes[top_detection_indices, 1] # y1
-        results[:number_of_detections_to_save, 3] = normalized_boxes[top_detection_indices, 0] # x1
-        results[:number_of_detections_to_save, 4] = normalized_boxes[top_detection_indices, 3] # y2
-        results[:number_of_detections_to_save, 5] = normalized_boxes[top_detection_indices, 2] # x2
+        results[:number_of_detections_to_save, 2] = normalized_boxes[
+            top_detection_indices, 1
+        ]  # y1
+        results[:number_of_detections_to_save, 3] = normalized_boxes[
+            top_detection_indices, 0
+        ]  # x1
+        results[:number_of_detections_to_save, 4] = normalized_boxes[
+            top_detection_indices, 3
+        ]  # y2
+        results[:number_of_detections_to_save, 5] = normalized_boxes[
+            top_detection_indices, 2
+        ]  # x2
 
         return results
 
@@ -288,7 +331,8 @@ class migraphxDetector(DetectionApi):
         while order.size > 0:
             i = order[0]
             keep.append(i)
-            if order.size == 1: break
+            if order.size == 1:
+                break
 
             # Calculate intersection
             xx1 = np.maximum(x1[i], x1[order[1:]])

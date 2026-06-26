@@ -74,8 +74,12 @@ def tflite_load_delegate_interpreter(
 
         raise
 
+
 def detect_amd_gfx_id():
-    return subprocess.getoutput("unset HSA_OVERRIDE_GFX_VERSION && /opt/rocm/bin/rocminfo 2>/dev/null | grep gfx | head -1 | awk '{print $2}'")
+    return subprocess.getoutput(
+        "unset HSA_OVERRIDE_GFX_VERSION && /opt/rocm/bin/rocminfo 2>/dev/null | grep gfx | head -1 | awk '{print $2}'"
+    )
+
 
 def apply_amd_compatibility_env_vars():
     gfx_id = detect_amd_gfx_id()
@@ -86,9 +90,9 @@ def apply_amd_compatibility_env_vars():
 
     configs = {
         ("gfx902", "gfx909", "gfx90c"): {
-            "HSA_ENABLE_SDMA": "0", # Disable System Direct Memory Access for APU compatibility
-            "HSA_OVERRIDE_GFX_VERSION": "9.0.0", # Force compatible GFX version
-            "MIGRAPHX_DISABLE_MIOPEN_FUSION": "1", # Disable unsupported fusion optimization
+            "HSA_ENABLE_SDMA": "0",  # Disable System Direct Memory Access for APU compatibility
+            "HSA_OVERRIDE_GFX_VERSION": "9.0.0",  # Force compatible GFX version
+            "MIGRAPHX_DISABLE_MIOPEN_FUSION": "1",  # Disable unsupported fusion optimization
         }
     }
     for gfx_ids, vars in configs.items():
@@ -96,4 +100,4 @@ def apply_amd_compatibility_env_vars():
             for var, value in vars.items():
                 if var not in os.environ:
                     os.environ[var] = value
-                    logger.info(f"  - \"{var}={value}\"")
+                    logger.info(f'  - "{var}={value}"')

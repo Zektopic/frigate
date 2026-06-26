@@ -3,13 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from frigate.config import FrigateConfig
 from frigate.config.camera.ffmpeg import FFMPEG_INPUT_ARGS_DEFAULT
-from unittest.mock import patch
-
 from frigate.const import FFMPEG_HVC1_ARGS, FFMPEG_HWACCEL_VAAPI
 from frigate.ffmpeg_presets import (
+    PRESETS_RECORD_OUTPUT,
     EncodeTypeEnum,
     LibvaGpuSelector,
-    PRESETS_RECORD_OUTPUT,
     parse_preset_hardware_acceleration_decode,
     parse_preset_hardware_acceleration_encode,
     parse_preset_hardware_acceleration_scale,
@@ -213,9 +211,7 @@ class TestFfmpegPresets(unittest.TestCase):
         result = parse_preset_hardware_acceleration_scale(
             None, ["detect"], 5, 1920, 1080
         )
-        self.assertEqual(
-            result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"]
-        )
+        self.assertEqual(result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"])
 
     def test_parse_preset_hardware_acceleration_scale_default_when_space_in_string(
         self,
@@ -223,9 +219,7 @@ class TestFfmpegPresets(unittest.TestCase):
         result = parse_preset_hardware_acceleration_scale(
             "preset with space", ["detect"], 5, 1920, 1080
         )
-        self.assertEqual(
-            result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"]
-        )
+        self.assertEqual(result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"])
 
     def test_parse_preset_hardware_acceleration_scale_valid_preset(self):
         result = parse_preset_hardware_acceleration_scale(
@@ -248,9 +242,9 @@ class TestFfmpegPresets(unittest.TestCase):
         result = parse_preset_hardware_acceleration_scale(
             "invalid-preset-name", ["detect"], 5, 1920, 1080
         )
-        self.assertEqual(
-            result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"]
-        )
+        self.assertEqual(result, ["-r", "5", "-vf", "fps=5,scale=1920:1080", "detect"])
+
+
 class TestLibvaGpuSelector(unittest.TestCase):
     def setUp(self):
         self.selector = LibvaGpuSelector()
@@ -353,18 +347,12 @@ class TestLibvaGpuSelector(unittest.TestCase):
         # Valid preset, no hvc1
         preset_name = "preset-record-generic"
         expected = PRESETS_RECORD_OUTPUT[preset_name]
-        self.assertEqual(
-            parse_preset_output_record(preset_name, False),
-            expected
-        )
+        self.assertEqual(parse_preset_output_record(preset_name, False), expected)
 
         # Valid preset, force hvc1
         self.assertEqual(
-            parse_preset_output_record(preset_name, True),
-            expected + FFMPEG_HVC1_ARGS
+            parse_preset_output_record(preset_name, True), expected + FFMPEG_HVC1_ARGS
         )
-
-
 
 
 class TestParsePresetHardwareAccelerationEncode(unittest.TestCase):
@@ -454,6 +442,6 @@ class TestParsePresetHardwareAccelerationEncode(unittest.TestCase):
         self.assertIn("vaapi", result)
         self.assertIn("--gpu_arg", result)
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     unittest.main(verbosity=2)

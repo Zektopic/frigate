@@ -1,7 +1,7 @@
 import unittest
-from typing import Any
 
 from frigate.events.maintainer import should_update_db
+
 
 class TestShouldUpdateDb(unittest.TestCase):
     def setUp(self):
@@ -23,7 +23,9 @@ class TestShouldUpdateDb(unittest.TestCase):
     def test_event_ending_previously_saved_with_clip(self):
         prev_event, current_event = self._get_events()
         prev_event["has_clip"] = True
-        current_event["has_clip"] = True # might be false if mid-event changed, but test anyway
+        current_event["has_clip"] = (
+            True  # might be false if mid-event changed, but test anyway
+        )
         current_event["end_time"] = 12345.0
         self.assertTrue(should_update_db(prev_event, current_event))
 
@@ -76,5 +78,6 @@ class TestShouldUpdateDb(unittest.TestCase):
         current_event["has_clip"] = True
         self.assertFalse(should_update_db(prev_event, current_event))
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

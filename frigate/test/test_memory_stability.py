@@ -75,9 +75,7 @@ class TestMemoryStability(unittest.TestCase):
         final_mb = self._get_rss_mb()
         growth_pct = ((final_mb - initial_mb) / initial_mb) * 100
 
-        print(
-            f"  SHM cycles:  {num_cycles}"
-        )
+        print(f"  SHM cycles:  {num_cycles}")
         print(f"  Final RSS:   {final_mb:.1f} MB")
         print(f"  Growth:      {growth_pct:+.1f}%")
         print(f"  Limit:       < 10%  {'PASS' if growth_pct < 10 else 'FAIL'}")

@@ -599,7 +599,9 @@ class CameraState:
                     )
             for t in thumb_frames_to_delete:
                 object_id = self.frame_cache[t].get("object_id", "unknown")
-                logger.debug(f"{self.name}: Deleting {t} from frame cache for {object_id}")
+                logger.debug(
+                    f"{self.name}: Deleting {t} from frame cache for {object_id}"
+                )
                 del self.frame_cache[t]
 
         with self.current_frame_lock:

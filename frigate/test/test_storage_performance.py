@@ -6,7 +6,6 @@ import tempfile
 import time
 import unittest
 
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recordings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,5 +117,7 @@ class TestStoragePerformance(unittest.TestCase):
             "Batch size 100 should be faster than batch size 1",
         )
 
-        print(f"  Sanity check: batch=100 ({rps_100:,.0f} r/s) > "
-              f"batch=1 ({rps_1:,.0f} r/s)  PASS")
+        print(
+            f"  Sanity check: batch=100 ({rps_100:,.0f} r/s) > "
+            f"batch=1 ({rps_1:,.0f} r/s)  PASS"
+        )

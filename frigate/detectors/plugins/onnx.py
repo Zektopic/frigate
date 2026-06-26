@@ -12,7 +12,6 @@ from frigate.detectors.detector_config import (
     ModelTypeEnum,
 )
 from frigate.detectors.detector_utils import apply_amd_compatibility_env_vars
-
 from frigate.util.model import (
     post_process_dfine,
     post_process_rfdetr,
