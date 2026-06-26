@@ -14,13 +14,75 @@ YOLOv5s uses the **in-process** ncnn Vulkan path. The model loads and runs entir
 
 ## Why NOT anchor-free models (YOLOv8/YOLO11/YOLO26)
 
-All anchor-free YOLO models crash with SIGSEGV when Vulkan is used in-process after Python fork(). This is an AMD RADV driver bug affecting the DFL (Distribution Focal Loss) grid-decode code path on Radeon 760M (gfx1103).
+All anchor-free YOLO models crash with SIGSEGV when Vulkan is used in-process after Python `fork()`. This is an AMD RADV driver bug.
 
-The only workaround is a worker subprocess with pipe IPC, which adds:
-- 223% CPU overhead
-- Pipe I/O latency (2.5MB per frame)
-- Fragile communication
-- Debugging complexity
+### The fork problem explained
+
+Frigate uses Python `multiprocessing` with `forkserver` mode. When Python forks, the child inherits the parent's ENTIRE memory space — including GPU DRM file descriptors and partially-initialized Vulkan instance/device handles.
+
+```
+Frigate main process
+  │
+  ├── fork() → Camera process
+  │              Inherits: GPU DRM fd for VAAPI decode → ✅ Works
+  │
+  ├── fork() → Detector process  
+  │              Inherits: stale VkDevice, VkInstance handles
+  │              Tries: ncnn Vulkan compute shaders
+  │              
+  │              Anchor-based (YOLOv5): ✅ Simple buffer ops
+  │              Anchor-free (YOLOv8+): ❌ SIGSEGV
+  │              Reason: DFL grid decode uses storage images
+  │              that RADV validates against PARENT's resource table
+  │
+  └── fork() → Recording process → ✅ Works (no GPU)
+```
+
+### The worker subprocess workaround (and its cost)
+
+For anchor-free models, a worker subprocess is spawned via `Popen` (uses `posix_spawn`, not `fork`) to get a clean GPU context:
+
+```
+Detector process (forked)
+  │
+  └── spawn() → Worker subprocess (CLEAN GPU state)
+                   stdin ← 2.5MB float16 frame (pipe, per frame)
+                   ncnn Vulkan inference (GPU, ~60ms)
+                   numpy post-process (CPU, ~20ms: argmax + NMS + clip)
+                   stdout → 480B results (pipe, per frame)
+```
+
+**CPU cost breakdown per frame (5 cameras @ 2.5 detection FPS = 12.5 fps):**
+
+| Operation | %CPU | Why |
+|-----------|------|-----|
+| float32→float16 conversion | 5% | numpy astype copys 1.2M elements |
+| os.write(stdin, 2.5MB) | 10% | Kernel memcpy to pipe buffer |
+| os.read(stdin, 2.5MB) | 10% | Kernel memcpy from pipe buffer to worker |
+| float16→float32 conversion | 5% | numpy astype in worker |
+| ncnn GPU command submission | 50% | Vulkan cmd buffer creation, fence polling |
+| numpy argmax (8400×80 classes) | 30% | Per-cell class search over 672K comparisons |
+| numpy NMS while-loop | 40% | Greedy IoU with array slicing per iteration |
+| Pipe result write (480B) | 1% | Tiny return path |
+| Python interpreter overhead | 72% | GIL, GC, object allocation |
+| **Sum of CPU** | **~223%** | Multi-threaded (ncnn uses thread pool) |
+
+Total pipe throughput: 12.5 frames/sec × 2.5MB = **31.25 MB/sec** through kernel pipe buffers.
+
+### The planned fix (frigate-detector-rs)
+
+A standalone Rust binary that:
+1. Starts fresh (no fork — clean GPU)
+2. Receives frames via shared memory (zero-copy, no kernel pipe overhead)
+3. Runs ncnn Vulkan inference
+4. Post-processes in pure Rust (zero numpy)
+5. Returns results via shared memory
+
+Blocked by: ncnn C FFI headers not available in container (ncnn only ships as Python C extension).
+
+### Current solution: YOLOv5s in-process
+
+YOLOv5s uses anchor-based ops that don't trigger the RADV fork bug. Runs directly in the forked detector with zero overhead.
 
 ## Setup
 
