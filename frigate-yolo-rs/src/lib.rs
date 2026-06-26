@@ -232,6 +232,110 @@ pub unsafe extern "C" fn nms_boxes(
     keep.len() as u32
 }
 
+
+// ── YOLO26 decoded-output post-processing ──────────────────────────
+
+/// Post-process YOLO26 decoded output: bbox conversion + NMS.
+/// Input: raw (84, N) f32 — rows 0-3 are cx,cy,w,h, rows 4-83 are class scores.
+/// Output: (20, 6) f32 in Frigate format [class_id, score, x1, y1, x2, y2].
+#[no_mangle]
+pub unsafe extern "C" fn yolo26_post_process(
+    raw: *const f32,
+    n: u32,
+    model_size: f32,
+    frame_w: f32,
+    frame_h: f32,
+    score_thresh: f32,
+    nms_thresh: f32,
+    out_dets: *mut f32,  // (20, 6) pre-allocated
+) {
+    let n = n as usize;
+    let raw = std::slice::from_raw_parts(raw, n * 84);
+    let out = std::slice::from_raw_parts_mut(out_dets, 20 * 6);
+
+    // Zero output
+    for v in out.iter_mut() { *v = 0.0; }
+
+    if n == 0 { return; }
+
+    // Step 1: Convert cx,cy,w,h → x1,y1,x2,y2 + find best class
+    let mut boxes: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(n);
+    let mut best_scores: Vec<f32> = Vec::with_capacity(n);
+    let mut class_ids: Vec<i32> = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let base = i * 84;
+        let cx = raw[base];
+        let cy = raw[base + 1];
+        let bw = raw[base + 2];
+        let bh = raw[base + 3];
+
+        let x1 = (cx - bw / 2.0).max(0.0);
+        let y1 = (cy - bh / 2.0).max(0.0);
+        let x2 = (cx + bw / 2.0).min(model_size);
+        let y2 = (cy + bh / 2.0).min(model_size);
+
+        if x2 <= x1 || y2 <= y1 { continue; }
+
+        // Find best class score
+        let mut best_class: i32 = 0;
+        let mut best_score: f32 = 0.0;
+        for c in 0..80 {
+            let s = raw[base + 4 + c];
+            if s > best_score { best_score = s; best_class = c as i32; }
+        }
+
+        if best_score < score_thresh { continue; }
+
+        boxes.push((x1, y1, x2, y2));
+        best_scores.push(best_score);
+        class_ids.push(best_class);
+    }
+
+    if boxes.is_empty() { return; }
+
+    // Step 2: NMS (greedy, same algorithm as Python worker)
+    let areas: Vec<f32> = boxes.iter().map(|(x1,y1,x2,y2)| (x2-x1)*(y2-y1)).collect();
+    let mut order: Vec<usize> = (0..boxes.len()).collect();
+    order.sort_unstable_by(|&a, &b| best_scores[b].partial_cmp(&best_scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut keep: Vec<usize> = Vec::with_capacity(20);
+    let sx = frame_w / model_size;
+    let sy = frame_h / model_size;
+
+    for &i in &order {
+        if keep.len() >= 20 { break; }
+        let mut suppressed = false;
+        for &j in &keep {
+            let (ax1, ay1, ax2, ay2) = boxes[i];
+            let (bx1, by1, bx2, by2) = boxes[j];
+            let xx1 = ax1.max(bx1);
+            let yy1 = ay1.max(by1);
+            let xx2 = ax2.min(bx2);
+            let yy2 = ay2.min(by2);
+            let w = (xx2 - xx1).max(0.0);
+            let h = (yy2 - yy1).max(0.0);
+            let inter = w * h;
+            let iou = inter / (areas[i] + areas[j] - inter);
+            if iou > nms_thresh { suppressed = true; break; }
+        }
+        if !suppressed {
+            keep.push(i);
+        }
+    }
+
+    for (k, &idx) in keep.iter().enumerate() {
+        let (x1, y1, x2, y2) = boxes[idx];
+        let o = k * 6;
+        out[o] = class_ids[idx] as f32;
+        out[o + 1] = best_scores[idx];
+        out[o + 2] = y1 * sy;
+        out[o + 3] = x1 * sx;
+        out[o + 4] = y2 * sy;
+        out[o + 5] = x2 * sx;
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]

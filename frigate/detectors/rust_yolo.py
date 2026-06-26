@@ -157,3 +157,44 @@ def nms_boxes(
     )
 
     return np.array(out_indices[:kept], dtype=np.int32)
+
+def yolo26_post_process(
+    raw: "np.ndarray",
+    model_size: int = 640,
+    frame_w: int = 640,
+    frame_h: int = 640,
+    score_thresh: float = 0.05,
+    nms_thresh: float = 0.45,
+) -> "np.ndarray":
+    """YOLO26 decoded-output post-process: bbox convert + NMS in Rust.
+
+    Args:
+        raw: (84, N) float32 — rows 0-3 are cx,cy,w,h, rows 4-83 scores.
+    Returns: (20, 6) float32 [class_id, score, y1, x1, y2, x2] normalised.
+    """
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust YOLO engine not available")
+    import numpy as np
+    raw = np.ascontiguousarray(raw.T.ravel().astype(np.float32))
+    n = raw.size // 84
+    out = np.zeros((20, 6), dtype=np.float32)
+
+    lib.yolo26_post_process.argtypes = [
+        ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+        ctypes.c_float, ctypes.c_float, ctypes.c_float,
+        ctypes.c_float, ctypes.c_float, ctypes.POINTER(ctypes.c_float),
+    ]
+    lib.yolo26_post_process.restype = None
+
+    lib.yolo26_post_process(
+        raw.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        n,
+        ctypes.c_float(model_size),
+        ctypes.c_float(frame_w),
+        ctypes.c_float(frame_h),
+        ctypes.c_float(score_thresh),
+        ctypes.c_float(nms_thresh),
+        out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    )
+    return out
