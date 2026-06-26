@@ -2,15 +2,28 @@
 
 Drop-in replacement for Frigate's ONNX detector using ncnn with Vulkan backend via RADV.
 
-## Architecture (Current: YOLOv5s in-process)
+## Architecture (Current: YOLO26n via frigate-detector-rs)
 
 ```
-Camera frame → Frigate preprocessing → ncnn Vulkan → RADV → GPU
-                                                         ↑
-                                              (no ROCm involved)
+Frigate Python (detector plugin)
+  │
+  ├── pipe(stdin) → frame (float16, 2.5MB)
+  ▼
+┌──────────────────────────────────────────────────────┐
+│ frigate-detector-rs (Rust, 535KB binary)             │
+│                                                      │
+│  Thread 1: stdin reader → Arc<Frame> → crossbeam(2)  │
+│  Thread 2: Python ncnn subprocess (GPU forward only) │
+│  Thread 3: rayon argmax + NMS (parallel, zero numpy) │
+│  Thread 4: stdout writer (sorted descending)         │
+└──────────────────────────────────────────────────────┘
+  │
+  ├── pipe(stdout) → detections (480B)
+  ▼
+Frigate Python (event logic, motion detection, recording)
 ```
 
-YOLOv5s uses the **in-process** ncnn Vulkan path. The model loads and runs entirely within the forked detector process — no worker subprocess, no pipe IPC. This is stable on AMD RADV because YOLOv5's anchor-based operations use a GPU code path that doesn't trigger the fork-related SIGSEGV.
+YOLO26n (and optionally YOLO11n) runs via the decoupled **`frigate-detector-rs`** worker binary to bypass the RADV fork bug. The Rust binary receives raw frame data via pipe, delegates GPU forward pass to a clean Python ncnn worker subprocess, and performs the heavy class filter/parallel NMS post-processing natively in Rust using Rayon.
 
 ## Why NOT anchor-free models (YOLOv8/YOLO11/YOLO26)
 
@@ -69,20 +82,17 @@ Detector process (forked)
 
 Total pipe throughput: 12.5 frames/sec × 2.5MB = **31.25 MB/sec** through kernel pipe buffers.
 
-### The planned fix (frigate-detector-rs)
+### The deployed fix (frigate-detector-rs)
 
-A standalone Rust binary that:
-1. Starts fresh (no fork — clean GPU)
-2. Receives frames via shared memory (zero-copy, no kernel pipe overhead)
-3. Runs ncnn Vulkan inference
-4. Post-processes in pure Rust (zero numpy)
-5. Returns results via shared memory
+A standalone Rust binary is now **active in production** that:
+1. Starts fresh via subprocess spawn (no fork — clean GPU context).
+2. Manages the Python ncnn Vulkan worker process.
+3. Decodes model output and post-processes (parallel argmax + NMS) in pure Rust via Rayon (zero numpy, no GIL).
+4. Returns sorted detections to Frigate via stdout pipe.
 
-Blocked by: ncnn C FFI headers not available in container (ncnn only ships as Python C extension).
+### Previous solution: YOLOv5s in-process
 
-### Current solution: YOLOv5s in-process
-
-YOLOv5s uses anchor-based ops that don't trigger the RADV fork bug. Runs directly in the forked detector with zero overhead.
+YOLOv5s was previously used because its anchor-based operations do not trigger the RADV fork bug, allowing it to run directly in the forked detector process. We have moved to the decoupled Rust binary (`frigate-detector-rs`) to support more accurate anchor-free models (YOLO26n).
 
 ## Setup
 
@@ -150,9 +160,9 @@ services:
 
 | Model | Architecture | Inference | CPU | Notes |
 |-------|-------------|-----------|-----|-------|
-| YOLOv5s | In-process | ~75ms | ~50% total | Stable, recommended |
-| YOLO26n | Worker subprocess | ~94ms | ~223% worker | Higher accuracy, more CPU |
-| YOLO26n | In-process | ~30ms | ❌ SIGSEGV | Too unstable |
+| YOLO26n | `frigate-detector-rs` | ~94ms | ~234% total | **Active** — parallel NMS, highly stable |
+| YOLOv5s | In-process | ~75ms | ~50% total | Supported fallback |
+| YOLO26n | In-process | ~30ms | ❌ SIGSEGV | Unsupported (triggers RADV fork bug) |
 
 ## Verified Hardware
 
