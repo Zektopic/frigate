@@ -455,9 +455,9 @@ if ncnn.get_gpu_count() > 0:
     dev = ncnn.get_gpu_device(0)
     net.set_vulkan_device(dev)
 net.opt.use_vulkan_compute = True
-net.opt.use_fp16_arithmetic = False
-net.opt.use_fp16_packed = False
-net.opt.use_fp16_storage = False
+net.opt.use_fp16_arithmetic = True
+net.opt.use_fp16_packed = True
+net.opt.use_fp16_storage = True
 net.load_param(param)
 net.load_model(binf)
 # Restore stdout for IPC
@@ -466,80 +466,105 @@ os.close(_real_stdout_fd)
 sys.stderr.write(f"NCNN_WORKER_READY\\n")
 sys.stderr.flush()
 
-# ── inference helpers ─────────────────────────────────────────
+# ── pre-computed constants ────────────────────────────────────
 _STRIDES = (8, 16, 32)
-_REG_MAX = 16
+_DFL_BINS = np.arange(16, dtype=np.float32)
+# Build grid points once (same every frame)
+_grid_pts = []
+_offset = 0
+for _s in _STRIDES:
+    _g = model_size // _s
+    _n = _g * _g
+    _ys, _xs = np.mgrid[0:_g, 0:_g].astype(np.float32)
+    _grid_pts.append(np.column_stack([
+        (_xs.reshape(-1) + 0.5) * _s,
+        (_ys.reshape(-1) + 0.5) * _s,
+    ]))
+_ALL_PTS = np.concatenate(_grid_pts, axis=0)  # (8400, 2)
 
-def _dfl_decode(reg_feat):
-    n = reg_feat.shape[0]
-    reg_feat = reg_feat.reshape(n, 4, 16)
-    reg_feat = np.exp(reg_feat - reg_feat.max(axis=-1, keepdims=True))
-    reg_feat /= reg_feat.sum(axis=-1, keepdims=True)
-    bins = np.arange(16, dtype=np.float32)
-    return (reg_feat * bins).sum(axis=-1)
+def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
+    # Key optimisation: pre-filter by class scores BEFORE expensive DFL decode.
+    # Most of 8400 candidates have near-zero scores — skip their DFL entirely.
+    N = raw.shape[0]
+    if N == 0:
+        return np.zeros((20, 6), dtype=np.float32)
 
-def _make_grid(fh, fw, stride):
-    ys, xs = np.mgrid[0:fh, 0:fw].astype(np.float32)
-    return np.stack([(xs.reshape(-1) + 0.5) * stride,
-                     (ys.reshape(-1) + 0.5) * stride], axis=1)
+    # ── Step 1: fast class check (cheap) — find promising candidates ──
+    cls = raw[:, 64:]
+    cls -= cls.max(axis=1, keepdims=True)
+    np.exp(cls, out=cls)
+    cls /= (1.0 + cls)  # sigmoid, in-place
+    cid_all = np.argmax(cls, axis=1)
+    scores_all = cls[np.arange(N), cid_all]
 
-def _nms(x1, y1, x2, y2, scores, iou):
-    areas = (x2-x1)*(y2-y1)
+    # Only keep candidates above threshold — typically 10-200, not 8400
+    candidates = np.where(scores_all > score_thresh)[0]
+    if not len(candidates):
+        return np.zeros((20, 6), dtype=np.float32)
+
+    # ── Step 2: DFL decode ONLY for promising candidates ─────────────
+    idx = candidates
+    reg = raw[idx][:, :64].reshape(len(idx), 4, 16)
+    reg -= reg.max(axis=-1, keepdims=True)
+    np.exp(reg, out=reg)
+    reg /= reg.sum(axis=-1, keepdims=True)
+    dist = (reg * _DFL_BINS).sum(axis=-1)  # (K, 4)
+
+    # ── Step 3: bbox decode (only K candidates) ──────────────────────
+    pts = _ALL_PTS[idx]  # (K, 2)
+    x1 = pts[:, 0] - dist[:, 0]
+    y1 = pts[:, 1] - dist[:, 1]
+    x2 = pts[:, 0] + dist[:, 2]
+    y2 = pts[:, 1] + dist[:, 3]
+
+    scores = scores_all[idx]
+    cid = cid_all[idx]
+
+    # ── clip + valid ─────────────────────────────────────────────────
+    np.clip(x1, 0, model_size, out=x1); np.clip(y1, 0, model_size, out=y1)
+    np.clip(x2, 0, model_size, out=x2); np.clip(y2, 0, model_size, out=y2)
+    valid = (x2 > x1) & (y2 > y1)
+    if not valid.any():
+        return np.zeros((20, 6), dtype=np.float32)
+    x1, y1, x2, y2 = x1[valid], y1[valid], x2[valid], y2[valid]
+    scores, cid = scores[valid], cid[valid]
+
+    # ── NMS ──────────────────────────────────────────────────────────
+    K = len(scores)
+    if K > 1000:
+        topk = scores.argsort()[::-1][:1000]
+        x1, y1, x2, y2 = x1[topk], y1[topk], x2[topk], y2[topk]
+        scores, cid = scores[topk], cid[topk]
+        K = len(scores)
+
     order = scores.argsort()[::-1]
-    keep = []
+    keep_idx = []
+    areas = (x2 - x1) * (y2 - y1)
     while order.size:
-        i = order[0]; keep.append(i)
+        i = order[0]
+        keep_idx.append(i)
+        if order.size == 1:
+            break
         xx1 = np.maximum(x1[i], x1[order[1:]])
         yy1 = np.maximum(y1[i], y1[order[1:]])
         xx2 = np.minimum(x2[i], x2[order[1:]])
         yy2 = np.minimum(y2[i], y2[order[1:]])
-        w = np.maximum(0., xx2-xx1); h = np.maximum(0., yy2-yy1)
-        inter = w*h
-        iou_vals = inter/(areas[i]+areas[order[1:]]-inter)
-        order = order[np.where(iou_vals <= iou)[0]+1]
-    return np.array(keep)
+        inter = np.maximum(0., xx2 - xx1) * np.maximum(0., yy2 - yy1)
+        iou = inter / (areas[i] + areas[order[1:]] - inter)
+        order = order[np.where(iou <= nms_thresh)[0] + 1]
 
-def process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
-    reg_raw = raw[:, :64]
-    cls_raw = raw[:, 64:]
-    dist = _dfl_decode(reg_raw)
-    box_parts = []; offset = 0
-    for stride in _STRIDES:
-        grid = model_size // stride
-        n = grid*grid
-        if offset+n > raw.shape[0]: break
-        pts = _make_grid(grid, grid, stride)
-        d = dist[offset:offset+n]
-        box_parts.append((pts[:,0]-d[:,0], pts[:,1]-d[:,1],
-                          pts[:,0]+d[:,2], pts[:,1]+d[:,3]))
-        offset += n
-    if offset == 0: return np.zeros((20,6), dtype=np.float32)
-    x1=np.concatenate([b[0] for b in box_parts])
-    y1=np.concatenate([b[1] for b in box_parts])
-    x2=np.concatenate([b[2] for b in box_parts])
-    y2=np.concatenate([b[3] for b in box_parts])
-    cls_raw=cls_raw-cls_raw.max(axis=1,keepdims=True)
-    cls_scores=1./(1.+np.exp(-cls_raw))
-    cid=np.argmax(cls_scores,axis=1)
-    scores=cls_scores[np.arange(cls_scores.shape[0]),cid]
-    keep=scores>score_thresh
-    if not np.any(keep): return np.zeros((20,6),dtype=np.float32)
-    x1,y1,x2,y2=x1[keep],y1[keep],x2[keep],y2[keep]
-    scores,cid=scores[keep],cid[keep]
-    x1=np.clip(x1,0,model_size);y1=np.clip(y1,0,model_size)
-    x2=np.clip(x2,0,model_size);y2=np.clip(y2,0,model_size)
-    valid=(x2>x1)&(y2>y1)
-    if not np.any(valid): return np.zeros((20,6),dtype=np.float32)
-    x1,y1,x2,y2=x1[valid],y1[valid],x2[valid],y2[valid]
-    scores,cid=scores[valid],cid[valid]
-    ki=_nms(x1,y1,x2,y2,scores,nms_thresh)
-    if ki.size==0: return np.zeros((20,6),dtype=np.float32)
-    scale_x=w/model_size;scale_y=h/model_size
-    dets=np.stack([cid[ki].astype(np.float32),scores[ki],
-                   x1[ki]*scale_x,y1[ki]*scale_y,
-                   x2[ki]*scale_x,y2[ki]*scale_y],axis=1)
-    out=np.zeros((20,6),dtype=np.float32)
-    n=min(len(dets),20); out[:n]=dets[:n]
+    if not keep_idx:
+        return np.zeros((20, 6), dtype=np.float32)
+
+    ki = np.array(keep_idx)
+    sx = w / model_size; sy = h / model_size
+    dets = np.column_stack([
+        cid[ki].astype(np.float32), scores[ki],
+        x1[ki] * sx, y1[ki] * sy, x2[ki] * sx, y2[ki] * sy,
+    ])
+    out = np.zeros((20, 6), dtype=np.float32)
+    n = min(len(dets), 20)
+    out[:n] = dets[:n]
     return out
 
 # ── main loop ─────────────────────────────────────────────────
@@ -567,7 +592,7 @@ while True:
             dets = np.zeros((20, 6), dtype=np.float32)
         else:
             raw = np.array(out0).copy()
-            dets = process(raw, fw, fw)
+            dets = _process(raw, fw, fw)
     result = dets.tobytes()
     os.write(1, struct.pack('>I', len(result)))
     os.write(1, result)
