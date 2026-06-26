@@ -130,6 +130,61 @@ unsafe fn contrast_stretch_simd(buf: &mut [u8], min_val: u8, max_val: u8, len: u
         let v = ((v - min_v) * scale).clamp(0.0, 255.0);
         buf[j] = v as u8;
     }
+
+    fn not_a_test_debug_step_by_step() {
+        let w = 64usize;
+        let h = 64usize;
+        let len = w * h;
+        
+        let mut avg = vec![100.0f32; len];
+        let mut frame = vec![100u8; len];
+        for y in 20..40 {
+            for x in 20..40 {
+                frame[y * w + x] = 200;
+            }
+        }
+        let mask = vec![0u8; len];
+        
+        let mut buf: Vec<u8> = frame.clone();
+        
+        // Step 1: mask
+        for i in 0..len {
+            if mask[i] != 0 { buf[i] = 0; }
+        }
+        println!("After mask: buf[22*64+22]={} (should be 200)", buf[22*64+22]);
+        
+        // Step 4-5: absdiff
+        let mut avg_u8 = vec![0u8; len];
+        for i in 0..len { avg_u8[i] = avg[i].clamp(0.0, 255.0) as u8; }
+        println!("avg_u8[22*64+22]={} (should be 100)", avg_u8[22*64+22]);
+        
+        let mut diff = vec![0u8; len];
+        unsafe { absdiff_avx2(&buf, &avg_u8, &mut diff, len); }
+        println!("After absdiff: diff[22*64+22]={} (should be 100)", diff[22*64+22]);
+        println!("diff non-zero count: {}", diff.iter().filter(|&&v| v > 0).count());
+        println!("diff max: {}", diff.iter().max().unwrap());
+        
+        // Step 5: threshold + mask
+        let thresh: u8 = 15;
+        unsafe { threshold_mask_avx2(&mut diff, &mask, thresh, len); }
+        let white = diff.iter().filter(|&&v| v == 255).count();
+        println!("After threshold({thresh}): {} white pixels (should be 400 for 20x20 rect)", white);
+        println!("diff[22*64+22]={} (should be 255)", diff[22*64+22]);
+        
+        // Step 6: dilate
+        let mut dilated = vec![0u8; len];
+        unsafe { dilate_3x3(&mut diff, &mut dilated, w, h); }
+        let white2 = diff.iter().filter(|&&v| v == 255).count();
+        println!("After dilate: {} white pixels", white2);
+        
+        // Step 7: contours
+        let boxes = find_contours_bounding_boxes(&diff, w, h, 10);
+        println!("Contours found: {}", boxes.len());
+        for (i, b) in boxes.iter().enumerate() {
+            println!("  box {i}: ({}, {}, {}, {})", b.0, b.1, b.2, b.3);
+        }
+        assert!(boxes.len() > 0, "Should find at least 1 contour");
+    }
 }
 
 #[cfg(not(target_arch = "x86_64"))]
@@ -178,16 +233,18 @@ unsafe fn threshold_mask_avx2(buf: &mut [u8], mask: &[u8], thresh: u8, len: usiz
     while i < simd_end {
         let v = _mm256_loadu_si256(buf.as_ptr().add(i) as *const __m256i);
         let m = _mm256_loadu_si256(mask.as_ptr().add(i) as *const __m256i);
-        let ge = _mm256_cmpgt_epi8(thresh_vec, v);
-        let ge = _mm256_xor_si256(ge, ff);
-        let mask_nonzero = _mm256_cmpeq_epi8(m, zero);
-        let mask_nonzero = _mm256_xor_si256(mask_nonzero, ff);
-        let res = _mm256_and_si256(ge, mask_nonzero);
+        // val >= thresh ?
+        let ge = _mm256_cmpgt_epi8(thresh_vec, v);   // thresh > val
+        let ge = _mm256_xor_si256(ge, ff);            // val >= thresh
+        // mask == 0 ? (mask=0 means UNMASKED = process this pixel)
+        let unmasked = _mm256_cmpeq_epi8(m, zero);    // m == 0 (unmasked)
+        // combine: (val >= thresh) AND (unmasked)
+        let res = _mm256_and_si256(ge, unmasked);
         _mm256_storeu_si256(buf.as_mut_ptr().add(i) as *mut __m256i, res);
         i += 32;
     }
     for j in i..len {
-        buf[j] = if buf[j] >= thresh && mask[j] != 0 { 255 } else { 0 };
+        buf[j] = if buf[j] >= thresh && mask[j] == 0 { 255 } else { 0 };
     }
 }
 
@@ -360,10 +417,11 @@ pub unsafe extern "C" fn motion_detect_full(
         }
     }
 
-    // Stage 2: Apply mask (set masked pixels to 0)
+    // Stage 2: Apply mask — mask[i]!=0 means "skip this pixel" (set to 0)
+    // This matches Python: resized_frame[self.mask] = [0]
     for i in 0..len {
         if mask[i] != 0 {
-            buf[i] = 0;
+            buf[i] = 0; // masked pixels become black (won't trigger motion)
         }
     }
 
@@ -502,11 +560,11 @@ mod tests {
     #[test]
     fn test_threshold_mask() {
         let mut buf: Vec<u8> = (0..64u8).collect();
-        let mask: Vec<u8> = vec![1u8; 64];
+        let mask: Vec<u8> = vec![0u8; 64]; // all zeros = unmasked = process all
         unsafe { threshold_mask_avx2(&mut buf, &mask, 32, 64); }
         for i in 0..64 {
-            if i >= 32 { assert_eq!(buf[i], 255); }
-            else { assert_eq!(buf[i], 0); }
+            if i >= 32 { assert_eq!(buf[i], 255, "pixel {i} should be 255"); }
+            else { assert_eq!(buf[i], 0, "pixel {i} should be 0"); }
         }
     }
 
@@ -550,5 +608,96 @@ mod tests {
         };
         assert_eq!(n, 0, "no motion expected on identical frame");
         assert_eq!(calibrated, 1, "should be calibrated with no motion");
+    }
+
+    #[test]
+    fn step_by_step_debug() {
+        let w = 64usize;
+        let h = 64usize;
+        let len = w * h;
+        let mut avg = vec![100.0f32; len];
+        let mut frame = vec![100u8; len];
+        for y in 20..40 { for x in 20..40 { frame[y * w + x] = 200; } }
+        let mask = vec![0u8; len];
+        let mut buf: Vec<u8> = frame.clone();
+
+        // Stage 1: mask
+        for i in 0..len { if mask[i] != 0 { buf[i] = 0; } }
+        eprintln!("After mask: buf[22*64+22]={}", buf[22*64+22]);
+
+        // Stage 4: absdiff
+        let mut avg_u8 = vec![0u8; len];
+        for i in 0..len { avg_u8[i] = avg[i].clamp(0.0, 255.0) as u8; }
+        let mut diff = vec![0u8; len];
+        unsafe { absdiff_avx2(&buf, &avg_u8, &mut diff, len); }
+        eprintln!("After absdiff: non_zero={}, max={}", diff.iter().filter(|&&v| v>0).count(), diff.iter().max().unwrap());
+        eprintln!("diff[22*64+22]={}", diff[22*64+22]);
+
+        // Stage 5: threshold
+        let thresh: u8 = 15;
+        unsafe { threshold_mask_avx2(&mut diff, &mask, thresh, len); }
+        let white = diff.iter().filter(|&&v| v==255).count();
+        eprintln!("After threshold({thresh}): {white} white pixels");
+        eprintln!("diff[22*64+22]={}", diff[22*64+22]);
+
+        // Stage 6: dilate
+        let mut dilated = vec![0u8; len];
+        unsafe { dilate_3x3(&mut diff, &mut dilated, w, h); }
+        eprintln!("After dilate: {} white pixels", diff.iter().filter(|&&v| v==255).count());
+
+        // Stage 7: contours
+        let boxes = find_contours_bounding_boxes(&diff, w, h, 10);
+        eprintln!("Contours found: {}", boxes.len());
+        assert!(boxes.len() > 0, "Should find at least 1 contour");
+    }
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::*;
+
+    #[test]
+    fn debug_motion_pipeline() {
+        let w = 64u32;
+        let h = 64u32;
+        let len = (w * h) as usize;
+        
+        // Background: all 100
+        let mut avg = vec![100.0f32; len];
+        
+        // Frame: background + a bright 20x20 square (simulating motion)
+        let mut frame = vec![100u8; len];
+        for y in 20..40 {
+            for x in 20..40 {
+                frame[y as usize * 64 + x as usize] = 200;
+            }
+        }
+        
+        // Mask: all zeros (process everything)
+        let mask = vec![0u8; len];
+        
+        // Output
+        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 64];
+        let mut calibrated: u8 = 0;
+        
+        let n = unsafe {
+            motion_detect_full(
+                frame.as_ptr(), avg.as_mut_ptr(), mask.as_ptr(),
+                w, h, 15, 10, 
+                0, // NO contrast (we want raw diff)
+                0, // NO blur (simpler test)
+                boxes.as_mut_ptr(), 64, &mut calibrated,
+            )
+        };
+        
+        println!("Detections: {n}, calibrated: {calibrated}");
+        assert!(n > 0, "Should detect the bright rectangle as motion");
+        for i in 0..(n as usize).min(5) {
+            let b = &boxes[i];
+            println!("  box {i}: x1={}, y1={}, x2={}, y2={}", b.x1, b.y1, b.x2, b.y2);
+            // The box should roughly cover the 20x20 rectangle at (20,20)-(40,40)
+            assert!(b.x1 >= 18 && b.x1 <= 22, "x1 should be ~20, got {}", b.x1);
+            assert!(b.y1 >= 18 && b.y1 <= 22, "y1 should be ~20, got {}", b.y1);
+        }
     }
 }
