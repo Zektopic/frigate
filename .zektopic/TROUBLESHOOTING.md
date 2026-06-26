@@ -2,46 +2,108 @@
 
 Common issues and fixes for the ncnn Vulkan detector.
 
+## Current Setup (2026-06-26)
+
+**Model**: YOLO26n (Ultralytics export, ncnn Vulkan)  
+**Architecture**: Worker subprocess (clean GPU context, pipe IPC with float16)  
+**Speed**: ~94ms inference, ~11 FPS  
+**Branch**: `fix/yolo26-events`
+
+### Quick verification
+```bash
+# Check model loaded correctly
+docker logs frigate | grep "model loaded"
+# Should show: NCNN: Vulkan inference worker ready
+
+# Check inference speed
+curl -s http://localhost:5000/api/stats | jq '.detectors."ncnn_vulkan".inference_speed'
+# Should be ~90-100ms
+
+# Check for segfaults
+docker logs frigate | grep -c "segfault\|Fatal"
+# Should be 0
+```
+
+### How the worker subprocess works
+```
+Frigate detector (forked)          Worker subprocess (clean fork)
+        │                                │
+        ├── frame (float16, 2.5MB) ──→ pipe ──→ ncnn Vulkan GPU (~88ms)
+        │                                │
+        │                                ├── process_yolo26() numpy (~5ms)
+        │                                │     - cx,cy,w,h → x1,y1,x2,y2
+        │                                │     - NMS (top 20 detections)
+        │                                │
+        │ ←── 20 detections (480B) ──── pipe ───┤
+        │
+        └── Frigate event pipeline
+```
+
+The worker is needed because YOLO26 (like YOLOv8/v9/v11) crashes with SIGSEGV when running Vulkan in-process after Frigate's fork(). This is an AMD RADV Vulkan bug affecting anchor-free models on Radeon 760M (gfx1103). The clean subprocess has no inherited GPU state and works fine.
+
+Float16 pipe: frames are sent as float16 (2.5MB) instead of float32 (5MB) — halves pipe I/O CPU usage.
+
 ## No detections (events not triggering)
 
 ### Symptom
-Detection FPS shows in stats but `detected_objects` is always null.
+Detection FPS shows in stats but no events are generated.
 
-### Fix
-Check the model input size matches the config:
+### Worker diagnostics
+```bash
+# Check worker is alive
+docker exec frigate ps aux | grep "python3 -c" | head -1
+# Worker PID should exist with high CPU (~240%)
+
+# Check for broken pipe errors
+docker logs frigate | grep "Broken pipe"
+# Zero broken pipes = worker is healthy
+
+# Check for segfaults
+docker logs frigate | grep -c "segfault\|Fatal"
+# Must be 0
+```
+
+### Common causes
+
+1. **score_thresh too high** — in worker code, `process_yolo26` uses `score_thresh=0.1`. If increased, fewer detections pass to Frigate.
+
+2. **Frigate min_score too high** — per-camera `min_score` filters worker output. Current thresholds:
+   - Most cameras: person 0.55, car 0.55
+   - Back garden/kitchen: person 0.60
+
+3. **Worker crash on startup** — check `docker logs frigate | grep "NCNN worker: pipe error"`. If present, worker is crashing. Common causes:
+   - Syntax error in f-string worker code (check for missing `result = dets.tobytes()`)
+   - Model file missing/corrupt in `/config/model_cache/yolo26n.*`
+
+4. **Model output format mismatch** — YOLO26 outputs (84, 8400). If the plugin's `_detect_architecture` doesn't detect `"yolo26"`, it falls back to wrong processing.
+
+## Switching back to YOLOv5s (fallback)
+
+If YOLO26 has issues, switch back to the stable YOLOv5s:
 ```yaml
 model:
-  width: 640   # must match ncnn model
+  path: /config/model_cache/yolov5s.ncnn.param
+  width: 640
   height: 640
 ```
+Then `docker compose restart frigate`.
 
-Verify the normalization fix is present in the detector:
-```python
-# Must multiply by 255 — ncnn YOLOv5s expects 0-255 range
-mat_in = self.ncnn.Mat((tensor_input.squeeze(0) * 255.0).astype(np.float32))
-```
+YOLOv5s runs in-process (no worker) at ~140ms, 7 FPS. More false positives but rock-solid stable.
 
-### Debug
+## Exporting new YOLO models to NCNN
+
 ```bash
-docker exec frigate python3 -c "
-import cv2, numpy as np, ncnn
-# Test with bus.jpg
-img = cv2.imread('/tmp/bus.jpg')
-img = cv2.resize(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), (640, 640))
-tensor = np.expand_dims(img.transpose(2,0,1).astype(np.float32), 0)
-net = ncnn.Net(); net.load_param('/config/model_cache/yolov5s.ncnn.param'); net.load_model('/config/model_cache/yolov5s.ncnn.bin')
-mat = ncnn.Mat(tensor.squeeze(0))
-with net.create_extractor() as ex:
-    ex.input('in0', mat)
-    _, out0 = ex.extract('out0')
-    _, out1 = ex.extract('out1')
-    _, out2 = ex.extract('out2')
-outputs = [np.expand_dims(1/(1+np.exp(-np.array(m))), 0) for m in [out0, out1, out2]]
-from frigate.util.model import post_process_yolo
-r = post_process_yolo(outputs, 640, 640)
-print(f'Detections: {np.count_nonzero(r[:, 1])}')  # Should be 15-20 for bus.jpg
+# Inside Frigate container or any environment with ultralytics + ncnn + pnnx
+pip install --break-system-packages ultralytics ncnn pnnx
+python3 -c "
+from ultralytics import YOLO
+model = YOLO('yolo26n.pt')  # or yolo26s.pt for small variant
+model.export(format='ncnn', imgsz=640)
 "
+# Output: yolo26n_ncnn_model/model.ncnn.param + model.ncnn.bin
 ```
+
+Copy to model cache and update config path.
 
 ## GPU not detected by ncnn
 
@@ -51,64 +113,26 @@ NCNN: no GPU found, using CPU fallback
 ```
 
 ### Fix
-1. Verify Mesa Vulkan drivers are installed:
-   ```bash
-   apt install mesa-vulkan-drivers
-   ```
-2. Verify ncnn can see the GPU:
-   ```bash
-   docker exec frigate python3 -c "import ncnn; print(ncnn.get_gpu_count())"
-   ```
-3. If count is 0, check `/dev/dri/renderD128` is passed through in docker-compose
-
-## Container won't start (NaN in output)
-
-### Symptom
-```
-ValueError: could not broadcast input array from shape (0,6) into shape (20,6)
-```
-
-### Fix
-The model is producing zero valid detections. This is almost always the normalization issue — check the `* 255.0` fix in the detector code. Test with bus.jpg as above to isolate.
+1. Verify Mesa Vulkan drivers: `apt install mesa-vulkan-drivers`
+2. Check GPU visible: `docker exec frigate python3 -c "import ncnn; print(ncnn.get_gpu_count())"`
+3. Check `/dev/dri/renderD128` passthrough in docker-compose
+4. Verify render group access: `ls -la /dev/dri/renderD128` (should be `root:render`, gid 992)
 
 ## Address already in use (OSError 98)
 
-### Symptom
-```
-OSError: [Errno 98] Address already in use
-```
-
-### Explanation
-This is Frigate's internal auth service port conflict during startup. It's harmless — Frigate retries and starts correctly. Not related to the ncnn detector.
+Harmless — Frigate's internal auth service port conflict during startup. Retries and starts correctly.
 
 ## Detection is slow (>200ms)
 
-### Symptom
-Inference speed >200ms per frame.
+1. Verify Vulkan: `docker logs frigate | grep "Vulkan=on"`
+2. Check worker alive: `docker exec frigate ps aux | grep "python3 -c"`
+3. Check for segfaults causing worker restarts
 
-### Fix
-1. Verify Vulkan is enabled: `docker logs frigate | grep "Vulkan=on"`
-2. If using CPU fallback, check `/dev/dri/renderD128` passthrough
-3. Reduce model input size (but requires re-converting the model)
-4. Check GPU isn't thermal throttling: `rocm-smi` or `sensors`
+## Model cache cleanup
 
-## Face recognition crashes (segfault)
-
-### Symptom
-```
-SIGSEGV in ArcFace model
-```
-
-### Fix
-This only happened with MIGraphX/ROCm EP. With ncnn Vulkan, object detection uses GPU and face recognition uses ONNX Runtime CPU EP — no segfaults. If it occurs unexpectedly, add the model type to `is_migraphx_complex_model` exclusion list.
-
-## After reboot, everything works but no recent events
-
-### Normal
-Events are only created when objects are detected. If no one has walked by a camera since reboot, there won't be events. Test by walking in front of a camera.
-
-### Verify detection is working
+Only keep working models to avoid confusion:
 ```bash
-curl -s http://localhost:5000/api/stats | jq '.detectors."ncnn_vulkan".inference_speed'
-# Should show actual value (not 10.0 placeholder)
+ls /mnt/docker/frigate/config/model_cache/
+# Should have: yolov5s.ncnn.param, yolov5s.ncnn.bin, yolo26n.param, yolo26n.bin
+# Remove: yolov8*, yolov9*, yolo11*, yolov7-tiny* (all crash on this GPU)
 ```
