@@ -198,3 +198,40 @@ def yolo26_post_process(
         out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
     )
     return out
+
+def anchor_free_post_process(
+    raw: "np.ndarray",
+    all_pts: "np.ndarray",
+    model_size: int = 640,
+    frame_w: int = 640,
+    frame_h: int = 640,
+    score_thresh: float = 0.05,
+    nms_thresh: float = 0.45,
+) -> "np.ndarray":
+    """YOLOv8/YOLO11 anchor-free post-process: sigmoid + DFL + grid decode + NMS."""
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust YOLO engine not available")
+    import numpy as np
+    raw = np.ascontiguousarray(raw.ravel().astype(np.float32))
+    pts = np.ascontiguousarray(all_pts.ravel().astype(np.float32))
+    out = np.zeros((20, 6), dtype=np.float32)
+
+    lib.yolo_anchor_free_post_process.argtypes = [
+        ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_float, ctypes.c_float, ctypes.c_float,
+        ctypes.c_float, ctypes.c_float, ctypes.POINTER(ctypes.c_float),
+    ]
+    lib.yolo_anchor_free_post_process.restype = ctypes.c_uint32
+
+    lib.yolo_anchor_free_post_process(
+        raw.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        raw.size // 144,
+        pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        ctypes.c_float(model_size),
+        ctypes.c_float(frame_w), ctypes.c_float(frame_h),
+        ctypes.c_float(score_thresh), ctypes.c_float(nms_thresh),
+        out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    )
+    return out

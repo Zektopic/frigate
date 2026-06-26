@@ -391,3 +391,149 @@ mod tests {
         assert!(scores[0] > 0.5);
     }
 }
+
+// ── YOLOv8/YOLO11 anchor-free post-process ─────────────────────────
+// Replaces the numpy _process() function in the ONNX plugin worker.
+
+const DFL_BINS: [f32; 16] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
+const AF_STRIDES: [u32; 3] = [8, 16, 32];
+
+/// Pre-compute grid points for one scale: (grid*grid, 2) with (x+0.5)*stride
+fn make_grid_points(grid: usize, stride: f32) -> Vec<(f32, f32)> {
+    let n = grid * grid;
+    let mut pts = Vec::with_capacity(n);
+    for y in 0..grid {
+        for x in 0..grid {
+            pts.push(((x as f32 + 0.5) * stride, (y as f32 + 0.5) * stride));
+        }
+    }
+    pts
+}
+
+/// YOLOv8/YOLO11 anchor-free post-process: sigmoid + DFL + grid decode + NMS.
+/// `raw` has shape (N, 144) where 144 = 64(reg) + 80(cls).
+/// `all_pts` is concatenated grid points for all 3 scales.
+#[no_mangle]
+pub unsafe extern "C" fn yolo_anchor_free_post_process(
+    raw: *const f32,
+    n_total: u32,
+    all_pts: *const f32,    // (n_total, 2) pre-computed grid points
+    model_size: f32,
+    frame_w: f32,
+    frame_h: f32,
+    score_thresh: f32,
+    nms_thresh: f32,
+    out_dets: *mut f32,      // (20, 6)
+) -> u32 {
+    let n = n_total as usize;
+    let raw = std::slice::from_raw_parts(raw, n * 144);
+    let pts = std::slice::from_raw_parts(all_pts, n * 2);
+    let out = std::slice::from_raw_parts_mut(out_dets, 120);
+    for v in out.iter_mut() { *v = 0.0; }
+
+    if n == 0 { return 0; }
+
+    // Step 1: sigmoid on class logits + argmax
+    let mut candidates: Vec<usize> = Vec::with_capacity(512);
+    let mut cand_scores: Vec<f32> = Vec::with_capacity(512);
+    let mut cand_classes: Vec<i32> = Vec::with_capacity(512);
+
+    for i in 0..n {
+        let base = i * 144;
+        // class logits at offset 64..144 (80 classes)
+        let mut best_c: i32 = 0;
+        let mut best_s: f32 = 0.0;
+        for c in 0..80 {
+            let logit = raw[base + 64 + c];
+            // sigmoid
+            let s = if logit < -20.0 { 0.0 }
+                else if logit > 20.0 { 1.0 }
+                else { 1.0 / (1.0 + (-logit).exp()) };
+            if s > best_s { best_s = s; best_c = c as i32; }
+        }
+        if best_s >= score_thresh {
+            candidates.push(i);
+            cand_scores.push(best_s);
+            cand_classes.push(best_c);
+        }
+    }
+
+    if candidates.is_empty() { return 0; }
+
+    // Step 2: DFL decode for candidates only
+    let mut boxes: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(candidates.len());
+    let mut final_scores: Vec<f32> = Vec::with_capacity(candidates.len());
+    let mut final_classes: Vec<i32> = Vec::with_capacity(candidates.len());
+
+    for (k, &idx) in candidates.iter().enumerate() {
+        let base = idx * 144;
+        // DFL: reg[0..64] → 4 values via softmax over 16 bins
+        let mut dist = [0.0f32; 4];
+        for d in 0..4 {
+            let off = d * 16;
+            let mut max_val = raw[base + off];
+            for b in 1..16 { max_val = max_val.max(raw[base + off + b]); }
+            let mut sum = 0.0f32;
+            let mut exp_vals = [0.0f32; 16];
+            for b in 0..16 {
+                let e = (raw[base + off + b] - max_val).exp();
+                exp_vals[b] = e;
+                sum += e;
+            }
+            for b in 0..16 {
+                dist[d] += (exp_vals[b] / sum) * DFL_BINS[b];
+            }
+        }
+
+        let px = pts[idx * 2];
+        let py = pts[idx * 2 + 1];
+        let x1 = (px - dist[0]).max(0.0).min(model_size);
+        let y1 = (py - dist[1]).max(0.0).min(model_size);
+        let x2 = (px + dist[2]).max(0.0).min(model_size);
+        let y2 = (py + dist[3]).max(0.0).min(model_size);
+
+        if x2 <= x1 || y2 <= y1 { continue; }
+
+        boxes.push((x1, y1, x2, y2));
+        final_scores.push(cand_scores[k]);
+        final_classes.push(cand_classes[k]);
+    }
+
+    if boxes.is_empty() { return 0; }
+
+    // Step 3: NMS
+    let n_boxes = boxes.len();
+    let areas: Vec<f32> = boxes.iter().map(|(x1,y1,x2,y2)| (x2-x1)*(y2-y1)).collect();
+    let mut order: Vec<usize> = (0..n_boxes).collect();
+    order.sort_unstable_by(|&a, &b| final_scores[b].partial_cmp(&final_scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Top-K (max 1000)
+    let order = if order.len() > 1000 { order[..1000].to_vec() } else { order };
+
+    let mut keep: Vec<usize> = Vec::with_capacity(20);
+    let sx = frame_w / model_size;
+    let sy = frame_h / model_size;
+
+    for &i in &order {
+        if keep.len() >= 20 { break; }
+        let sup = keep.iter().any(|&j| {
+            let (ax1,ay1,ax2,ay2) = boxes[i];
+            let (bx1,by1,bx2,by2) = boxes[j];
+            let xx1 = ax1.max(bx1); let yy1 = ay1.max(by1);
+            let xx2 = ax2.min(bx2); let yy2 = ay2.min(by2);
+            let w = (xx2 - xx1).max(0.0); let h = (yy2 - yy1).max(0.0);
+            (w * h) / (areas[i] + areas[j] - w * h) > nms_thresh
+        });
+        if !sup { keep.push(i); }
+    }
+
+    for (k, &idx) in keep.iter().enumerate() {
+        let (x1, y1, x2, y2) = boxes[idx];
+        let o = k * 6;
+        out[o] = final_classes[idx] as f32;
+        out[o+1] = final_scores[idx];
+        out[o+2] = y1 * sy; out[o+3] = x1 * sx;
+        out[o+4] = y2 * sy; out[o+5] = x2 * sx;
+    }
+    keep.len() as u32
+}
