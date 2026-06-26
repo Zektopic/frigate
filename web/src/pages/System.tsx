@@ -44,8 +44,10 @@ function System() {
   // stats page
 
   const [page, setPage] = useHashState<SystemMetric>();
+  const activeTab = !page || (page as string) === "" ? "general" : page;
+
   const [pageToggle, setPageToggle] = useOptimisticState(
-    page ?? "general",
+    activeTab,
     setPage,
     100,
   );
@@ -56,9 +58,7 @@ function System() {
   // Track which tabs have been visited so we can keep them mounted after first visit.
   // Using a ref updated during render avoids extra render cycles from state/effects.
   const visitedTabsRef = useRef(new Set<string>());
-  if (page) {
-    visitedTabsRef.current.add(page);
-  }
+  visitedTabsRef.current.add(pageToggle);
   const visitedTabs = visitedTabsRef.current;
 
   useEffect(() => {
@@ -127,34 +127,34 @@ function System() {
         )}
       </div>
       {visitedTabs.has("general") && (
-        <div className={page == "general" ? "contents" : "hidden"}>
+        <div className={pageToggle == "general" ? "contents" : "hidden"}>
           <GeneralMetrics
             lastUpdated={lastUpdated}
             setLastUpdated={setLastUpdated}
-            isActive={page == "general"}
+            isActive={pageToggle == "general"}
           />
         </div>
       )}
       {metrics.includes("enrichments") && visitedTabs.has("enrichments") && (
-        <div className={page == "enrichments" ? "contents" : "hidden"}>
+        <div className={pageToggle == "enrichments" ? "contents" : "hidden"}>
           <EnrichmentMetrics
             lastUpdated={lastUpdated}
             setLastUpdated={setLastUpdated}
-            isActive={page == "enrichments"}
+            isActive={pageToggle == "enrichments"}
           />
         </div>
       )}
       {visitedTabs.has("storage") && (
-        <div className={page == "storage" ? "contents" : "hidden"}>
+        <div className={pageToggle == "storage" ? "contents" : "hidden"}>
           <StorageMetrics setLastUpdated={setLastUpdated} />
         </div>
       )}
       {visitedTabs.has("cameras") && (
-        <div className={page == "cameras" ? "contents" : "hidden"}>
+        <div className={pageToggle == "cameras" ? "contents" : "hidden"}>
           <CameraMetrics
             lastUpdated={lastUpdated}
             setLastUpdated={setLastUpdated}
-            isActive={page == "cameras"}
+            isActive={pageToggle == "cameras"}
           />
         </div>
       )}
