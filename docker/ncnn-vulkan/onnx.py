@@ -216,7 +216,11 @@ def _nms(x1, y1, x2, y2, scores, iou_threshold):
 # ---------------------------------------------------------------------------
 
 def _detect_architecture(param_text: str) -> str:
-    """Return 'yolov8' (anchor-free), 'yolov5' (anchor-based), or 'unknown'."""
+    """Return model architecture from .param file contents."""
+    # Ultralytics YOLO26+ export: 84-channel output (4 bbox + 80 classes),
+    # post-processing baked in, no DFL/sigmoid needed.
+    if "cat_22" in param_text and "8400" in param_text:
+        return "yolo26"
     if "view_" in param_text and "144" in param_text:
         return "yolov8"
     if "255" in param_text:
@@ -371,6 +375,10 @@ class ONNXDetector(DetectionApi):
             if not self._out_names:
                 self._out_names = ["out0"]
             self._anchors = None
+        elif self.arch == "yolo26":
+            logger.info("NCNN: YOLO26 decoded-output architecture detected")
+            self._out_names = ["out0"]
+            self._anchors = None
         else:
             logger.info("NCNN: YOLOv5/YOLOv7 anchor-based architecture detected")
             self._anchors = dict(_YOLOV5_ANCHORS)
@@ -384,17 +392,14 @@ class ONNXDetector(DetectionApi):
 
         self.net = self.ncnn.Net()
 
-        if self.arch == "yolov8":
-            # YOLOv8/YOLO11 Vulkan crashes inside Frigate's forked detector
-            # process (works fine in a plain fork, but Frigate's process
-            # environment — logging, faulthandler, shared memory, ZMQ —
-            # triggers a segfault in ncnn Vulkan).  Work around by spawning
-            # a clean subprocess that loads the model and handles inference
-            # via pipes.
+        if self.arch in ("yolov8", "yolo26"):
+            # YOLOv8/YOLO11/YOLO26: Vulkan crashes after fork on AMD RADV.
+            # Use worker subprocess — for YOLO26 this is fast (~87ms) because
+            # post-processing is baked into the model (no numpy bottleneck).
             self._init_ncnn_worker(param_path, bin_path)
             return
         else:
-            # YOLOv5/v7 — Vulkan is stable for anchor-based models
+            # YOLOv5/v7/YOLO26 — Vulkan is stable for these
             self.net.opt.use_vulkan_compute = True
             self.net.opt.use_fp16_arithmetic = True
             self.net.opt.use_fp16_packed = True
@@ -440,6 +445,7 @@ binf = {bin_path!r}
 in_name = {in_name!r}
 out_names = {out_names!r}
 model_size = 640
+arch = {arch!r}  # yolo26, yolov8, etc.
 
 # ── load ncnn Vulkan (suppress stdout — used for IPC data) ───
 _real_stdout_fd = os.dup(1)
@@ -568,6 +574,35 @@ def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
     out[:n] = dets[:n]
     return out
 
+# ── YOLO26 handler (decoded output, no DFL/sigmoid needed) ─────
+def process_yolo26(raw, fw, score_thresh=0.25, nms_thresh=0.45):
+    bboxes = raw[:4, :].T; scores = raw[4:, :].T
+    cx,cy,bw,bh = bboxes[:,0],bboxes[:,1],bboxes[:,2],bboxes[:,3]
+    x1=cx-bw/2;y1=cy-bh/2;x2=cx+bw/2;y2=cy+bh/2
+    cid=np.argmax(scores,axis=1);best=scores[np.arange(scores.shape[0]),cid]
+    keep=best>score_thresh
+    if not keep.any(): return np.zeros((20,6),dtype=np.float32)
+    x1,y1,x2,y2=x1[keep],y1[keep],x2[keep],y2[keep];best,cid=best[keep],cid[keep]
+    np.clip(x1,0,fw,out=x1);np.clip(y1,0,fw,out=y1)
+    np.clip(x2,0,fw,out=x2);np.clip(y2,0,fw,out=y2)
+    v=(x2>x1)&(y2>y1)
+    if not v.any(): return np.zeros((20,6),dtype=np.float32)
+    x1,y1,x2,y2=x1[v],y1[v],x2[v],y2[v];best,cid=best[v],cid[v]
+    order=best.argsort()[::-1];ki=[]
+    areas=(x2-x1)*(y2-y1)
+    while order.size:
+        i=order[0];ki.append(i)
+        if order.size==1: break
+        xx1=np.maximum(x1[i],x1[order[1:]]);yy1=np.maximum(y1[i],y1[order[1:]])
+        xx2=np.minimum(x2[i],x2[order[1:]]);yy2=np.minimum(y2[i],y2[order[1:]])
+        inter=np.maximum(0.,xx2-xx1)*np.maximum(0.,yy2-yy1)
+        order=order[np.where(inter/(areas[i]+areas[order[1:]]-inter)<=nms_thresh)[0]+1]
+    if not ki: return np.zeros((20,6),dtype=np.float32)
+    ki=np.array(ki);sx=fw/model_size;sy=fw/model_size
+    dets=np.column_stack([cid[ki].astype(np.float32),best[ki],x1[ki]*sx,y1[ki]*sy,x2[ki]*sx,y2[ki]*sy])
+    out=np.zeros((20,6),dtype=np.float32);n=min(len(dets),20);out[:n]=dets[:n]
+    return out
+
 # ── main loop ─────────────────────────────────────────────────
 _frame_count = 0
 while True:
@@ -594,18 +629,10 @@ while True:
             dets = np.zeros((20, 6), dtype=np.float32)
         else:
             raw = np.array(out0).copy()
-            dets = _process(raw, fw, fw)
-            _frame_count += 1
-            if _frame_count % 50 == 0:
-                nonzero = (dets[:, 1] > 0).sum()
-                top = dets[dets[:, 1] > 0][:3]
-                if nonzero > 0:
-                    sys.stderr.write(
-                        "[worker #" + str(_frame_count) + "] " + str(nonzero)
-                        + " detections, top score=" + str(float(top[0,1]))
-                        + " class=" + str(int(top[0,0])) + "\\n"
-                    )
-                sys.stderr.flush()
+            if arch == "yolo26":
+                dets = process_yolo26(raw, fw)
+            else:
+                dets = _process(raw, fw, fw)
     result = dets.tobytes()
     os.write(1, struct.pack('>I', len(result)))
     os.write(1, result)
@@ -655,10 +682,68 @@ while True:
         with self.net.create_extractor() as ex:
             ex.input(self._in_name, mat_in)
 
+            if self.arch == "yolo26":
+                return self._detect_decoded(ex, w, h)
             if self.arch == "yolov8":
                 return self._detect_anchor_free(ex, w, h)
             else:
                 return self._detect_anchor_based(ex, w, h)
+
+    # ------------------------------------------------------------------
+    # YOLO26 decoded-output inference (post-processing baked into model)
+    # ------------------------------------------------------------------
+    def _detect_decoded(self, ex, w: int, h: int) -> np.ndarray:
+        """Handle Ultralytics YOLO26+ NCNN export: output is (84, N) with
+        4 bbox + 80 sigmoid'd class scores — no DFL or anchors needed."""
+        out_name = self._out_names[0] if self._out_names else "out0"
+        ret, out0 = ex.extract(out_name)
+        if ret != 0:
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+        raw = np.array(out0).copy()  # (84, N)
+
+        if raw.ndim != 2 or raw.shape[0] != 84:
+            logger.error("YOLO26: unexpected output shape %s", raw.shape)
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+
+        bboxes = raw[:4, :].T  # (N, 4) — cx, cy, w, h
+        scores = raw[4:, :].T  # (N, 80) — already sigmoid'd
+
+        # Convert cx,cy,w,h → x1,y1,x2,y2
+        cx, cy, bw, bh = bboxes[:,0], bboxes[:,1], bboxes[:,2], bboxes[:,3]
+        x1 = cx - bw/2; y1 = cy - bh/2
+        x2 = cx + bw/2; y2 = cy + bh/2
+
+        class_ids = np.argmax(scores, axis=1)
+        best_scores = scores[np.arange(scores.shape[0]), class_ids]
+
+        keep = best_scores > 0.25
+        if not np.any(keep):
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+        x1, y1, x2, y2 = x1[keep], y1[keep], x2[keep], y2[keep]
+        best_scores, class_ids = best_scores[keep], class_ids[keep]
+
+        np.clip(x1, 0, self.model_input_size, out=x1)
+        np.clip(y1, 0, self.model_input_size, out=y1)
+        np.clip(x2, 0, self.model_input_size, out=x2)
+        np.clip(y2, 0, self.model_input_size, out=y2)
+        valid = (x2 > x1) & (y2 > y1)
+        if not np.any(valid):
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+        x1, y1, x2, y2 = x1[valid], y1[valid], x2[valid], y2[valid]
+        best_scores, class_ids = best_scores[valid], class_ids[valid]
+
+        keep_idx = _nms(x1, y1, x2, y2, best_scores, 0.45)
+        if keep_idx.size == 0:
+            return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+
+        scale_x = w / self.model_input_size
+        scale_y = h / self.model_input_size
+        dets = np.column_stack([
+            class_ids[keep_idx].astype(np.float32), best_scores[keep_idx],
+            x1[keep_idx] * scale_x, y1[keep_idx] * scale_y,
+            x2[keep_idx] * scale_x, y2[keep_idx] * scale_y,
+        ])
+        return _pad_detections(dets)
 
     # ------------------------------------------------------------------
     # Worker subprocess inference (YOLOv8/YOLO11 Vulkan)
