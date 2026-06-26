@@ -124,6 +124,18 @@ def get_cpu_stats() -> dict[str, dict]:
     except Exception:
         our_processes = []
 
+    # Include go2rtc and supervised helper processes that are not direct children of Python
+    try:
+        for p in psutil.process_iter(attrs=["pid", "name"]):
+            try:
+                if p.info["name"] and any(k in p.info["name"] for k in ["go2rtc", "certsync"]):
+                    if p.pid not in [proc.pid for proc in our_processes]:
+                        our_processes.append(p)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception:
+        pass
+
     for process in our_processes:
         try:
             info = process.as_dict(attrs=["pid", "name", "cpu_percent", "cmdline"])
