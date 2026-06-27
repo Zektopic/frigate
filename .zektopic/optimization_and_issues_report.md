@@ -173,3 +173,9 @@ Below is the summary of security and logical issues discovered in your codebase:
 *   **Fix**: Implemented the fix by adding history cleanup in the `except` block catching the decode error, popping the last turns to free memory.
 ### Documentation
 Documentation has been updated with detailed findings on errors, issues to test against, and vitest command formatting.
+
+## Test Runner Fixes
+The Python backend testing had broken imports in `test_runner.py` due to incomplete mocked pydantic and peewee dependencies. Specifically, missing `AfterValidator`, `ValidationInfo`, and full module mocks for `peewee`, `unidecode` and `filelock`. These have been mocked correctly in the test runner.
+
+## Web Frontend Test Fixes
+The vitest unit tests were fixed for `src/utils/dateUtil.test.ts`. There was flakiness due to timezone-dependent date formatting functions in `formatUnixTimestampToDateTime`. A regular expression was implemented to ensure test robustness across differing node versions by matching timezone variations (`7:00` vs `07:00`).
