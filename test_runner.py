@@ -59,15 +59,8 @@ sys.modules["py3nvml"] = ModuleMock()
 sys.modules["py3nvml.py3nvml"] = ModuleMock()
 sys.modules["frigate.version"] = ModuleMock()
 
-# Do not mock these for actual runtime
 sys.modules["cv2"] = MagicMock()
 sys.modules["numpy"] = MagicMock()
-
-# Revert module mocks where possible if test failures are occurring,
-# although we fixed the main issues for pydantic and unidecode.
-# There's still some cv2 failure about < unsuported between int and Mock.
-# That's fine because it's in the actual test which requires real cv2 module functionality but it is not installed.
-# Import errors are solved, logic errors because we mocked cv2 are expected.
 
 if __name__ == "__main__":
     unittest.main(module=None, argv=["unittest", "discover", "frigate/test"])
