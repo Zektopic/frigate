@@ -14,7 +14,3 @@
 ## Testing Improvements
 - Fix python unit test mock errors. Improve `test_runner.py` to fully mock `peewee`, `pydantic` (with `AfterValidator`, `ValidationInfo`), `unidecode`, and `filelock`.
 - Ensure frontend vitest tests use explicitly passed timezones when evaluating formatting, preventing timezone-dependent flakiness across platforms.
-
-## Testing Improvements
-- Fix python unit test mock errors. Improve `test_runner.py` to fully mock `peewee`, `pydantic` (with `AfterValidator`, `ValidationInfo`), `unidecode`, and `filelock`.
-- Ensure frontend vitest tests use explicitly passed timezones when evaluating formatting, preventing timezone-dependent flakiness across platforms.
