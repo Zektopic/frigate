@@ -53,3 +53,9 @@ lodash@^4.18.1 (latest published) -- no CVEs reported in npm audit.
 - sort-by@1.2.0 depends on object-path@0.6.0 which is vulnerable. The `object-path` override forces 0.11.8 tree-wide. No behavioral change expected as sort-by uses only basic get/set operations.
 - i18next-cli depends on glob@11.x. The glob override to 11.1.0 (past 11.0.3 where the CLI vuln was fixed) resolves this.
 - Vite 7.x is available but was not upgraded to avoid potential breakage with vite-plugin-monaco-editor and other Vite ecosystem plugins. The picomatch vulnerability in Vite 6.4.3 was resolved via nested overrides instead.
+## 2023-11-20
+- Removed broken `global.Intl.DateTimeFormat` mock in `web/src/utils/dateUtil.test.ts` to fix 7 failing tests and properly let format function run.
+- Fixed i18n mock in `web/src/utils/dateUtil.test.ts` to return string key properly, resolving failing test for 12hour AM/PM formatting.
+
+## General Status update on 2023-11-20
+- Unit tests are mostly succeeding. `web/src/utils/dateUtil.test.ts` issues have been resolved. Backend tests are experiencing mocking issues in `test_runner.py` affecting 60+ tests, which will be logged to `Jules/improvements.md` for future implementation.
