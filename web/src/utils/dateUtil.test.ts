@@ -6,21 +6,8 @@ global.window = {
   },
 } as unknown as Window & typeof globalThis;
 
-// mock Intl to fix TypeError: () => ({ formatToParts }) is not a constructor
-const mockFormatToParts = vi.fn().mockReturnValue([
-  { type: "month", value: "01" },
-  { type: "literal", value: "/" },
-  { type: "day", value: "01" },
-  { type: "literal", value: "/" },
-  { type: "year", value: "2024" },
-]);
-global.Intl.DateTimeFormat = vi.fn().mockImplementation(() => ({
-  formatToParts: mockFormatToParts,
-  format: vi.fn().mockReturnValue("01/01/2024"),
-})) as unknown as typeof Intl.DateTimeFormat;
-
 vi.mock("@/utils/i18n", () => ({
-  default: { t: (key: string) => key },
+  default: { t: (key: string) => key.split(".").pop() },
   getTranslatedLabel: (label: string) => label,
 }));
 
