@@ -7,7 +7,7 @@ global.window = {
 } as unknown as Window & typeof globalThis;
 
 vi.mock("@/utils/i18n", () => ({
-  default: { t: (key: string) => key.split('.').pop() },
+  default: { t: (key: string) => key.split(".").pop() },
   getTranslatedLabel: (label: string) => label,
 }));
 
