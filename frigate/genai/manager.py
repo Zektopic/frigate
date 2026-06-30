@@ -61,12 +61,15 @@ class GenAIClientManager:
             for role in genai_cfg.roles:
                 self._role_map[role] = name
 
-    def _get_client(self, name: str) -> Optional[GenAIClient]:
+    def _get_client(self, name: str | None) -> Optional[GenAIClient]:
+        if name is None:
+            return None
+
         """Return the client for *name*, creating it on first access."""
         if name in self._clients:
-            client = self._clients[name]
-            client.ensure_provider()
-            return client
+            cached_client = self._clients[name]
+            cached_client.ensure_provider()
+            return cached_client
 
         from frigate.genai import PROVIDERS
 
@@ -82,7 +85,7 @@ class GenAIClientManager:
             return None
 
         try:
-            client: GenAIClient = provider_cls(genai_cfg)
+            new_client: GenAIClient = provider_cls(genai_cfg)
         except Exception as e:
             logger.exception(
                 "Failed to create GenAI client for provider %s: %s",
@@ -91,8 +94,8 @@ class GenAIClientManager:
             )
             return None
 
-        self._clients[name] = client
-        return client
+        self._clients[name] = new_client
+        return new_client
 
     @property
     def chat_client(self) -> Optional[GenAIClient]:
