@@ -173,3 +173,16 @@ Below is the summary of security and logical issues discovered in your codebase:
 *   **Fix**: Implemented the fix by adding history cleanup in the `except` block catching the decode error, popping the last turns to free memory.
 ### Documentation
 Documentation has been updated with detailed findings on errors, issues to test against, and vitest command formatting.
+
+### Comprehensive Test Audit Findings (Latest Run)
+
+#### Backend Testing Issues
+Running `python test_runner.py` revealed 17 failures and 318 errors out of 636 tests. Key issues include:
+1.  **Pydantic Mocking Errors**: `TypeError: FrigateConfig() takes no arguments` occurs repeatedly in tests (e.g., `test_ws_outbound_filter.py`). The `MockBaseModel` in `test_runner.py` does not implement an `__init__` method that accepts keyword arguments.
+2.  **Missing Global Mocks for Imports**: Several tests raise `AssertionError` or `TypeError` because they depend on behavior not covered by the `test_runner.py` mocks. For example, `unidecode("frégate")` returns a MagicMock instead of `"fregate"`, breaking `test_transliterate_to_latin`.
+3.  **cv2 and numpy Mocks causing TypeErrors**: In image processing tests (like `test_yuv_region_2_rgb`), using `MagicMock` for `frame.shape` or `cv2.resize` output causes `TypeError: '<' not supported between instances of 'int' and 'MagicMock'` because the code expects tuples/integers for image dimensions.
+4.  **Shared Memory Frame Manager**: `test_shared_memory_frame_manager` tests fail because `np.prod` cannot correctly process `MagicMock` shapes, and `UntrackedSharedMemory` mock logic is incorrectly invoked or asserted.
+
+#### Frontend Testing Issues
+1. **Vitest / Playwright Conflict**: Running `npm run test` or `vitest` in the `web` root executes both unit tests and `e2e` tests. The `e2e` tests import `@playwright/test` which crashes the test runner with `Error: Playwright Test did not expect test.describe() to be called here` when Vitest attempts to evaluate them. Running `vitest src/` bypasses this by only executing source tests, where 93/93 tests pass.
+2. **Jest Matcher Redefinition Errors**: Running `npx playwright test` after `npm run test` generates multiple warnings `TypeError: Cannot redefine property: Symbol($$jest-matchers-object)`, indicating pollution/collision between Vitest globals and Playwright's test environment.
