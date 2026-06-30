@@ -52,7 +52,12 @@ sys.modules["peewee"] = MagicMock()
 sys.modules["peewee.DoesNotExists"] = MagicMock()
 sys.modules["playhouse"] = MagicMock()
 sys.modules["playhouse.sqlite_ext"] = MagicMock()
-sys.modules["unidecode"] = __import__("unidecode")
+sys.modules["unidecode"] = MagicMock()
+
+def mock_unidecode(text: str) -> str:
+    return text.replace("é", "e").replace("á", "a").replace("í", "i")
+
+sys.modules["unidecode"].unidecode = mock_unidecode
 sys.modules["filelock"] = MagicMock()
 sys.modules["cv2"] = MagicMock()
 sys.modules["numpy"] = MagicMock()

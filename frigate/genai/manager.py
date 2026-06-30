@@ -119,12 +119,12 @@ class GenAIClientManager:
         """Return per-entry model lists and capabilities, keyed by config entry name."""
         result: dict[str, dict[str, Any]] = {}
         for name, genai_cfg in self._configs.items():
-            client = self._get_client(name)
-            if not client:
+            iter_client = self._get_client(name)
+            if not iter_client:
                 continue
             result[name] = {
-                "models": client.list_models(),
+                "models": iter_client.list_models(),
                 "roles": [r.value for r in genai_cfg.roles],
-                "supports_toggleable_thinking": client.supports_toggleable_thinking,
+                "supports_toggleable_thinking": iter_client.supports_toggleable_thinking,
             }
         return result
