@@ -18,13 +18,11 @@ IMPORTANT — lazy ncnn import:
 
 import logging
 import os
-import re
 import select
 import struct
 import subprocess
 import sys
 import time
-from typing import Optional
 
 import numpy as np
 from pydantic import Field
