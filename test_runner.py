@@ -128,8 +128,11 @@ sys.modules["ai_edge_litert"] = MagicMock()
 sys.modules["ai_edge_litert.interpreter"] = MagicMock()
 sys.modules["tflite_runtime"] = MagicMock()
 
+
 class MockPydanticValidationError(Exception):
     pass
+
+
 MockPydantic.ValidationError = MockPydanticValidationError
 
 if __name__ == "__main__":

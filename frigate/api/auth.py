@@ -254,9 +254,7 @@ rateLimiter = RateLimiter()
 
 
 def get_remote_addr(request: Request):
-    route = list(reversed(
-        (request.headers.get("x-forwarded-for") or "").split(",")
-    ))
+    route = list(reversed((request.headers.get("x-forwarded-for") or "").split(",")))
     logger.debug(f"IP Route: {[r for r in route]}")
     trusted_proxies = []
     for proxy in request.app.frigate_config.auth.trusted_proxies:

@@ -91,8 +91,10 @@ def yolo_post_process(
     lib.yolo_post_process.argtypes = [
         ctypes.POINTER(ctypes.POINTER(ctypes.c_float)),
         ctypes.POINTER(ctypes.c_uint32),
-        ctypes.c_float, ctypes.c_float,
-        ctypes.c_float, ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
         ctypes.POINTER(Detection),
         ctypes.c_uint32,
     ]
@@ -151,12 +153,14 @@ def nms_boxes(
     kept = lib.nms_boxes(
         boxes.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         scores.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        n, iou_threshold,
+        n,
+        iou_threshold,
         ctypes.cast(out_indices, ctypes.POINTER(ctypes.c_uint32)),
         max_indices,
     )
 
     return np.array(out_indices[:kept], dtype=np.int32)
+
 
 def yolo26_post_process(
     raw: "np.ndarray",
@@ -176,14 +180,20 @@ def yolo26_post_process(
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
     import numpy as np
+
     raw = np.ascontiguousarray(raw.T.ravel().astype(np.float32))
     n = raw.size // 84
     out = np.zeros((20, 6), dtype=np.float32)
 
     lib.yolo26_post_process.argtypes = [
-        ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
-        ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_float, ctypes.c_float, ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.POINTER(ctypes.c_float),
     ]
     lib.yolo26_post_process.restype = None
 
@@ -199,6 +209,7 @@ def yolo26_post_process(
     )
     return out
 
+
 def anchor_free_post_process(
     raw: "np.ndarray",
     all_pts: "np.ndarray",
@@ -213,15 +224,21 @@ def anchor_free_post_process(
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
     import numpy as np
+
     raw = np.ascontiguousarray(raw.ravel().astype(np.float32))
     pts = np.ascontiguousarray(all_pts.ravel().astype(np.float32))
     out = np.zeros((20, 6), dtype=np.float32)
 
     lib.yolo_anchor_free_post_process.argtypes = [
-        ctypes.POINTER(ctypes.c_float), ctypes.c_uint32,
         ctypes.POINTER(ctypes.c_float),
-        ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_float, ctypes.c_float, ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.POINTER(ctypes.c_float),
     ]
     lib.yolo_anchor_free_post_process.restype = ctypes.c_uint32
 
@@ -230,8 +247,10 @@ def anchor_free_post_process(
         raw.size // 144,
         pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         ctypes.c_float(model_size),
-        ctypes.c_float(frame_w), ctypes.c_float(frame_h),
-        ctypes.c_float(score_thresh), ctypes.c_float(nms_thresh),
+        ctypes.c_float(frame_w),
+        ctypes.c_float(frame_h),
+        ctypes.c_float(score_thresh),
+        ctypes.c_float(nms_thresh),
         out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
     )
     return out

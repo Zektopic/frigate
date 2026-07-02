@@ -59,6 +59,7 @@ _REG_MAX = 16
 # Detector config
 # ---------------------------------------------------------------------------
 
+
 class ONNXDetectorConfig(BaseDetectorConfig):
     type: Literal[DETECTOR_KEY]
     device: str = Field(default="AUTO", title="Device Type")
@@ -67,6 +68,7 @@ class ONNXDetectorConfig(BaseDetectorConfig):
 # ---------------------------------------------------------------------------
 # Helpers — DFL decode (YOLOv8 / YOLO11)
 # ---------------------------------------------------------------------------
+
 
 def _make_grid_points(feat_h: int, feat_w: int, stride: int) -> np.ndarray:
     """(feat_h*feat_w, 2) grid-cell centres for one detection head."""
@@ -104,8 +106,8 @@ def _post_process_yolov8(
     -------
     np.ndarray  shape (K, 6)  — [x1, y1, x2, y2, score, class_id]
     """
-    reg_raw = raw[:, :64]   # (N, 64)
-    cls_raw = raw[:, 64:]   # (N, 80)
+    reg_raw = raw[:, :64]  # (N, 64)
+    cls_raw = raw[:, 64:]  # (N, 80)
 
     dist = _dfl_decode(reg_raw)  # (N, 4)  left, top, right, bottom
 
@@ -122,10 +124,14 @@ def _post_process_yolov8(
         pts = _make_grid_points(grid, grid, stride)
         d = dist[offset : offset + n_cells]
         points_list.append(pts)
-        box_parts.append((pts[:, 0] - d[:, 0],   # x1
-                          pts[:, 1] - d[:, 1],   # y1
-                          pts[:, 0] + d[:, 2],   # x2
-                          pts[:, 1] + d[:, 3]))  # y2
+        box_parts.append(
+            (
+                pts[:, 0] - d[:, 0],  # x1
+                pts[:, 1] - d[:, 1],  # y1
+                pts[:, 0] + d[:, 2],  # x2
+                pts[:, 1] + d[:, 3],
+            )
+        )  # y2
         offset += n_cells
 
     if offset == 0:
@@ -164,15 +170,23 @@ def _post_process_yolov8(
         return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
     # Frigate expects: [label_idx, score, x1, y1, x2, y2]
-    return np.stack([
-        class_ids[keep_idx].astype(np.float32), scores[keep_idx],
-        x1[keep_idx], y1[keep_idx], x2[keep_idx], y2[keep_idx],
-    ], axis=1)
+    return np.stack(
+        [
+            class_ids[keep_idx].astype(np.float32),
+            scores[keep_idx],
+            x1[keep_idx],
+            y1[keep_idx],
+            x2[keep_idx],
+            y2[keep_idx],
+        ],
+        axis=1,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Helpers — NMS
 # ---------------------------------------------------------------------------
+
 
 def _pad_detections(dets: np.ndarray, max_det: int = 20) -> np.ndarray:
     """Pad/truncate to exactly max_det rows (Frigate expects fixed-size output)."""
@@ -181,7 +195,7 @@ def _pad_detections(dets: np.ndarray, max_det: int = 20) -> np.ndarray:
     if dets.shape[0] >= max_det:
         return dets[:max_det]
     padded = np.zeros((max_det, 6), dtype=np.float32)
-    padded[:dets.shape[0]] = dets
+    padded[: dets.shape[0]] = dets
     return padded
 
 
@@ -214,6 +228,7 @@ def _nms(x1, y1, x2, y2, scores, iou_threshold):
 # ---------------------------------------------------------------------------
 # Architecture auto-detection
 # ---------------------------------------------------------------------------
+
 
 def _detect_architecture(param_text: str) -> str:
     """Return model architecture from .param file contents."""
@@ -276,7 +291,8 @@ def _parse_blobs(param_path: str) -> tuple[str, list[str]]:
 
     logger.debug(
         "Auto-detected input=%s, outputs=%s",
-        input_name, outputs,
+        input_name,
+        outputs,
     )
     return input_name, outputs
 
@@ -284,6 +300,7 @@ def _parse_blobs(param_path: str) -> tuple[str, list[str]]:
 # ---------------------------------------------------------------------------
 # Detector
 # ---------------------------------------------------------------------------
+
 
 class ONNXDetector(DetectionApi):
     type_key = DETECTOR_KEY
@@ -297,14 +314,14 @@ class ONNXDetector(DetectionApi):
         # importing ncnn early initialises GPU resources that become
         # invalid after fork.
         import ncnn
+
         self.ncnn = ncnn
 
         # ── resolve model path & backend ───────────────────────────────
         model_path = detector_config.model.path
         if not model_path or not os.path.exists(model_path):
             raise FileNotFoundError(
-                f"Model not found: {model_path}. "
-                "Set model.path in config."
+                f"Model not found: {model_path}. Set model.path in config."
             )
 
         if model_path.endswith(".onnx"):
@@ -333,8 +350,10 @@ class ONNXDetector(DetectionApi):
         out_shape = self._ort_sess.get_outputs()[0].shape
         logger.info(
             "ONNX: input=%s %s, output=%s %s",
-            self._ort_in_name, in_shape,
-            self._ort_out_name, out_shape,
+            self._ort_in_name,
+            in_shape,
+            self._ort_out_name,
+            out_shape,
         )
 
         # Load labels
@@ -437,7 +456,7 @@ class ONNXDetector(DetectionApi):
         arch = _detect_architecture(param_text)
         in_name, out_names = _parse_blobs(param_path)
 
-        worker_code = f'''
+        worker_code = f"""
 import sys, os, struct, numpy as np
 
 param = {param_path!r}
@@ -636,7 +655,7 @@ while True:
     result = dets.tobytes()
     os.write(1, struct.pack('>I', len(result)))
     os.write(1, result)
-'''
+"""
         rust_bin = "/opt/frigate/frigate-detector-rs"
         if self.arch == "yolo26" and os.path.exists(rust_bin):
             logger.info("Spawning Rust NCNN worker: %s", rust_bin)
@@ -694,9 +713,7 @@ while True:
         # NCNN in-process backend (YOLOv5/v7 Vulkan)
         _, _, h, w = tensor_input.shape
 
-        mat_in = self.ncnn.Mat(
-            (tensor_input.squeeze(0) * 255.0).astype(np.float32)
-        )
+        mat_in = self.ncnn.Mat((tensor_input.squeeze(0) * 255.0).astype(np.float32))
 
         with self.net.create_extractor() as ex:
             ex.input(self._in_name, mat_in)
@@ -728,9 +745,11 @@ while True:
         scores = raw[4:, :].T  # (N, 80) — already sigmoid'd
 
         # Convert cx,cy,w,h → x1,y1,x2,y2
-        cx, cy, bw, bh = bboxes[:,0], bboxes[:,1], bboxes[:,2], bboxes[:,3]
-        x1 = cx - bw/2; y1 = cy - bh/2
-        x2 = cx + bw/2; y2 = cy + bh/2
+        cx, cy, bw, bh = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
+        x1 = cx - bw / 2
+        y1 = cy - bh / 2
+        x2 = cx + bw / 2
+        y2 = cy + bh / 2
 
         class_ids = np.argmax(scores, axis=1)
         best_scores = scores[np.arange(scores.shape[0]), class_ids]
@@ -756,11 +775,16 @@ while True:
             return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
         # Frigate expects: [class_id, score, ymin_norm, xmin_norm, ymax_norm, xmax_norm]
-        dets = np.column_stack([
-            class_ids[keep_idx].astype(np.float32), best_scores[keep_idx],
-            y1[keep_idx] / self.model_input_size, x1[keep_idx] / self.model_input_size,
-            y2[keep_idx] / self.model_input_size, x2[keep_idx] / self.model_input_size,
-        ])
+        dets = np.column_stack(
+            [
+                class_ids[keep_idx].astype(np.float32),
+                best_scores[keep_idx],
+                y1[keep_idx] / self.model_input_size,
+                x1[keep_idx] / self.model_input_size,
+                y2[keep_idx] / self.model_input_size,
+                x2[keep_idx] / self.model_input_size,
+            ]
+        )
         return _pad_detections(dets)
 
     # ------------------------------------------------------------------
@@ -782,10 +806,10 @@ while True:
         Uses float16 to halve pipe I/O (2.5MB vs 5MB per frame)."""
         data = tensor_input.astype(np.float16).tobytes()
         try:
-            os.write(self._worker.stdin.fileno(), struct.pack('>I', len(data)))
+            os.write(self._worker.stdin.fileno(), struct.pack(">I", len(data)))
             os.write(self._worker.stdin.fileno(), data)
             header = self._pipe_read(self._worker.stdout.fileno(), 4)
-            size = struct.unpack('>I', header)[0]
+            size = struct.unpack(">I", header)[0]
             result = self._pipe_read(self._worker.stdout.fileno(), size)
             dets = np.frombuffer(result, dtype=np.float32).reshape(-1, 6).copy()
             # worker output is [class_id, score, x1, y1, x2, y2] in 0..model_input_size range
@@ -846,8 +870,10 @@ while True:
         class_ids = class_ids[keep]
 
         # Clamp
-        x1 = np.clip(x1, 0, 1); y1 = np.clip(y1, 0, 1)
-        x2 = np.clip(x2, 0, 1); y2 = np.clip(y2, 0, 1)
+        x1 = np.clip(x1, 0, 1)
+        y1 = np.clip(y1, 0, 1)
+        x2 = np.clip(x2, 0, 1)
+        y2 = np.clip(y2, 0, 1)
 
         # Remove degenerate
         valid = (x2 > x1) & (y2 > y1)
@@ -870,7 +896,17 @@ while True:
         x2_norm = x2[keep_idx]
 
         # Frigate expects: [label_idx, score, ymin_norm, xmin_norm, ymax_norm, xmax_norm]
-        dets = np.stack([class_ids.astype(np.float32), best_scores, y1_norm, x1_norm, y2_norm, x2_norm], axis=1)
+        dets = np.stack(
+            [
+                class_ids.astype(np.float32),
+                best_scores,
+                y1_norm,
+                x1_norm,
+                y2_norm,
+                x2_norm,
+            ],
+            axis=1,
+        )
         return _pad_detections(dets)
 
     # ------------------------------------------------------------------
@@ -905,11 +941,9 @@ while True:
         x2_norm = dets[:, 4] / self.model_input_size
         y2_norm = dets[:, 5] / self.model_input_size
 
-        norm_dets = np.stack([
-            dets[:, 0], dets[:, 1],
-            y1_norm, x1_norm,
-            y2_norm, x2_norm
-        ], axis=1)
+        norm_dets = np.stack(
+            [dets[:, 0], dets[:, 1], y1_norm, x1_norm, y2_norm, x2_norm], axis=1
+        )
 
         return _pad_detections(norm_dets)
 
@@ -929,4 +963,5 @@ while True:
             outputs.append(arr)
 
         from frigate.util.model import post_process_yolo
+
         return post_process_yolo(outputs, self.model_input_size, self.model_input_size)
