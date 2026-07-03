@@ -173,3 +173,12 @@ Below is the summary of security and logical issues discovered in your codebase:
 *   **Fix**: Implemented the fix by adding history cleanup in the `except` block catching the decode error, popping the last turns to free memory.
 ### Documentation
 Documentation has been updated with detailed findings on errors, issues to test against, and vitest command formatting.
+
+### Extended Backend Testing Output (Jules)
+Using an updated `test_runner.py` capable of loading mocked Pydantic components, OpenCV image processors, and transiliteration functionalities, the following backend errors remain due to further code limitations:
+- `test_get_event_snapshot_bytes_reads_clean_webp` returns an `AssertionError` checking if the loaded image `is_clean`.
+- `test_skip_motion_threshold_default` fails to return motion boxes when skip threshold is disabled.
+- `test_mask_matches_scaled_dims_and_has_coverage` fails asserting mask matching dimensions due to mocked resize responses.
+- Missing dependencies inside `test_proxy_auth` proxy models failing assertion without a valid `separator`.
+- Websocket tests: `test_zone_aggregate_topic_is_unrestricted_only` and `test_zone_all_topic_is_unrestricted_only` fail testing class classifications.
+- Testing the frontend suite locally works well after scoping vitest matches purely against `src/` ignoring integration routes with 93 passing unit tests!
