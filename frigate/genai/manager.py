@@ -82,7 +82,7 @@ class GenAIClientManager:
             return None
 
         try:
-            client: GenAIClient = provider_cls(genai_cfg)
+            provider_client: GenAIClient = provider_cls(genai_cfg)
         except Exception as e:
             logger.exception(
                 "Failed to create GenAI client for provider %s: %s",
@@ -91,8 +91,8 @@ class GenAIClientManager:
             )
             return None
 
-        self._clients[name] = client
-        return client
+        self._clients[name] = provider_client
+        return provider_client
 
     @property
     def chat_client(self) -> Optional[GenAIClient]:
