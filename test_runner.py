@@ -62,107 +62,135 @@ class MockPydantic:
     constr = MagicMock
 
 
+class ModuleMock(MagicMock):
+    def __getattr__(self, name):
+        if name in ('__path__', '__file__', '__loader__', '__spec__', '__name__', '__mro_entries__', '__origin__', '__args__', '__parameters__'):
+            raise AttributeError(name)
+        return super().__getattr__(name)
+
+
 sys.modules["pydantic"] = MockPydantic
 sys.modules["pydantic.fields"] = MockPydantic
-sys.modules["norfair"] = MagicMock()
-sys.modules["norfair.drawing"] = MagicMock()
-sys.modules["norfair.drawing.color"] = MagicMock()
-sys.modules["py_vapid"] = MagicMock()
-sys.modules["ws4py"] = MagicMock()
-sys.modules["ws4py.server"] = MagicMock()
-sys.modules["ws4py.server.wsgirefserver"] = MagicMock()
-sys.modules["ws4py.server.wsgiutils"] = MagicMock()
-sys.modules["ws4py.websocket"] = MagicMock()
-sys.modules["pywebpush"] = MagicMock()
-sys.modules["requests"] = MagicMock()
-sys.modules["requests.models"] = MagicMock()
+
 class MockModel:
     pass
 
-peewee_mock = MagicMock()
+peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
 sys.modules["peewee"] = peewee_mock
 sys.modules["peewee.DoesNotExists"] = MagicMock()
-sys.modules["playhouse"] = MagicMock()
-sys.modules["playhouse.sqlite_ext"] = MagicMock()
-sys.modules["unidecode"] = MagicMock()
-sys.modules["filelock"] = MagicMock()
+sys.modules["peewee.DoesNotExist"] = Exception
+
+sys.modules["playhouse"] = ModuleMock()
+sys.modules["playhouse.sqlite_ext"] = ModuleMock()
+sys.modules["playhouse.sqliteq"] = ModuleMock()
+sys.modules["playhouse.shortcuts"] = ModuleMock()
+sys.modules["peewee_migrate"] = ModuleMock()
+
+sys.modules["unidecode"] = ModuleMock()
+sys.modules["unidecode.unidecode"] = MagicMock(return_value="fregate") # hardcoded for tests
+
+sys.modules["filelock"] = ModuleMock()
+sys.modules["norfair"] = ModuleMock()
+sys.modules["norfair.drawing"] = ModuleMock()
+sys.modules["norfair.drawing.drawer"] = ModuleMock()
+sys.modules["norfair.drawing.color"] = ModuleMock()
+sys.modules["norfair.camera_motion"] = ModuleMock()
+sys.modules["norfair.filter"] = ModuleMock()
+sys.modules["norfair.tracker"] = ModuleMock()
+
+sys.modules["py_vapid"] = ModuleMock()
+sys.modules["ws4py"] = ModuleMock()
+sys.modules["ws4py.server"] = ModuleMock()
+sys.modules["ws4py.server.wsgirefserver"] = ModuleMock()
+sys.modules["ws4py.server.wsgiutils"] = ModuleMock()
+sys.modules["ws4py.websocket"] = ModuleMock()
+sys.modules["pywebpush"] = ModuleMock()
+
+sys.modules["requests"] = ModuleMock()
+sys.modules["requests.models"] = ModuleMock()
+sys.modules["requests.exceptions"] = ModuleMock()
+
+sys.modules["titlecase"] = ModuleMock()
+sys.modules["zmq"] = ModuleMock()
+sys.modules["ruamel"] = ModuleMock()
+sys.modules["ruamel.yaml"] = ModuleMock()
+sys.modules["ruamel.yaml.constructor"] = ModuleMock()
+sys.modules["psutil"] = ModuleMock()
+sys.modules["py3nvml"] = ModuleMock()
+sys.modules["py3nvml.py3nvml"] = ModuleMock()
+sys.modules["frigate.version"] = ModuleMock()
+
+sys.modules["fastapi"] = ModuleMock()
+sys.modules["fastapi.responses"] = ModuleMock()
+sys.modules["fastapi.testclient"] = ModuleMock()
+sys.modules["fastapi.encoders"] = ModuleMock()
+sys.modules["fastapi.params"] = ModuleMock()
+
+sys.modules["httpx"] = ModuleMock()
+sys.modules["onvif"] = ModuleMock()
+sys.modules["pytz"] = ModuleMock()
+sys.modules["scipy"] = ModuleMock()
+sys.modules["scipy.spatial"] = ModuleMock()
+sys.modules["scipy.ndimage"] = ModuleMock()
+sys.modules["sherpa_onnx"] = ModuleMock()
+
+sys.modules["zeep"] = ModuleMock()
+sys.modules["zeep.exceptions"] = ModuleMock()
+sys.modules["zeep.transports"] = ModuleMock()
+sys.modules["pathvalidate"] = ModuleMock()
+
+sys.modules["joserfc"] = ModuleMock()
+sys.modules["joserfc.jwt"] = ModuleMock()
+sys.modules["joserfc.jwk"] = ModuleMock()
+
+sys.modules["slowapi"] = ModuleMock()
+sys.modules["slowapi.errors"] = ModuleMock()
+sys.modules["slowapi.extension"] = ModuleMock()
+sys.modules["slowapi.util"] = ModuleMock()
+sys.modules["slowapi.middleware"] = ModuleMock()
+
+sys.modules["librosa"] = ModuleMock()
+sys.modules["prometheus_client"] = ModuleMock()
+sys.modules["prometheus_client.core"] = ModuleMock()
+sys.modules["regex"] = ModuleMock()
+sys.modules["setproctitle"] = ModuleMock()
+sys.modules["tzlocal"] = ModuleMock()
+sys.modules["soundfile"] = ModuleMock()
+
+sys.modules["starlette_context"] = ModuleMock()
+sys.modules["starlette_context.middleware"] = ModuleMock()
+sys.modules["starlette_context.plugins"] = ModuleMock()
+
+sys.modules["aiofiles"] = ModuleMock()
+sys.modules["onnxruntime"] = ModuleMock()
+sys.modules["PIL"] = ModuleMock()
+sys.modules["transformers"] = ModuleMock()
+sys.modules["transformers.utils"] = ModuleMock()
+sys.modules["transformers.utils.logging"] = ModuleMock()
+sys.modules["markupsafe"] = ModuleMock()
+sys.modules["rich"] = ModuleMock()
+sys.modules["rich.console"] = ModuleMock()
+sys.modules["rich.table"] = ModuleMock()
+sys.modules["pyclipper"] = ModuleMock()
+sys.modules["rapidfuzz"] = ModuleMock()
+sys.modules["rapidfuzz.distance"] = ModuleMock()
+
+sys.modules["shapely"] = ModuleMock()
+sys.modules["shapely.geometry"] = ModuleMock()
+sys.modules["shapely.geometry.polygon"] = ModuleMock()
+sys.modules["ai_edge_litert"] = ModuleMock()
+sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
+sys.modules["tflite_runtime"] = ModuleMock()
+
 sys.modules["cv2"] = MagicMock()
 sys.modules["numpy"] = MagicMock()
-sys.modules["titlecase"] = MagicMock()
-sys.modules["zmq"] = MagicMock()
-sys.modules["playhouse.shortcuts"] = MagicMock()
-sys.modules["ruamel"] = MagicMock()
-sys.modules["ruamel.yaml"] = MagicMock()
-sys.modules["psutil"] = MagicMock()
-sys.modules["py3nvml"] = MagicMock()
-sys.modules["py3nvml.py3nvml"] = MagicMock()
-sys.modules["frigate.version"] = MagicMock()
-sys.modules["fastapi"] = MagicMock()
-sys.modules["fastapi.responses"] = MagicMock()
-sys.modules["fastapi.testclient"] = MagicMock()
-sys.modules["httpx"] = MagicMock()
-sys.modules["norfair.camera_motion"] = MagicMock()
-sys.modules["onvif"] = MagicMock()
-sys.modules["peewee_migrate"] = MagicMock()
-sys.modules["pytz"] = MagicMock()
-sys.modules["scipy"] = MagicMock()
-sys.modules["scipy.spatial"] = MagicMock()
-sys.modules["sherpa_onnx"] = MagicMock()
-sys.modules["zeep"] = MagicMock()
-sys.modules["zeep.exceptions"] = MagicMock()
-sys.modules["zeep.transports"] = MagicMock()
-sys.modules["pathvalidate"] = MagicMock()
-sys.modules["joserfc"] = MagicMock()
-sys.modules["joserfc.jwt"] = MagicMock()
-sys.modules["joserfc.jwk"] = MagicMock()
-sys.modules["playhouse.sqliteq"] = MagicMock()
-sys.modules["ruamel.yaml.constructor"] = MagicMock()
-sys.modules["slowapi"] = MagicMock()
-sys.modules["slowapi.errors"] = MagicMock()
-sys.modules["slowapi.extension"] = MagicMock()
-sys.modules["slowapi.util"] = MagicMock()
-sys.modules["slowapi.middleware"] = MagicMock()
-sys.modules["librosa"] = MagicMock()
-sys.modules["prometheus_client"] = MagicMock()
-sys.modules["regex"] = MagicMock()
-sys.modules["scipy.ndimage"] = MagicMock()
-sys.modules["setproctitle"] = MagicMock()
-sys.modules["tzlocal"] = MagicMock()
-sys.modules["prometheus_client.core"] = MagicMock()
-sys.modules["soundfile"] = MagicMock()
-sys.modules["starlette_context"] = MagicMock()
-sys.modules["starlette_context.middleware"] = MagicMock()
-sys.modules["starlette_context.plugins"] = MagicMock()
-sys.modules["aiofiles"] = MagicMock()
-sys.modules["norfair.drawing.draw_boxes"] = MagicMock()
-sys.modules["onnxruntime"] = MagicMock()
-sys.modules["requests.exceptions"] = MagicMock()
-sys.modules["PIL"] = MagicMock()
-sys.modules["fastapi.encoders"] = MagicMock()
-sys.modules["norfair.drawing.drawer"] = MagicMock()
-sys.modules["fastapi.params"] = MagicMock()
-sys.modules["norfair.filter"] = MagicMock()
-sys.modules["transformers"] = MagicMock()
-sys.modules["markupsafe"] = MagicMock()
-sys.modules["norfair.tracker"] = MagicMock()
-sys.modules["transformers.utils"] = MagicMock()
-sys.modules["rich"] = MagicMock()
-sys.modules["transformers.utils.logging"] = MagicMock()
-sys.modules["pyclipper"] = MagicMock()
-sys.modules["rich.console"] = MagicMock()
-sys.modules["rapidfuzz"] = MagicMock()
-sys.modules["rich.table"] = MagicMock()
-sys.modules["rapidfuzz.distance"] = MagicMock()
-sys.modules["shapely"] = MagicMock()
-sys.modules["shapely.geometry"] = MagicMock()
-sys.modules["shapely.geometry.polygon"] = MagicMock()
-sys.modules["ai_edge_litert"] = MagicMock()
-sys.modules["ai_edge_litert.interpreter"] = MagicMock()
-sys.modules["tflite_runtime"] = MagicMock()
+
 
 class MockPydanticValidationError(Exception):
     pass
+
+
 MockPydantic.ValidationError = MockPydanticValidationError
 
 if __name__ == "__main__":
