@@ -61,12 +61,15 @@ class GenAIClientManager:
             for role in genai_cfg.roles:
                 self._role_map[role] = name
 
-    def _get_client(self, name: str) -> Optional[GenAIClient]:
+    def _get_client(self, name: str | None) -> Optional[GenAIClient]:
+        if name is None:
+            return None
+
         """Return the client for *name*, creating it on first access."""
         if name in self._clients:
-            client = self._clients[name]
-            client.ensure_provider()
-            return client
+            cached_client = self._clients[name]
+            cached_client.ensure_provider()
+            return cached_client
 
         from frigate.genai import PROVIDERS
 
@@ -116,12 +119,12 @@ class GenAIClientManager:
         """Return per-entry model lists and capabilities, keyed by config entry name."""
         result: dict[str, dict[str, Any]] = {}
         for name, genai_cfg in self._configs.items():
-            client = self._get_client(name)
-            if not client:
+            iter_client = self._get_client(name)
+            if not iter_client:
                 continue
             result[name] = {
-                "models": client.list_models(),
+                "models": iter_client.list_models(),
                 "roles": [r.value for r in genai_cfg.roles],
-                "supports_toggleable_thinking": client.supports_toggleable_thinking,
+                "supports_toggleable_thinking": iter_client.supports_toggleable_thinking,
             }
         return result

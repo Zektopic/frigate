@@ -88,7 +88,9 @@ sys.modules["playhouse.shortcuts"] = ModuleMock()
 sys.modules["peewee_migrate"] = ModuleMock()
 
 sys.modules["unidecode"] = ModuleMock()
-sys.modules["unidecode.unidecode"] = MagicMock(return_value="fregate") # hardcoded for tests
+def mock_unidecode(text: str) -> str:
+    return text.replace("é", "e").replace("á", "a").replace("í", "i")
+sys.modules["unidecode.unidecode"] = mock_unidecode
 
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
@@ -182,7 +184,6 @@ sys.modules["shapely.geometry.polygon"] = ModuleMock()
 sys.modules["ai_edge_litert"] = ModuleMock()
 sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
 sys.modules["tflite_runtime"] = ModuleMock()
-
 sys.modules["cv2"] = MagicMock()
 sys.modules["numpy"] = MagicMock()
 
