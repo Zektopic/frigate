@@ -14,9 +14,7 @@ describe("formatTimeAgo", () => {
 
   test("should format time in the past correctly", () => {
     const timestamp = new Date("2024-01-01T11:59:30Z").getTime() / 1000;
-    expect(formatTimeAgo(new Date(timestamp * 1000))).toMatch(
-      /30\sseconds\sago/,
-    );
+    expect(formatTimeAgo(new Date(timestamp * 1000))).toMatch(/30\sseconds\sago/);
     expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toMatch(
       /10\sminutes\sago/,
     );
@@ -27,7 +25,7 @@ describe("formatTimeAgo", () => {
     expect(formatTimeAgo(date)).toMatch(/in\s0\sseconds/);
   });
 
-  test("should format past times correctly", () => {
+  it("should format past times correctly", () => {
     // seconds
     expect(formatTimeAgo(new Date("2024-01-01T11:59:30Z"))).toMatch(
       /30\sseconds\sago/,
@@ -58,7 +56,7 @@ describe("formatTimeAgo", () => {
     );
   });
 
-  test("should format future times correctly", () => {
+  it("should format future times correctly", () => {
     // seconds
     expect(formatTimeAgo(new Date("2024-01-01T12:00:30Z"))).toMatch(
       /in\s30\sseconds/,
@@ -89,7 +87,7 @@ describe("formatTimeAgo", () => {
     );
   });
 
-  test("should round the duration appropriately", () => {
+  it("should round the duration appropriately", () => {
     // 59 seconds ago -> seconds
     expect(formatTimeAgo(new Date("2024-01-01T11:59:01Z"))).toMatch(
       /59\sseconds\sago/,
