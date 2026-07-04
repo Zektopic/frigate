@@ -82,17 +82,18 @@ def detect_motion(
     calibrated = ctypes.c_uint8(0)
 
     lib.motion_detect_full.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8),   # frame
-        ctypes.POINTER(ctypes.c_float),   # avg_frame
-        ctypes.POINTER(ctypes.c_uint8),   # mask
-        ctypes.c_uint32, ctypes.c_uint32, # w, h
-        ctypes.c_uint8,                    # threshold
-        ctypes.c_uint32,                   # min_area
-        ctypes.c_uint8,                    # improve_contrast
-        ctypes.c_uint8,                    # blur_enabled
-        ctypes.POINTER(MotionBox),         # out_boxes
-        ctypes.c_uint32,                   # max_boxes
-        ctypes.POINTER(ctypes.c_uint8),    # out_calibrated
+        ctypes.POINTER(ctypes.c_uint8),  # frame
+        ctypes.POINTER(ctypes.c_float),  # avg_frame
+        ctypes.POINTER(ctypes.c_uint8),  # mask
+        ctypes.c_uint32,
+        ctypes.c_uint32,  # w, h
+        ctypes.c_uint8,  # threshold
+        ctypes.c_uint32,  # min_area
+        ctypes.c_uint8,  # improve_contrast
+        ctypes.c_uint8,  # blur_enabled
+        ctypes.POINTER(MotionBox),  # out_boxes
+        ctypes.c_uint32,  # max_boxes
+        ctypes.POINTER(ctypes.c_uint8),  # out_calibrated
     ]
     lib.motion_detect_full.restype = ctypes.c_uint32
 
@@ -100,18 +101,18 @@ def detect_motion(
         frame.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
         avg_frame.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         mask.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
-        w, h,
-        threshold, min_area,
-        int(improve_contrast), int(blur),
+        w,
+        h,
+        threshold,
+        min_area,
+        int(improve_contrast),
+        int(blur),
         ctypes.cast(boxes, ctypes.POINTER(MotionBox)),
         max_boxes,
         ctypes.byref(calibrated),
     )
 
-    result = [
-        (boxes[i].x1, boxes[i].y1, boxes[i].x2, boxes[i].y2)
-        for i in range(n)
-    ]
+    result = [(boxes[i].x1, boxes[i].y1, boxes[i].x2, boxes[i].y2) for i in range(n)]
     return result, bool(calibrated.value)
 
 

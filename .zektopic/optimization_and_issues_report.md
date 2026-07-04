@@ -7,6 +7,9 @@ Issues identified:
 1. Pydantic validation error (`Input tag 'cpu' found using 'type' does not match any of the expected tags`). `DetectorConfig` expects specific tags like `axengine, deepstack, openvino, tensorrt, etc`. Need to update configuration or testing dependencies to include `cpu` model validation schema.
 2. Labelmap not found. `DetectorConfig` attempts to load `/labelmap.txt` but it is not available.
 3. Test failure in `test_ffmpeg_presets.py`. A failure on `test_gpu_arg_formatting` related to `vaapi` argument. Ensure tests are executed in environment with properly loaded `/usr/lib/ffmpeg/ffmpeg`.
+4. `test_runner.py` needs an exhaustive list of dependencies mocked to run the backend test suite successfully, missing dependencies like `peewee`, `playhouse`, `unidecode`, `filelock`, `fastapi`, `httpx`, `peewee_migrate`, `pytz`, `scipy`, `sherpa_onnx`, `zeep`, `norfair`, `onvif`, `pydantic` fields, etc.
+5. Image processing TypeErrors during unittests. E.g. `test_copy_yuv_to_position` uses mocked cv2 which throws type errors when comparing integers with MagicMocks.
+6. The `test_runner.py` mocks for Pydantic lack methods/properties required by tests on Python 3.12, causing `TypeError: FrigateConfig() takes no arguments` or `ModuleNotFoundError` for submodules like `playhouse.sqliteq`.
 
 ## Frontend Testing
 The Vitest tests were run correctly with `npx vitest run src/`.
