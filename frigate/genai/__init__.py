@@ -35,7 +35,7 @@ __all__ = [
     "register_genai_provider",
 ]
 
-PROVIDERS = {}
+PROVIDERS: dict[str, type[GenAIClient]] = {}
 
 
 def register_genai_provider(key: GenAIProviderEnum) -> Callable:
