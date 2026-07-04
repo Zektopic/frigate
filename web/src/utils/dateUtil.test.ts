@@ -18,6 +18,7 @@ import {
   formatSecondsToDuration,
   formatUnixTimestampToDateTime,
   getNowYesterdayInLong,
+  isValidTimeRange,
   longToDate,
 } from "./dateUtil";
 
@@ -287,5 +288,58 @@ describe("formatUnixTimestampToDateTime", () => {
     });
     // en-GB uses DD/MM/YYYY
     expect(result).toContain("01/01/23");
+  });
+});
+
+describe("isValidTimeRange", () => {
+  test("should return false for invalid range strings (not 2 parts)", () => {
+    expect(isValidTimeRange("08:00")).toBe(false);
+    expect(isValidTimeRange("08:00,12:00,13:00")).toBe(false);
+    expect(isValidTimeRange("")).toBe(false);
+  });
+
+  describe("24hour format", () => {
+    test("should return true for valid ranges", () => {
+      expect(isValidTimeRange("08:00,17:00", "24hour")).toBe(true);
+      expect(isValidTimeRange("00:00,23:59", "24hour")).toBe(true);
+      expect(isValidTimeRange(" 08:00 , 17:00 ", "24hour")).toBe(true); // handles whitespace
+    });
+
+    test("should return false for invalid time formats", () => {
+      expect(isValidTimeRange("25:00,26:00", "24hour")).toBe(false); // invalid hours
+      expect(isValidTimeRange("08:60,09:00", "24hour")).toBe(false); // invalid minutes
+      expect(isValidTimeRange("08:00AM,05:00PM", "24hour")).toBe(false); // uses 12h format
+      expect(isValidTimeRange("8:00,17:00", "24hour")).toBe(false); // missing leading zero
+    });
+
+    test("should return false when start time is greater than or equal to end time", () => {
+      expect(isValidTimeRange("17:00,08:00", "24hour")).toBe(false);
+      expect(isValidTimeRange("12:00,12:00", "24hour")).toBe(false);
+    });
+  });
+
+  describe("12hour format", () => {
+    test("should return true for valid ranges", () => {
+      expect(isValidTimeRange("08:00AM,05:00PM", "12hour")).toBe(true);
+      expect(isValidTimeRange("12:00AM,11:59PM", "12hour")).toBe(true);
+      expect(isValidTimeRange(" 08:00AM , 05:00PM ", "12hour")).toBe(true); // handles whitespace
+    });
+
+    test("should return false for invalid time formats", () => {
+      expect(isValidTimeRange("13:00AM,05:00PM", "12hour")).toBe(false); // invalid hour
+      expect(isValidTimeRange("08:60AM,09:00AM", "12hour")).toBe(false); // invalid minutes
+      expect(isValidTimeRange("08:00,17:00", "12hour")).toBe(false); // uses 24h format
+    });
+
+    test("should support 12-hour format without leading zero", () => {
+      expect(isValidTimeRange("8:00AM,5:00PM", "12hour")).toBe(true);
+    });
+
+    test("should return false when start time is greater than or equal to end time", () => {
+      expect(isValidTimeRange("05:00PM,08:00AM", "12hour")).toBe(false);
+      expect(isValidTimeRange("12:00PM,12:00PM", "12hour")).toBe(false);
+      // Crossing midnight on the same day is invalid as it would mean start > end
+      expect(isValidTimeRange("11:00PM,01:00AM", "12hour")).toBe(false);
+    });
   });
 });
