@@ -393,6 +393,86 @@ pub unsafe extern "C" fn transform_detect_input(
     }
 }
 
+// ── Read frame from FFmpeg stdout directly into buffer ─────────────
+
+/// Read exactly `frame_size` bytes from raw file descriptor `fd` directly
+/// into memory location pointed to by `dst` pointer.
+///
+/// Returns 1 on success, 0 on EOF, and -1 on error.
+///
+/// # Safety
+/// `dst` must be a valid pointer pointing to a buffer of at least `frame_size` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn read_ffmpeg_frame(
+    fd: i32,
+    dst: *mut u8,
+    frame_size: u32,
+) -> i32 {
+    use std::os::unix::io::FromRawFd;
+    use std::fs::File;
+    use std::io::Read;
+
+    let mut file = std::mem::ManuallyDrop::new(File::from_raw_fd(fd));
+    let slice = std::slice::from_raw_parts_mut(dst, frame_size as usize);
+    match file.read_exact(slice) {
+        Ok(_) => 1,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                0
+            } else {
+                -1
+            }
+        }
+    }
+}
+
+// ── Bounding Box Intersection over Union (IoU) ──────────────────────
+
+/// Calculate intersection over union (IoU) of two bounding boxes.
+/// Each box is represented as [x1, y1, x2, y2].
+///
+/// Returns the IoU value as f32.
+///
+/// # Safety
+/// `box_a` and `box_b` must point to valid arrays of 4 f32s.
+#[no_mangle]
+pub unsafe extern "C" fn intersection_over_union(
+    box_a: *const f32,
+    box_b: *const f32,
+) -> f32 {
+    let a = std::slice::from_raw_parts(box_a, 4);
+    let b = std::slice::from_raw_parts(box_b, 4);
+
+    // Coordinate check for intersection
+    if a[2] < b[0] || a[0] > b[2] || a[1] > b[3] || a[3] < b[1] {
+        return 0.0;
+    }
+
+    let x1 = if a[0] > b[0] { a[0] } else { b[0] };
+    let y1 = if a[1] > b[1] { a[1] } else { b[1] };
+    let x2 = if a[2] < b[2] { a[2] } else { b[2] };
+    let y2 = if a[3] < b[3] { a[3] } else { b[3] };
+
+    // Bounding box area coordinates (inclusive of the last pixel: width = x2 - x1 + 1)
+    let inter_w = (x2 - x1 + 1.0).max(0.0);
+    let inter_h = (y2 - y1 + 1.0).max(0.0);
+    let inter_area = inter_w * inter_h;
+
+    if inter_area == 0.0 {
+        return 0.0;
+    }
+
+    let box_a_area = (a[2] - a[0] + 1.0) * (a[3] - a[1] + 1.0);
+    let box_b_area = (b[2] - b[0] + 1.0) * (b[3] - b[1] + 1.0);
+
+    let union_area = box_a_area + box_b_area - inter_area;
+    if union_area <= 0.0 {
+        return 0.0;
+    }
+
+    inter_area / union_area
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -489,4 +569,27 @@ mod tests {
         let r11 = dst[0 * 4 + 1 * 2 + 1];
         assert!((r11 - 10.0 / 255.0).abs() < 0.001);
     }
+
+    #[test]
+    fn test_iou() {
+        let box_a = [10.0, 10.0, 20.0, 20.0];
+        let box_b = [15.0, 15.0, 25.0, 25.0];
+        unsafe {
+            let iou = intersection_over_union(box_a.as_ptr(), box_b.as_ptr());
+            // Intersection: [15, 15, 20, 20] -> w = 6, h = 6 -> area = 36
+            // Area A: 11 * 11 = 121
+            // Area B: 11 * 11 = 121
+            // Union: 121 + 121 - 36 = 206
+            // IoU: 36 / 206 ≈ 0.174757
+            assert!((iou - 36.0 / 206.0).abs() < 0.001);
+        }
+
+        // Non-overlapping
+        let box_c = [30.0, 30.0, 40.0, 40.0];
+        unsafe {
+            let iou = intersection_over_union(box_a.as_ptr(), box_c.as_ptr());
+            assert_eq!(iou, 0.0);
+        }
+    }
 }
+

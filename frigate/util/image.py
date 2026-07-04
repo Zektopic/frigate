@@ -942,6 +942,13 @@ def area(box):
 
 
 def intersection_over_union(box_a, box_b):
+    try:
+        from frigate.util.frame_rs import frame_rs_available, intersection_over_union_rust
+        if frame_rs_available():
+            return intersection_over_union_rust(box_a, box_b)
+    except Exception:
+        pass
+
     # determine the (x, y)-coordinates of the intersection rectangle
     intersect = intersection(box_a, box_b)
 
