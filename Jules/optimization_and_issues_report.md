@@ -50,3 +50,9 @@ I replaced the `it` import/declaration inside `web/src/lib/__tests__/formatTimeA
 
 ### Documentation
 Documentation has been updated with detailed findings on errors, issues to test against, and vitest command formatting.
+
+### Backend Testing Updates (test_runner.py mocks)
+I have run Python unittests locally using `python3 test_runner.py` and identified further test mock failures.
+The mocks for `BaseModel` and `unidecode` were incomplete.
+- We fixed the `BaseModel` mock to include an `__init__` constructor that accepts `**kwargs`.
+- We fixed the `unidecode` mock to map accented characters to non-accented ones.

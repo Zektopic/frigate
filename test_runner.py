@@ -40,6 +40,10 @@ class MockPydantic:
 
     def Field(*args, **kwargs):
         return None
+    def StrictStr(*args, **kwargs):
+        return str
+    def StrictInt(*args, **kwargs):
+        return int
 
     def PrivateAttr(*args, **kwargs):
         return None
@@ -89,7 +93,7 @@ sys.modules["peewee_migrate"] = ModuleMock()
 
 sys.modules["unidecode"] = ModuleMock()
 def mock_unidecode(text: str) -> str:
-    return text.replace("é", "e").replace("á", "a").replace("í", "i")
+    return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
 sys.modules["unidecode.unidecode"] = mock_unidecode
 
 sys.modules["filelock"] = ModuleMock()

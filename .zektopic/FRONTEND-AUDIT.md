@@ -59,3 +59,6 @@ lodash@^4.18.1 (latest published) -- no CVEs reported in npm audit.
 
 ## General Status update on 2023-11-20
 - Unit tests are mostly succeeding. `web/src/utils/dateUtil.test.ts` issues have been resolved. Backend tests are experiencing mocking issues in `test_runner.py` affecting 60+ tests, which will be logged to `Jules/improvements.md` for future implementation.
+
+## Frontend Unit Tests
+All 93 Vitest unit tests in `src/` directory passed successfully when running `npx vitest run src/`.
