@@ -15,7 +15,7 @@ class TestBoxStatistics(unittest.TestCase):
                 [rng.randint(0, 4000) for _ in range(4)]
                 for _ in range(rng.randint(1, 10))
             ]
-            expected = [float(np.mean([b[i] for b in boxes])) for i in range(4)]
+            expected = [sum(b[i] for b in boxes) / len(boxes) for i in range(4)]
             self.assertEqual(average_boxes(boxes), expected)
 
 

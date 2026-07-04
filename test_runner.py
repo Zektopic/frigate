@@ -4,7 +4,35 @@ from unittest.mock import MagicMock
 
 
 class MockBaseModel:
-    pass
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            if isinstance(v, dict):
+                setattr(self, k, MockBaseModel(**v))
+            elif isinstance(v, list):
+                setattr(self, k, [MockBaseModel(**item) if isinstance(item, dict) else item for item in v])
+            else:
+                setattr(self, k, v)
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
+
+    def __contains__(self, key):
+        return hasattr(self, key)
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+    def keys(self):
+        return self.__dict__.keys()
+
+    def values(self):
+        return self.__dict__.values()
+
+    def items(self):
+        return self.__dict__.items()
 
 
 class MockPydantic:
@@ -48,7 +76,12 @@ sys.modules["ws4py.websocket"] = MagicMock()
 sys.modules["pywebpush"] = MagicMock()
 sys.modules["requests"] = MagicMock()
 sys.modules["requests.models"] = MagicMock()
-sys.modules["peewee"] = MagicMock()
+class MockModel:
+    pass
+
+peewee_mock = MagicMock()
+peewee_mock.Model = MockModel
+sys.modules["peewee"] = peewee_mock
 sys.modules["peewee.DoesNotExists"] = MagicMock()
 sys.modules["playhouse"] = MagicMock()
 sys.modules["playhouse.sqlite_ext"] = MagicMock()
@@ -133,4 +166,6 @@ class MockPydanticValidationError(Exception):
 MockPydantic.ValidationError = MockPydanticValidationError
 
 if __name__ == "__main__":
-    unittest.main(module=None, argv=["unittest", "discover", "frigate/test"])
+    import sys
+    argv = ["unittest"] + sys.argv[1:] if len(sys.argv) > 1 else ["unittest", "discover", "frigate/test"]
+    unittest.main(module=None, argv=argv)
