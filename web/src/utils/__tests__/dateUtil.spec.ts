@@ -6,6 +6,7 @@ import {
   getUTCOffset,
   isCurrentHour,
   longToDate,
+  to24Hour,
 } from "../dateUtil";
 
 vi.mock("@/utils/i18n", () => ({
@@ -13,6 +14,45 @@ vi.mock("@/utils/i18n", () => ({
     t: (key: string) => key,
   },
 }));
+
+describe("to24Hour", () => {
+  it("should return the time as-is if format is 24hour", () => {
+    expect(to24Hour("13:45", "24hour")).toBe("13:45");
+    expect(to24Hour("08:30", "24hour")).toBe("08:30");
+  });
+
+  it("should convert 12-hour AM times correctly", () => {
+    expect(to24Hour("12:00 AM", "12hour")).toBe("00:00");
+    expect(to24Hour("12:30 AM", "12hour")).toBe("00:30");
+    expect(to24Hour("1:00 AM", "12hour")).toBe("01:00");
+    expect(to24Hour("09:45 AM", "12hour")).toBe("09:45");
+    expect(to24Hour("11:59 AM", "12hour")).toBe("11:59");
+  });
+
+  it("should convert 12-hour PM times correctly", () => {
+    expect(to24Hour("12:00 PM", "12hour")).toBe("12:00");
+    expect(to24Hour("12:30 PM", "12hour")).toBe("12:30");
+    expect(to24Hour("1:00 PM", "12hour")).toBe("13:00");
+    expect(to24Hour("09:45 PM", "12hour")).toBe("21:45");
+    expect(to24Hour("11:59 PM", "12hour")).toBe("23:59");
+  });
+
+  it("should handle case-insensitive AM/PM correctly", () => {
+    expect(to24Hour("1:00 pm", "12hour")).toBe("13:00");
+    expect(to24Hour("1:00 am", "12hour")).toBe("01:00");
+    expect(to24Hour("1:00 pM", "12hour")).toBe("13:00");
+    expect(to24Hour("1:00 Am", "12hour")).toBe("01:00");
+  });
+
+  it("should throw an error for invalid formats when not 24hour", () => {
+    expect(() => to24Hour("13:00", "12hour")).toThrow(
+      "Invalid time format: 13:00",
+    );
+    expect(() => to24Hour("invalid", "12hour")).toThrow(
+      "Invalid time format: invalid",
+    );
+  });
+});
 
 describe("longToDate", () => {
   it("should correctly convert a UNIX timestamp (seconds) to a Date object", () => {

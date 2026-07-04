@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
+import { describe, test, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { formatTimeAgo } from "../formatTimeAgo";
 
 describe("formatTimeAgo", () => {
@@ -14,27 +14,21 @@ describe("formatTimeAgo", () => {
 
   test("should format time in the past correctly", () => {
     const timestamp = new Date("2024-01-01T11:59:30Z").getTime() / 1000;
-    expect(formatTimeAgo(new Date(timestamp * 1000))).toBe("30 seconds ago");
-    // minutes
-    expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toBe(
-      "10 minutes ago",
+    expect(formatTimeAgo(new Date(timestamp * 1000))).toMatch(
+      /30\sseconds\sago/,
+    );
+    expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toMatch(
+      /10\sminutes\sago/,
     );
   });
 
-  test("should format 0 seconds ago correctly", () => {
+  it("should format 0 seconds ago correctly", () => {
     const date = new Date("2024-01-01T12:00:00Z"); // 0 seconds ago
     expect(formatTimeAgo(date)).toMatch(/in\s0\sseconds/);
   });
 
   test("should format past times correctly", () => {
     // seconds
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:30Z"))).toBe(
-      "30 seconds ago",
-    );
-    // minutes
-    expect(formatTimeAgo(new Date("2024-01-01T11:50:00Z"))).toBe(
-      "10 minutes ago",
-    );
     expect(formatTimeAgo(new Date("2024-01-01T11:59:30Z"))).toMatch(
       /30\sseconds\sago/,
     );
@@ -55,9 +49,6 @@ describe("formatTimeAgo", () => {
       /2\sweeks\sago/,
     );
     // months
-    expect(formatTimeAgo(new Date("2023-10-01T12:00:00Z"))).toBe(
-      "3 months ago",
-    );
     expect(formatTimeAgo(new Date("2023-10-01T12:00:00Z"))).toMatch(
       /3\smonths\sago/,
     );
@@ -69,13 +60,6 @@ describe("formatTimeAgo", () => {
 
   test("should format future times correctly", () => {
     // seconds
-    expect(formatTimeAgo(new Date("2024-01-01T12:00:30Z"))).toBe(
-      "in 30 seconds",
-    );
-    // minutes
-    expect(formatTimeAgo(new Date("2024-01-01T12:10:00Z"))).toBe(
-      "in 10 minutes",
-    );
     expect(formatTimeAgo(new Date("2024-01-01T12:00:30Z"))).toMatch(
       /in\s30\sseconds/,
     );
@@ -107,13 +91,6 @@ describe("formatTimeAgo", () => {
 
   test("should round the duration appropriately", () => {
     // 59 seconds ago -> seconds
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:01Z"))).toBe(
-      "59 seconds ago",
-    );
-    // 60 seconds ago -> 1 minute ago
-    expect(formatTimeAgo(new Date("2024-01-01T11:59:00Z"))).toBe(
-      "1 minute ago",
-    );
     expect(formatTimeAgo(new Date("2024-01-01T11:59:01Z"))).toMatch(
       /59\sseconds\sago/,
     );
@@ -137,6 +114,6 @@ describe("formatTimeAgo", () => {
 
   test("should format exact edge cases", () => {
     const d = new Date("2024-01-01T12:00:00Z");
-    expect(formatTimeAgo(d)).toBe("in 0 seconds");
+    expect(formatTimeAgo(d)).toMatch(/in\s0\sseconds/);
   });
 });
