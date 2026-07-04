@@ -4,7 +4,8 @@ from unittest.mock import MagicMock
 
 
 class MockBaseModel:
-    pass
+    def __init__(self, **kwargs):
+        pass
 
 
 class MockPydantic:
@@ -12,6 +13,10 @@ class MockPydantic:
 
     def Field(*args, **kwargs):
         return None
+    def StrictStr(*args, **kwargs):
+        return str
+    def StrictInt(*args, **kwargs):
+        return int
 
     def PrivateAttr(*args, **kwargs):
         return None
@@ -53,6 +58,9 @@ sys.modules["peewee.DoesNotExists"] = MagicMock()
 sys.modules["playhouse"] = MagicMock()
 sys.modules["playhouse.sqlite_ext"] = MagicMock()
 sys.modules["unidecode"] = MagicMock()
+sys.modules["unidecode"].unidecode = lambda x: x.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
+
+
 sys.modules["filelock"] = MagicMock()
 sys.modules["cv2"] = MagicMock()
 sys.modules["numpy"] = MagicMock()

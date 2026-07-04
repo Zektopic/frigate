@@ -173,3 +173,9 @@ Below is the summary of security and logical issues discovered in your codebase:
 *   **Fix**: Implemented the fix by adding history cleanup in the `except` block catching the decode error, popping the last turns to free memory.
 ### Documentation
 Documentation has been updated with detailed findings on errors, issues to test against, and vitest command formatting.
+
+### Backend Testing Updates (test_runner.py mocks)
+I have run Python unittests locally using `python3 test_runner.py` and identified further test mock failures.
+The mocks for `BaseModel` and `unidecode` were incomplete.
+- We fixed the `BaseModel` mock to include an `__init__` constructor that accepts `**kwargs`.
+- We fixed the `unidecode` mock to map accented characters to non-accented ones.
