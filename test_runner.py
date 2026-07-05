@@ -55,6 +55,11 @@ class MockPydantic:
         return lambda x: x
 
     ConfigDict = dict
+
+    @classmethod
+    def ValidationError(cls, *args, **kwargs):
+        raise MockPydanticValidationError(*args, **kwargs)
+
     AfterValidator = MagicMock
     ValidationInfo = MagicMock
     TypeAdapter = MagicMock
@@ -95,10 +100,12 @@ sys.modules["unidecode"] = ModuleMock()
 def mock_unidecode(text: str) -> str:
     return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
 sys.modules["unidecode.unidecode"] = mock_unidecode
+sys.modules["unidecode"].unidecode = mock_unidecode
 
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
 sys.modules["norfair.drawing"] = ModuleMock()
+sys.modules["norfair.drawing.draw_boxes"] = ModuleMock()
 sys.modules["norfair.drawing.drawer"] = ModuleMock()
 sys.modules["norfair.drawing.color"] = ModuleMock()
 sys.modules["norfair.camera_motion"] = ModuleMock()
@@ -191,10 +198,8 @@ sys.modules["tflite_runtime"] = ModuleMock()
 sys.modules["cv2"] = MagicMock()
 sys.modules["numpy"] = MagicMock()
 
-
 class MockPydanticValidationError(Exception):
     pass
-
 
 MockPydantic.ValidationError = MockPydanticValidationError
 
