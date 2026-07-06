@@ -56,9 +56,7 @@ class MockPydantic:
 
     ConfigDict = dict
 
-    @classmethod
-    def ValidationError(cls, *args, **kwargs):
-        raise MockPydanticValidationError(*args, **kwargs)
+
 
     AfterValidator = MagicMock
     ValidationInfo = MagicMock
@@ -200,8 +198,9 @@ sys.modules["numpy"] = MagicMock()
 
 class MockPydanticValidationError(Exception):
     pass
-
 MockPydantic.ValidationError = MockPydanticValidationError
+MockPydantic.v1 = type("v1", (), {"BaseModel": MockPydantic.BaseModel, "Field": MockPydantic.Field, "ValidationError": MockPydanticValidationError})
+
 
 if __name__ == "__main__":
     import sys
