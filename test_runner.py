@@ -77,6 +77,14 @@ class ModuleMock(MagicMock):
 
 
 sys.modules["pydantic"] = MockPydantic
+
+class MockPydanticCore:
+    class _pydantic_core:
+        class ValidationError(Exception):
+            pass
+sys.modules["pydantic_core"] = MockPydanticCore
+sys.modules["pydantic_core._pydantic_core"] = MockPydanticCore._pydantic_core
+
 sys.modules["pydantic.fields"] = MockPydantic
 
 class MockModel:
