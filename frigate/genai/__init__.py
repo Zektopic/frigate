@@ -8,6 +8,8 @@ import re
 import time
 from typing import Any, AsyncGenerator, Callable, Optional
 
+from frigate.genai.client import GenAIClient
+
 import numpy as np
 from pydantic import ValidationError
 
