@@ -8,8 +8,6 @@ import re
 import time
 from typing import Any, AsyncGenerator, Callable, Optional
 
-from frigate.genai.client import GenAIClient
-
 import numpy as np
 from pydantic import ValidationError
 
@@ -37,7 +35,7 @@ __all__ = [
     "register_genai_provider",
 ]
 
-PROVIDERS: dict[str, type[GenAIClient]] = {}
+PROVIDERS: dict[str, type['GenAIClient']] = {}
 
 
 def register_genai_provider(key: GenAIProviderEnum) -> Callable:
