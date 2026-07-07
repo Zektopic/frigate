@@ -246,6 +246,12 @@ class MockCv2(MagicMock):
 
 sys.modules["cv2"] = MockCv2()
 
+class MockNdarray:
+    def __init__(self, shape, *args, **kwargs):
+        self.shape = shape
+    def __getattr__(self, name):
+        return MagicMock()
+
 class MockNumpy(MagicMock):
     def prod(self, a, *args, **kwargs):
         import math
@@ -256,6 +262,9 @@ class MockNumpy(MagicMock):
         return MagicMock()
     def max(self, *args, **kwargs):
         return MagicMock()
+    @property
+    def ndarray(self):
+        return MockNdarray
 
 sys.modules["numpy"] = MockNumpy()
 
