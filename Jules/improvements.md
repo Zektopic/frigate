@@ -41,3 +41,8 @@ Based on the test runs and codebase review, here are several suggested improveme
 
 ## Frontend Testing Fixes
 - Playwright E2E tests (`e2e/specs/**/*.spec.ts`) fail when run with Vitest (`vitest`) because they contain `test.describe()`, which conflicts with Vitest's `describe`. Need to ensure `vitest` only runs on `src/` directory and ignores `e2e/` folder.
+
+## Final Improvements
+- Enhanced testing environment by explicitly returning integer tuples for `cv2.cvtColor().shape` to allow downstream assertions to work correctly.
+- Added a basic `cv2.dnn.NMSBoxes` implementation in mocks to support tests utilizing `reduce_detections`.
+- Note: Tests involving `numpy` and `Pydantic` mock behaviors still need refinement. Mocking `numpy.array().shape` and `numpy.prod` is essential to prevent `MagicMock` instances from causing comparison assertion errors (e.g. `AssertionError: <MockNumpy name='mock.ndarray().shape'> != (1620, 1920)`).
