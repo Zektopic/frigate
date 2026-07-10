@@ -38,6 +38,7 @@ Based on the test runs and codebase review, here are several suggested improveme
 - In `test_shared_memory_frame_manager.py`, `UntrackedSharedMemory` mock is being called when tests expect it to not have been called.
 - In `test_proxy_auth.py`, `auth_secret` env variable substitution is not correctly mocked/functioning, leading to mismatched string assertions.
 - Peewee chunked queries might need mocked responses rather than generic MagicMocks.
+- Fix `peewee` mock in `test_runner.py` because currently `from peewee import *` or specific imports fail with `ModuleNotFoundError: No module named 'peewee'` which causes all `test_http_*.py` tests to error out due to import failure.
 
 ## Frontend Testing Fixes
 - Playwright E2E tests (`e2e/specs/**/*.spec.ts`) fail when run with Vitest (`vitest`) because they contain `test.describe()`, which conflicts with Vitest's `describe`. Need to ensure `vitest` only runs on `src/` directory and ignores `e2e/` folder.
