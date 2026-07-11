@@ -201,7 +201,11 @@ sys.modules["numpy"] = MagicMock()
 class MockPydanticValidationError(Exception):
     pass
 
+
+sys.modules["pydantic_core"] = ModuleMock()
+sys.modules["pydantic_core"].ValidationError = MockPydanticValidationError
 MockPydantic.ValidationError = MockPydanticValidationError
+
 
 if __name__ == "__main__":
     import sys
