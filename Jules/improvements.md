@@ -41,7 +41,3 @@ Based on the test runs and codebase review, here are several suggested improveme
 
 ## Frontend Testing Fixes
 - Playwright E2E tests (`e2e/specs/**/*.spec.ts`) fail when run with Vitest (`vitest`) because they contain `test.describe()`, which conflicts with Vitest's `describe`. Need to ensure `vitest` only runs on `src/` directory and ignores `e2e/` folder.
-
-## Progress Update
-- Backend Unit Tests: Re-ran with improved `test_runner.py` mocks (`CONFIG_DIR=/tmp/config`, correct `pydantic_core.ValidationError`). Encountered 7 failures related to Pydantic models not properly validating mock inputs, and 31 errors related to `PermissionError` when writing to `/config` directory which wasn't fully overriden.
-- Frontend Vitest tests successfully pass when executed with `npm run test src/` (115 passing tests across 10 suites).

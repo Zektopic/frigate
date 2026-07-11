@@ -17,7 +17,10 @@ from .base_embedding import BaseEmbedding
 try:
     from tflite_runtime.interpreter import Interpreter
 except ModuleNotFoundError:
-    from ai_edge_litert.interpreter import Interpreter
+    try:
+        from ai_edge_litert.interpreter import Interpreter
+    except ModuleNotFoundError:
+        Interpreter = None
 
 logger = logging.getLogger(__name__)
 

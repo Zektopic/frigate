@@ -23,7 +23,3 @@ Tested frontend functionality using `npm run test` (Vitest).
 - Successfully ran isolated tests with `npm run test src/` (115 passing tests across 10 suites).
 
 Documented the necessary fixes and testing mock improvements in `Jules/improvements.md` for future implementation.
-
-## Progress Update
-- Backend Unit Tests: Re-ran with improved `test_runner.py` mocks. Identified that `PermissionError` on `/config` remains an issue because some tests don't respect the `CONFIG_DIR` environment variable correctly, and `Pydantic` v2 validations need better mocking strategies.
-- Frontend unit testing is successful using vitest when correctly scoped to the `src/` directory to avoid E2E mock collisions.
