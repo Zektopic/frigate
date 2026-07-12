@@ -133,3 +133,61 @@ def init_average(frame: np.ndarray, avg_frame: np.ndarray) -> None:
         avg_frame.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         frame.size,
     )
+
+
+def pixel_pipeline(
+    frame: np.ndarray,
+    avg_frame: np.ndarray,
+    mask: np.ndarray,
+    threshold: int,
+    min_area: int,
+    blur: bool = True,
+    max_boxes: int = 128,
+) -> tuple[list[tuple[int, int, int, int]], float, np.ndarray]:
+    """Rust pixel pipeline: blur (in-place) → absdiff → threshold → dilate → contours.
+
+    Does NOT modify avg_frame — the caller keeps its accumulateWeighted logic.
+    The blur is applied in-place on the (contiguous) frame buffer, matching
+    the OpenCV flow where the blurred frame is later averaged into avg_frame.
+
+    Returns ``(boxes, total_contour_area, blurred_frame)``.  Always use the
+    returned frame — ``ascontiguousarray`` may have copied the input, in
+    which case the caller's original array was NOT blurred.
+    """
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust motion engine not available")
+
+    h, w = frame.shape
+    frame = np.ascontiguousarray(frame)
+    avg_frame = np.ascontiguousarray(avg_frame)
+    mask = np.ascontiguousarray(mask)
+
+    boxes = (MotionBox * max_boxes)()
+    total_area = ctypes.c_float(0.0)
+
+    lib.motion_pixel_pipeline.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8),   # frame (mut, blurred in-place)
+        ctypes.POINTER(ctypes.c_float),   # avg_frame (read-only)
+        ctypes.POINTER(ctypes.c_uint8),   # mask
+        ctypes.c_uint32, ctypes.c_uint32, # w, h
+        ctypes.c_uint8,                    # threshold
+        ctypes.c_uint32,                   # min_area
+        ctypes.c_uint8,                    # blur_enabled
+        ctypes.POINTER(MotionBox),         # out_boxes
+        ctypes.c_uint32,                   # max_boxes
+        ctypes.POINTER(ctypes.c_float),    # out_total_area
+    ]
+    lib.motion_pixel_pipeline.restype = ctypes.c_uint32
+
+    n = lib.motion_pixel_pipeline(
+        frame.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        avg_frame.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        mask.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        w, h, threshold, min_area, int(blur),
+        ctypes.cast(boxes, ctypes.POINTER(MotionBox)),
+        max_boxes,
+        ctypes.byref(total_area),
+    )
+    result = [(boxes[i].x1, boxes[i].y1, boxes[i].x2, boxes[i].y2) for i in range(n)]
+    return result, float(total_area.value), frame

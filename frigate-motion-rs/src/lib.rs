@@ -497,6 +497,141 @@ pub unsafe extern "C" fn motion_detect(
 }
 
 /// Initialize (or reset) the running-average buffer from a frame.
+/// Contour extraction that also accumulates total foreground area.
+/// Same flood-fill as `find_contours_bounding_boxes` but sums the pixel
+/// count of every component (matching Python's `total_contour_area`
+/// accumulation across ALL contours, not just kept ones).
+fn find_contours_with_area(
+    pixels: &[u8], w: usize, h: usize, min_area: i32,
+) -> (Vec<(i32, i32, i32, i32)>, f32) {
+    let mut visited = vec![false; w * h];
+    let mut boxes: Vec<(i32, i32, i32, i32)> = Vec::with_capacity(64);
+    let mut total_area: f32 = 0.0;
+    for y in 0..h {
+        for x in 0..w {
+            let idx = y * w + x;
+            if pixels[idx] != 255 || visited[idx] {
+                continue;
+            }
+            let mut stack: Vec<(usize, usize)> = Vec::with_capacity(256);
+            stack.push((x, y));
+            visited[idx] = true;
+            let mut min_x = x;
+            let mut min_y = y;
+            let mut max_x = x;
+            let mut max_y = y;
+            let mut area: i32 = 0;
+            while let Some((cx, cy)) = stack.pop() {
+                area += 1;
+                if cx < min_x { min_x = cx; }
+                if cx > max_x { max_x = cx; }
+                if cy < min_y { min_y = cy; }
+                if cy > max_y { max_y = cy; }
+                let neighbors: [(isize, isize); 4] = [
+                    (cx as isize - 1, cy as isize),
+                    (cx as isize + 1, cy as isize),
+                    (cx as isize, cy as isize - 1),
+                    (cx as isize, cy as isize + 1),
+                ];
+                for (nx, ny) in neighbors {
+                    if nx >= 0 && (nx as usize) < w
+                        && ny >= 0 && (ny as usize) < h
+                    {
+                        let nidx = (ny as usize) * w + (nx as usize);
+                        if !visited[nidx] && pixels[nidx] == 255 {
+                            visited[nidx] = true;
+                            stack.push((nx as usize, ny as usize));
+                        }
+                    }
+                }
+            }
+            total_area += area as f32;
+            if area >= min_area {
+                boxes.push((
+                    min_x as i32, min_y as i32,
+                    (max_x + 1) as i32, (max_y + 1) as i32,
+                ));
+            }
+        }
+    }
+    (boxes, total_area)
+}
+
+/// Pixel pipeline ONLY — for wiring into ImprovedMotionDetector.detect().
+///
+/// Replaces the OpenCV steps: gaussian blur → absdiff(avg) → threshold →
+/// dilate → contours.  Does NOT touch the running average — Python keeps
+/// its `accumulateWeighted` logic (motion_frame_count gating, calibration
+/// alpha).  The blur is applied IN-PLACE on `frame` so the caller's buffer
+/// matches what the diff saw (Python then averages the blurred frame,
+/// exactly like the OpenCV path).
+///
+/// # Safety
+/// `frame` (mut), `avg_frame` (read-only) and `mask` must each be valid
+/// for `w * h` elements.  `out_boxes` holds `max_boxes` entries;
+/// `out_total_area` is a single f32.
+///
+/// Returns the number of boxes written.
+#[no_mangle]
+pub unsafe extern "C" fn motion_pixel_pipeline(
+    frame: *mut u8,
+    avg_frame: *const f32,
+    mask: *const u8,
+    w: u32,
+    h: u32,
+    thresh: u8,
+    min_area: u32,
+    blur_enabled: u8,
+    out_boxes: *mut MotionBox,
+    max_boxes: u32,
+    out_total_area: *mut f32,
+) -> u32 {
+    let w = w as usize;
+    let h = h as usize;
+    let len = w * h;
+
+    let frame = std::slice::from_raw_parts_mut(frame, len);
+    let avg_frame = std::slice::from_raw_parts(avg_frame, len);
+    let mask = std::slice::from_raw_parts(mask, len);
+
+    // 1. Gaussian blur in-place (so the caller's frame matches the diff input)
+    if blur_enabled != 0 {
+        let mut blurred = vec![0u8; len];
+        let mut tmp = vec![0u8; len];
+        gaussian_blur_3x3(frame, &mut blurred, &mut tmp, w, h);
+        frame.copy_from_slice(&blurred);
+    }
+
+    // 2. absdiff vs running average (avg converted f32 → u8, like convertScaleAbs)
+    let mut avg_u8 = vec![0u8; len];
+    for i in 0..len {
+        avg_u8[i] = (avg_frame[i] + 0.5).clamp(0.0, 255.0) as u8;
+    }
+    let mut diff = vec![0u8; len];
+    absdiff_avx2(frame, &avg_u8, &mut diff, len);
+
+    // 3. threshold + mask (>= thresh AND unmasked → 255)
+    threshold_mask_avx2(&mut diff, mask, thresh, len);
+
+    // 4. dilate 3×3, one iteration
+    let mut tmp = vec![0u8; len];
+    dilate_3x3(&mut diff, &mut tmp, w, h);
+
+    // 5. contours → boxes + total foreground area
+    let (boxes, total_area) = find_contours_with_area(&diff, w, h, min_area as i32);
+
+    if !out_total_area.is_null() {
+        *out_total_area = total_area;
+    }
+
+    let n = (boxes.len() as u32).min(max_boxes);
+    let out_slice = std::slice::from_raw_parts_mut(out_boxes, n as usize);
+    for (i, (x1, y1, x2, y2)) in boxes.into_iter().take(n as usize).enumerate() {
+        out_slice[i] = MotionBox { x1, y1, x2, y2 };
+    }
+    n
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn motion_init_average(
     frame: *const u8,
@@ -699,5 +834,74 @@ mod debug_tests {
             assert!(b.x1 >= 18 && b.x1 <= 22, "x1 should be ~20, got {}", b.x1);
             assert!(b.y1 >= 18 && b.y1 <= 22, "y1 should be ~20, got {}", b.y1);
         }
+    }
+}
+
+#[cfg(test)]
+mod pixel_pipeline_tests {
+    use super::*;
+
+    #[test]
+    fn detects_motion_without_touching_average() {
+        let w = 64usize; let h = 64usize; let len = w * h;
+        let avg = vec![100.0f32; len];
+        let avg_before = avg.clone();
+        let mut frame = vec![100u8; len];
+        for y in 20..40 { for x in 20..40 { frame[y*w+x] = 200; } }
+        let mask = vec![0u8; len];
+        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut total_area: f32 = 0.0;
+
+        let n = unsafe {
+            motion_pixel_pipeline(
+                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
+                w as u32, h as u32, 15, 10, 1,
+                boxes.as_mut_ptr(), 32, &mut total_area,
+            )
+        };
+        assert!(n >= 1, "should find the bright square");
+        assert!(total_area >= 350.0, "area ~400px expected, got {total_area}");
+        assert_eq!(avg, avg_before, "average must not be modified");
+        let b = &boxes[0];
+        assert!(b.x1 >= 17 && b.x1 <= 22, "x1={}", b.x1);
+        assert!(b.y1 >= 17 && b.y1 <= 22, "y1={}", b.y1);
+    }
+
+    #[test]
+    fn no_motion_on_identical_frame() {
+        let w = 32usize; let h = 32usize; let len = w * h;
+        let avg = vec![100.0f32; len];
+        let mut frame = vec![100u8; len];
+        let mask = vec![0u8; len];
+        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut total_area: f32 = 0.0;
+        let n = unsafe {
+            motion_pixel_pipeline(
+                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
+                w as u32, h as u32, 15, 10, 1,
+                boxes.as_mut_ptr(), 32, &mut total_area,
+            )
+        };
+        assert_eq!(n, 0);
+        assert_eq!(total_area, 0.0);
+    }
+
+    #[test]
+    fn respects_mask() {
+        let w = 32usize; let h = 32usize; let len = w * h;
+        let avg = vec![100.0f32; len];
+        let mut frame = vec![100u8; len];
+        for y in 5..15 { for x in 5..15 { frame[y*w+x] = 220; } }
+        let mask = vec![1u8; len]; // fully masked → no motion allowed
+        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut total_area: f32 = 0.0;
+        let n = unsafe {
+            motion_pixel_pipeline(
+                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
+                w as u32, h as u32, 15, 10, 0,
+                boxes.as_mut_ptr(), 32, &mut total_area,
+            )
+        };
+        assert_eq!(n, 0, "masked pixels must not produce motion");
     }
 }
