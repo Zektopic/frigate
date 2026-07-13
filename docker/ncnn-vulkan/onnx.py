@@ -684,19 +684,28 @@ while True:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-        # Wait for ready signal on stderr (skip ncnn GPU-info lines)
+        # Wait for ready signal on stderr (skip ncnn GPU-info lines).
+        # Read raw fd bytes rather than select()+readline(): readline() can
+        # buffer multiple lines from one chunk, after which select() never
+        # fires again and a buffered READY line is missed.
         deadline = time.time() + 30
         ready = False
+        stderr_fd = self._worker.stderr.fileno()
+        buf = b""
         while time.time() < deadline:
-            r, _, _ = select.select([self._worker.stderr], [], [], 5)
+            r, _, _ = select.select([stderr_fd], [], [], 5)
             if not r:
                 continue
-            line = self._worker.stderr.readline().decode().strip()
-            if "NCNN_WORKER_READY" in line or "NCNN_READY" in line:
+            chunk = os.read(stderr_fd, 4096)
+            if not chunk:
+                break
+            buf += chunk
+            for line in chunk.decode(errors="replace").splitlines():
+                if line:
+                    logger.debug("NCNN worker stderr: %s", line)
+            if b"NCNN_WORKER_READY" in buf or b"NCNN_READY" in buf:
                 ready = True
                 break
-            if line:
-                logger.debug("NCNN worker stderr: %s", line)
         if not ready:
             self._worker.kill()
             raise RuntimeError("NCNN worker did not become ready within 30s")
