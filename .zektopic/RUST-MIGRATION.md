@@ -11,9 +11,11 @@ These performance-critical components have been successfully migrated to Rust to
 1. **`frigate-detector-rs` & `frigate-yolo-rs`**:
    * Rayon-parallel and hardware-optimized post-processing (DFL decoding, Non-Maximum Suppression (NMS), coordinate scaling, and class filters) for YOLO models.
    * Runs model inference via a decoupled python subprocess worker to prevent GPU crashes on AMD RADV and bypass Python GIL.
+   * ncnn worker pinned to `num_threads=2` with `OMP_WAIT_POLICY=PASSIVE` — default OpenMP threading oversubscribed the CPU on Vulkan-fallback layers and spin-waited between parallel regions (~2× slower inference at ~174% CPU). See GPU-DETECTOR.md § ncnn thread tuning.
 2. **`frigate-motion-rs`**:
    * Evaluates high-framerate raw video frames to isolate motion regions (contour finding, thresholding).
    * Reduces CPU usage compared to Python's OpenCV motion detection loops.
+   * `motion_pixel_pipeline` FFI (blur → absdiff → threshold → dilate → contours) wired into `ImprovedMotionDetector.detect()`, replacing the OpenCV/scipy pixel math per frame; all Python post-processing (PTZ, calibration, `accumulateWeighted`) retained.
 3. **`frigate-frame-rs`**:
    * Handles frame processing, scaling, crop operations, and pixel format conversions directly inside shared memory (`/dev/shm`).
 
