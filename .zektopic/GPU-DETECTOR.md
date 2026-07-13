@@ -23,7 +23,7 @@ Frigate Python (detector plugin)
 Frigate Python (event logic, motion detection, recording)
 ```
 
-YOLO26n (and optionally YOLO11n) runs via the decoupled **`frigate-detector-rs`** worker binary to bypass the RADV fork bug. The Rust binary receives raw frame data via pipe, delegates GPU forward pass to a clean Python ncnn worker subprocess, and performs the heavy class filter/parallel NMS post-processing natively in Rust using Rayon.
+YOLO26s (and optionally YOLO26n/YOLO11n) runs via the decoupled **`frigate-detector-rs`** worker binary to bypass the RADV fork bug. The Rust binary receives raw frame data via pipe, delegates GPU forward pass to a clean Python ncnn worker subprocess, and performs the heavy class filter/parallel NMS post-processing natively in Rust using Rayon.
 
 ## Why NOT anchor-free models (YOLOv8/YOLO11/YOLO26)
 
@@ -160,9 +160,35 @@ services:
 
 | Model | Architecture | Inference | CPU | Notes |
 |-------|-------------|-----------|-----|-------|
-| YOLO26n | `frigate-detector-rs` | ~94ms | ~234% total | **Active** — parallel NMS, highly stable |
+| YOLO26s | `frigate-detector-rs` | ~104ms | low | **Active** — `num_threads=2` + `OMP_WAIT_POLICY=PASSIVE` |
+| YOLO26n | `frigate-detector-rs` | ~75ms | low | Fast fallback (same thread settings) |
 | YOLOv5s | In-process | ~75ms | ~50% total | Supported fallback |
 | YOLO26n | In-process | ~30ms | ❌ SIGSEGV | Unsupported (triggers RADV fork bug) |
+
+### ncnn thread tuning (2026-07-13)
+
+ncnn falls back to CPU (OpenMP) for layers Vulkan can't run. With the default
+thread count (all 8 HT cores) the OpenMP workers oversubscribe the CPU and
+spin-wait between parallel regions — the ncnn worker burned ~174% CPU and
+inference was *slower*, not faster:
+
+| Config | yolo26s | yolo26n |
+|--------|---------|---------|
+| default threads | 556ms | 440ms |
+| `num_threads=1` | 377ms | — |
+| **`num_threads=2` + `OMP_WAIT_POLICY=PASSIVE`** | **292–305ms** | **75ms** |
+| `num_threads=4` | 326ms | — |
+
+Fix lives in `frigate-detector-rs/src/main.rs`: `o.num_threads=2` in the
+embedded ncnn script plus `OMP_NUM_THREADS=2` / `OMP_WAIT_POLICY=PASSIVE`
+env on the spawned worker.
+
+Note: the benchmark numbers above were measured while the live detector
+shared the GPU. With the GPU uncontended, yolo26s runs at **~104ms** in
+production — fast enough for two cameras at the full 5fps detect rate.
+Anything else using the GPU (e.g. a BOINC/PrimeGrid OpenCL task) multiplies
+inference latency; keep the GPU exclusive to Frigate
+(`sudo systemctl stop boinc-client`).
 
 ## Verified Hardware
 

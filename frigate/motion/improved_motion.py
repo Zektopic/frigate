@@ -10,6 +10,21 @@ from frigate.config.config import RuntimeMotionConfig
 from frigate.motion import MotionDetector
 from frigate.util.image import grab_cv2_contours
 
+# Rust SIMD pixel pipeline (blur → absdiff → threshold → dilate → contours).
+# Replaces only the OpenCV pixel math; all post-processing (PTZ handling,
+# skip_motion, calibration, accumulateWeighted) stays in Python below.
+try:
+    from frigate.motion.rust_engine import (
+        motion_available as _rust_motion_available,
+    )
+    from frigate.motion.rust_engine import (
+        pixel_pipeline as _rust_pixel_pipeline,
+    )
+
+    _HAS_RUST_MOTION = _rust_motion_available()
+except Exception:  # pragma: no cover - import guard
+    _HAS_RUST_MOTION = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -115,45 +130,83 @@ class ImprovedMotionDetector(MotionDetector):
         # Setting masked pixels to zero, to match the average frame at startup
         resized_frame[self.mask] = [0]
 
-        resized_frame = gaussian_filter(resized_frame, sigma=1, radius=self.blur_radius)
+        if _HAS_RUST_MOTION and not self.save_images:
+            # ── Rust SIMD pixel pipeline ──────────────────────────────
+            # Mask was already applied to the frame above (masked pixels
+            # zeroed), so Rust gets a pass-through mask.  The blur happens
+            # in-place inside Rust; the returned frame is the blurred one
+            # so accumulateWeighted below averages the same data the diff
+            # saw — identical semantics to the OpenCV path.
+            if self.calibrating:
+                self.frame_counter += 1
 
-        if self.save_images:
-            blurred_saved = resized_frame.copy()
+            rs_mask = getattr(self, "_rs_zero_mask", None)
+            if rs_mask is None or rs_mask.shape != resized_frame.shape:
+                rs_mask = np.zeros(resized_frame.shape, np.uint8)
+                self._rs_zero_mask = rs_mask
 
-        if self.save_images or self.calibrating:
-            self.frame_counter += 1
-        # compare to average
-        frameDelta = cv2.absdiff(resized_frame, cv2.convertScaleAbs(self.avg_frame))
-
-        # compute the threshold image for the current frame
-        thresh = cv2.threshold(
-            frameDelta, self.config.threshold, 255, cv2.THRESH_BINARY
-        )[1]
-
-        # dilate the thresholded image to fill in holes, then find contours
-        # on thresholded image
-        thresh_dilated = cv2.dilate(thresh, None, iterations=1)  # type: ignore[call-overload]
-        contours = cv2.findContours(
-            thresh_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        contours = grab_cv2_contours(contours)
-
-        # loop over the contours
-        total_contour_area: float = 0
-        for c in contours:
-            # if the contour is big enough, count it as motion
-            contour_area = cv2.contourArea(c)
-            total_contour_area += contour_area
-            if contour_area > (self.config.contour_area or 0):
-                x, y, w, h = cv2.boundingRect(c)
+            rs_boxes, total_contour_area, resized_frame = _rust_pixel_pipeline(
+                resized_frame,
+                self.avg_frame,
+                rs_mask,
+                threshold=self.config.threshold,
+                min_area=self.config.contour_area or 0,
+                blur=True,
+            )
+            for x1, y1, x2, y2 in rs_boxes:
                 motion_boxes.append(
                     (
-                        int(x * self.resize_factor),
-                        int(y * self.resize_factor),
-                        int((x + w) * self.resize_factor),
-                        int((y + h) * self.resize_factor),
+                        int(x1 * self.resize_factor),
+                        int(y1 * self.resize_factor),
+                        int(x2 * self.resize_factor),
+                        int(y2 * self.resize_factor),
                     )
                 )
+        else:
+            # ── OpenCV pixel pipeline (fallback / debug images) ───────
+            resized_frame = gaussian_filter(
+                resized_frame, sigma=1, radius=self.blur_radius
+            )
+
+            if self.save_images:
+                blurred_saved = resized_frame.copy()
+
+            if self.save_images or self.calibrating:
+                self.frame_counter += 1
+            # compare to average
+            frameDelta = cv2.absdiff(
+                resized_frame, cv2.convertScaleAbs(self.avg_frame)
+            )
+
+            # compute the threshold image for the current frame
+            thresh = cv2.threshold(
+                frameDelta, self.config.threshold, 255, cv2.THRESH_BINARY
+            )[1]
+
+            # dilate the thresholded image to fill in holes, then find contours
+            # on thresholded image
+            thresh_dilated = cv2.dilate(thresh, None, iterations=1)  # type: ignore[call-overload]
+            contours = cv2.findContours(
+                thresh_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            contours = grab_cv2_contours(contours)
+
+            # loop over the contours
+            total_contour_area = 0.0
+            for c in contours:
+                # if the contour is big enough, count it as motion
+                contour_area = cv2.contourArea(c)
+                total_contour_area += contour_area
+                if contour_area > (self.config.contour_area or 0):
+                    x, y, w, h = cv2.boundingRect(c)
+                    motion_boxes.append(
+                        (
+                            int(x * self.resize_factor),
+                            int(y * self.resize_factor),
+                            int((x + w) * self.resize_factor),
+                            int((y + h) * self.resize_factor),
+                        )
+                    )
 
         pct_motion = total_contour_area / (
             self.motion_frame_size[0] * self.motion_frame_size[1]

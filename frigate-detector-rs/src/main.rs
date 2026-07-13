@@ -1,7 +1,10 @@
-//! Threaded Rust detector — ncnn via subprocess + rayon post-process.
+//! Threaded Rust detector — ncnn (direct C-API FFI, or Python subprocess
+//! fallback) + rayon post-process.
 //! Drop-in replacement for Python YOLO worker subprocess.
 //!
 //! stdin/stdout pipe protocol compatible with ONNX plugin.
+
+mod ncnn_ffi;
 
 use crossbeam::channel::{bounded, Sender, Receiver};
 use rayon::prelude::*;
@@ -27,6 +30,7 @@ ncnn.destroy_gpu_instance();ncnn.create_gpu_instance()
 net=ncnn.Net();net.set_vulkan_device(ncnn.get_gpu_device(0))
 o=net.opt;o.use_vulkan_compute=True;o.use_fp16_arithmetic=True
 o.use_fp16_packed=True;o.use_fp16_storage=True
+o.num_threads=2
 net.load_param("{param}");net.load_model("{bin}")
 sys.stderr.write("READY\n");sys.stderr.flush()
 while True:
@@ -37,7 +41,7 @@ while True:
   c=os.read(0,s-len(d))
   if not c:break
   d+=c
- f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(1,3,{ms},{ms})*255
+ f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(1,3,{ms},{ms})
  with net.create_extractor() as ex:
   ex.input("{in_}",ncnn.Mat(f))
   ret,out=ex.extract("{out_}")
@@ -45,7 +49,13 @@ while True:
  os.write(1,struct.pack('>I',len(raw)));os.write(1,raw)
 "#, param=param, bin=bin, in_=in_name, out_=out_name, ms=ms);
 
+        // ncnn CPU-fallback layers use OpenMP: default thread count (all
+        // cores) oversubscribes and the workers spin-wait between parallel
+        // regions. 2 threads + passive waiting benchmarked ~2x faster
+        // (556ms -> 292ms for yolo26s) at a fraction of the CPU.
         let mut child = Command::new("python3").arg("-c").arg(&code)
+            .env("OMP_NUM_THREADS", "2")
+            .env("OMP_WAIT_POLICY", "PASSIVE")
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
         let stdin = child.stdin.take().unwrap();
@@ -80,6 +90,36 @@ while True:
             std::slice::from_raw_parts(buf.as_ptr() as *const f32, n/4).to_vec()
         };
         Ok(floats)
+    }
+}
+
+// ── Inference backend: direct FFI preferred, Python subprocess fallback ──
+
+enum Backend {
+    Ffi(ncnn_ffi::NcnnFfi),
+    Proc(NcnnProc),
+}
+
+impl Backend {
+    fn create(param: &str, bin: &str, in_name: &str, out_name: &str, ms: u32) -> io::Result<Self> {
+        match ncnn_ffi::NcnnFfi::new(param, bin, in_name, out_name, ms) {
+            Ok(ffi) => {
+                eprintln!("NCNN_FFI direct libncnn backend active");
+                eprintln!("NCNN_READY");
+                Ok(Backend::Ffi(ffi))
+            }
+            Err(e) => {
+                eprintln!("NCNN_FFI unavailable ({e}), using Python subprocess");
+                Ok(Backend::Proc(NcnnProc::spawn(param, bin, in_name, out_name, ms)?))
+            }
+        }
+    }
+
+    fn forward(&mut self, frame_f16: &[u8]) -> io::Result<Vec<f32>> {
+        match self {
+            Backend::Ffi(f) => f.forward(frame_f16),
+            Backend::Proc(p) => p.forward(frame_f16),
+        }
     }
 }
 
@@ -151,8 +191,13 @@ fn main() -> io::Result<()> {
     let ms: u32 = args[5].parse().unwrap_or(640);
     let is_yolo26 = args[6] == "yolo26";
 
-    // Spawn ncnn subprocess
-    let mut ncnn = NcnnProc::spawn(&args[1], &args[2], &args[3], &args[4], ms)?;
+    // OpenMP tuning must be in our environment before libncnn's first
+    // parallel region (harmless for the subprocess fallback, which sets
+    // its own env).
+    std::env::set_var("OMP_NUM_THREADS", "2");
+    std::env::set_var("OMP_WAIT_POLICY", "PASSIVE");
+
+    let mut ncnn = Backend::create(&args[1], &args[2], &args[3], &args[4], ms)?;
 
     // Channels
     let (tx_frame, rx_frame): (Sender<Msg>, Receiver<Msg>) = bounded(2);
