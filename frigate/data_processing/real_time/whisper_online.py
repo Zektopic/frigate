@@ -42,8 +42,10 @@ class ASRBase:
         model_dir=None,
         logfile=sys.stderr,
         device="cpu",
+        vad_threshold=0.8,
     ):
         self.logfile = logfile
+        self.vad_threshold = vad_threshold
 
         self.transcribe_kargs = {}
         if lan == "auto":
@@ -162,7 +164,7 @@ class FasterWhisperASR(ASRBase):
         o = []
         for segment in segments:
             for word in segment.words:
-                if segment.no_speech_prob > 0.9:
+                if segment.no_speech_prob > self.vad_threshold:
                     continue
                 # not stripping the spaces -- should not be merged with them!
                 w = word.word
@@ -287,7 +289,7 @@ class MLXWhisper(ASRBase):
             (word["start"], word["end"], word["word"])
             for segment in segments
             for word in segment.get("words", [])
-            if segment.get("no_speech_prob", 0) <= 0.9
+            if segment.get("no_speech_prob", 0) <= self.vad_threshold
         ]
 
     def segments_end_ts(self, res):
@@ -303,8 +305,9 @@ class MLXWhisper(ASRBase):
 class OpenaiApiASR(ASRBase):
     """Uses OpenAI's Whisper API for audio transcription."""
 
-    def __init__(self, lan=None, temperature=0, logfile=sys.stderr):
+    def __init__(self, lan=None, temperature=0, logfile=sys.stderr, vad_threshold=0.8):
         self.logfile = logfile
+        self.vad_threshold = vad_threshold
 
         self.modelname = "whisper-1"
         self.original_language = (
@@ -333,8 +336,7 @@ class OpenaiApiASR(ASRBase):
         no_speech_segments = []
         if self.use_vad_opt:
             for segment in segments.segments:
-                # TODO: threshold can be set from outside
-                if segment["no_speech_prob"] > 0.8:
+                if segment["no_speech_prob"] > self.vad_threshold:
                     no_speech_segments.append(
                         (segment.get("start"), segment.get("end"))
                     )
@@ -906,6 +908,12 @@ def add_shared_args(parser):
         help="Use VAD = voice activity detection, with the default parameters.",
     )
     parser.add_argument(
+        "--vad-threshold",
+        type=float,
+        default=0.8,
+        help="Threshold (0.0 to 1.0) for Voice Activity Detection.",
+    )
+    parser.add_argument(
         "--buffer_trimming",
         type=str,
         default="segment",
@@ -933,9 +941,11 @@ def asr_factory(args, logfile=sys.stderr):
     Creates and configures an ASR and ASR Online instance based on the specified backend and arguments.
     """
     backend = args.backend
+    vad_threshold = getattr(args, "vad_threshold", 0.8)
+
     if backend == "openai-api":
         logger.debug("Using OpenAI API.")
-        asr = OpenaiApiASR(lan=args.lan)
+        asr = OpenaiApiASR(lan=args.lan, vad_threshold=vad_threshold)
     else:
         if backend == "faster-whisper":
             asr_cls = FasterWhisperASR
@@ -953,6 +963,7 @@ def asr_factory(args, logfile=sys.stderr):
             lan=args.lan,
             cache_dir=args.model_cache_dir,
             model_dir=args.model_dir,
+            vad_threshold=vad_threshold,
         )
         e = time.time()
         logger.info(f"done. It took {round(e - t, 2)} seconds.")

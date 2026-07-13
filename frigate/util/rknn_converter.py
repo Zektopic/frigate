@@ -110,6 +110,7 @@ def ensure_torch_dependencies() -> bool:
                     "pip",
                     "install",
                     "--break-system-packages",
+                    "setuptools<81",
                     "torch",
                     "torchvision",
                 ],
@@ -127,15 +128,36 @@ def ensure_torch_dependencies() -> bool:
 
 
 def ensure_rknn_toolkit() -> bool:
-    """Ensure RKNN toolkit is available."""
+    """Dynamically install rknn-toolkit2 if not available."""
     try:
-        from rknn.api import RKNN  # type: ignore # noqa: F401
+        import rknn  # type: ignore # noqa: F401
 
-        logger.debug("RKNN toolkit is already available")
+        logger.debug("RKNN Toolkit is already available")
         return True
-    except ImportError as e:
-        logger.error(f"RKNN toolkit not found. Please ensure it's installed. {e}")
-        return False
+    except ImportError:
+        logger.info("RKNN Toolkit not found, attempting to install...")
+
+        try:
+            subprocess.check_call(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--break-system-packages",
+                    "rknn-toolkit2",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            import rknn  # type: ignore # noqa: F401
+
+            logger.info("RKNN Toolkit installed successfully")
+            return True
+        except (subprocess.CalledProcessError, ImportError) as e:
+            logger.error(f"Failed to install RKNN Toolkit: {e}")
+            return False
 
 
 def get_soc_type() -> Optional[str]:

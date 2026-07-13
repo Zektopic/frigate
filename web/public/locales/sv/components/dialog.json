@@ -7,7 +7,7 @@
       "button": "Tvinga omladdning nu"
     },
     "title": "Är du säker på att du vill starta om Frigate?",
-    "description": "Detta kommer att stoppa Frigate kort medan det startar om."
+    "description": "Frigate stoppas tillfälligt under omstarten."
   },
   "explore": {
     "plus": {
@@ -17,9 +17,9 @@
       },
       "review": {
         "question": {
-          "ask_a": "Är detta objektet <code>{{label}}</code>?",
-          "ask_an": "Är detta objektet en <code>{{label}}</code>?",
-          "ask_full": "Är detta objektet <code>{{untranslatedLabel}}</code> ({{translatedLabel}})?",
+          "ask_a": "Är detta objektet en/ett <code>{{label}}</code>?",
+          "ask_an": "Är detta objekt en/ett <code>{{label}}</code>?",
+          "ask_full": "Är detta objektet en/ett <code>{{untranslatedLabel}}</code> ({{translatedLabel}})?",
           "label": "Bekräfta denna etikett för Frigate Plus"
         },
         "state": {

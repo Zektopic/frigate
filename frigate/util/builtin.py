@@ -2,7 +2,6 @@
 
 import ast
 import copy
-import datetime
 import logging
 import math
 import multiprocessing.queues
@@ -10,16 +9,21 @@ import queue
 import re
 import shlex
 import struct
+import time
 import urllib.parse
+from collections import deque
 from collections.abc import Mapping
-from multiprocessing.sharedctypes import Synchronized
+from multiprocessing.managers import ValueProxy
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 from ruamel.yaml import YAML
 
 from frigate.const import REGEX_HTTP_CAMERA_USER_PASS, REGEX_RTSP_CAMERA_USER_PASS
+
+if TYPE_CHECKING:
+    from frigate.config import CameraConfig
 
 logger = logging.getLogger(__name__)
 
@@ -29,23 +33,20 @@ class EventsPerSecond:
         self._start = None
         self._max_events = max_events
         self._last_n_seconds = last_n_seconds
-        self._timestamps = []
+        self._timestamps: deque[float] = deque(maxlen=max_events)
 
     def start(self) -> None:
-        self._start = datetime.datetime.now().timestamp()
+        self._start = time.monotonic()
 
     def update(self) -> None:
-        now = datetime.datetime.now().timestamp()
+        now = time.monotonic()
         if self._start is None:
             self._start = now
         self._timestamps.append(now)
-        # truncate the list when it goes 100 over the max_size
-        if len(self._timestamps) > self._max_events + 100:
-            self._timestamps = self._timestamps[(1 - self._max_events) :]
         self.expire_timestamps(now)
 
     def eps(self) -> float:
-        now = datetime.datetime.now().timestamp()
+        now = time.monotonic()
         if self._start is None:
             self._start = now
         # compute the (approximate) events in the last n seconds
@@ -60,11 +61,11 @@ class EventsPerSecond:
     def expire_timestamps(self, now: float) -> None:
         threshold = now - self._last_n_seconds
         while self._timestamps and self._timestamps[0] < threshold:
-            del self._timestamps[0]
+            self._timestamps.popleft()
 
 
 class InferenceSpeed:
-    def __init__(self, metric: Synchronized) -> None:
+    def __init__(self, metric: ValueProxy[float]) -> None:
         self.__metric = metric
         self.__initialized = False
 
@@ -84,7 +85,8 @@ def deep_merge(dct1: dict, dct2: dict, override=False, merge_lists=False) -> dic
     """
     :param dct1: First dict to merge
     :param dct2: Second dict to merge
-    :param override: if same key exists in both dictionaries, should override? otherwise ignore. (default=True)
+    :param override: if same key exists in both dictionaries, should override? otherwise ignore.
+    :param merge_lists: if True, lists will be merged.
     :return: The merge dictionary
     """
     merged = copy.deepcopy(dct1)
@@ -96,6 +98,8 @@ def deep_merge(dct1: dict, dct2: dict, override=False, merge_lists=False) -> dic
             elif isinstance(v1, list) and isinstance(v2, list):
                 if merge_lists:
                     merged[k] = v1 + v2
+                elif override:
+                    merged[k] = copy.deepcopy(v2)
             else:
                 if override:
                     merged[k] = copy.deepcopy(v2)
@@ -113,7 +117,7 @@ def clean_camera_user_pass(line: str) -> str:
 def escape_special_characters(path: str) -> str:
     """Cleans reserved characters to encodings for ffmpeg."""
     if len(path) > 1000:
-        return ValueError("Input too long to check")
+        raise ValueError("Input too long to check")
 
     try:
         found = re.search(REGEX_RTSP_CAMERA_USER_PASS, path).group(0)[3:-1]
@@ -127,6 +131,24 @@ def escape_special_characters(path: str) -> str:
 def get_ffmpeg_arg_list(arg: Any) -> list:
     """Use arg if list or convert to list format."""
     return arg if isinstance(arg, list) else shlex.split(arg)
+
+
+# all built-in record presets use this segment_time
+DEFAULT_RECORD_SEGMENT_TIME = 10
+
+
+def get_record_segment_time(config: "CameraConfig") -> int:
+    """Extract -segment_time from the camera's record output args."""
+    record_args = get_ffmpeg_arg_list(config.ffmpeg.output_args.record)
+
+    if record_args and record_args[0].startswith("preset"):
+        return DEFAULT_RECORD_SEGMENT_TIME
+
+    try:
+        idx = record_args.index("-segment_time")
+        return int(record_args[idx + 1])
+    except (ValueError, IndexError):
+        return DEFAULT_RECORD_SEGMENT_TIME
 
 
 def load_labels(
@@ -195,12 +217,48 @@ def flatten_config_data(
 ) -> Dict[str, Any]:
     items = []
     for key, value in config_data.items():
-        new_key = f"{parent_key}.{key}" if parent_key else key
+        escaped_key = escape_config_key_segment(str(key))
+        new_key = f"{parent_key}.{escaped_key}" if parent_key else escaped_key
         if isinstance(value, dict):
             items.extend(flatten_config_data(value, new_key).items())
         else:
             items.append((new_key, value))
     return dict(items)
+
+
+def escape_config_key_segment(segment: str) -> str:
+    """Escape dots and backslashes so they can be treated as literal key chars."""
+    return segment.replace("\\", "\\\\").replace(".", "\\.")
+
+
+def split_config_key_path(key_path_str: str) -> list[str]:
+    """Split a dotted config path, honoring \\. as a literal dot in a key."""
+    parts: list[str] = []
+    current: list[str] = []
+    escaped = False
+
+    for char in key_path_str:
+        if escaped:
+            current.append(char)
+            escaped = False
+            continue
+
+        if char == "\\":
+            escaped = True
+            continue
+
+        if char == ".":
+            parts.append("".join(current))
+            current = []
+            continue
+
+        current.append(char)
+
+    if escaped:
+        current.append("\\")
+
+    parts.append("".join(current))
+    return parts
 
 
 def update_yaml_file_bulk(file_path: str, updates: Dict[str, Any]):
@@ -218,7 +276,7 @@ def update_yaml_file_bulk(file_path: str, updates: Dict[str, Any]):
 
     # Apply all updates
     for key_path_str, new_value in updates.items():
-        key_path = key_path_str.split(".")
+        key_path = split_config_key_path(key_path_str)
         for i in range(len(key_path)):
             try:
                 index = int(key_path[i])

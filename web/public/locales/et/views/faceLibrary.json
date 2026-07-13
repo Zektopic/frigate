@@ -6,7 +6,8 @@
   "description": {
     "placeholder": "Sisesta nimi selle kogumiku jaoks",
     "invalidName": "Vigane nimi. Nimed võivad sisaldada ainult tähti, numbreid, tühikuid, ülakomasid, alakriipse ja sidekriipse.",
-    "addFace": "Laadides üles oma esimese pildi saad lisada uue kogumiku Näoteeki."
+    "addFace": "Laadides üles oma esimese pildi saad lisada uue kogumiku Näoteeki.",
+    "nameCannotContainHash": "Nimi ei saa sisaldada # märki."
   },
   "documentTitle": "Näoteek - Frigate",
   "createFaceLibrary": {
@@ -17,14 +18,16 @@
   },
   "toast": {
     "error": {
-      "addFaceLibraryFailed": "Näo sidumine nimega ei õnnestunud: {{errorMessage}}"
+      "addFaceLibraryFailed": "Näo sidumine nimega ei õnnestunud: {{errorMessage}}",
+      "updateFaceScoreFailed": "Näo punktiskoori uuendamine ei õnnestunud: {{errorMessage}}"
     },
     "success": {
       "addFaceLibrary": "Lisamine Näoteeki õnnestus: {{name}}!",
       "deletedFace_one": "{{count}} näo kustutamine õnnestus.",
       "deletedFace_other": "{{count}} näo kustutamine õnnestus.",
       "deletedName_one": "{{count}} näo kustutamine õnnestus.",
-      "deletedName_other": "{{count}} näo kustutamine õnnestus."
+      "deletedName_other": "{{count}} näo kustutamine õnnestus.",
+      "updatedFaceScore": "Näo punktiskoori uuendamine õnnestus: {{name}} ({{score}})."
     }
   },
   "deleteFaceAttempts": {
@@ -33,6 +36,11 @@
   },
   "details": {
     "timestamp": "Ajatampel",
-    "unknown": "Pole teada"
+    "unknown": "Pole teada",
+    "scoreInfo": "Punktiskoor on kõigi nägude hinnete kaalutud keskmine, kus kaalukoefitsiendiks on iga pildi näo suurus."
+  },
+  "uploadFaceImage": {
+    "title": "Laadi näopilt üles",
+    "desc": "Laadi üles pilt, et otsida sellelt nägusid ja lisada see {{pageToggle}}'i jaoks"
   }
 }

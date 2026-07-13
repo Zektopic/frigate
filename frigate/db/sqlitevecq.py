@@ -1,18 +1,25 @@
 import re
 import sqlite3
+from typing import Any
 
 from playhouse.sqliteq import SqliteQueueDatabase
 
 
 class SqliteVecQueueDatabase(SqliteQueueDatabase):
-    def __init__(self, *args, load_vec_extension: bool = False, **kwargs) -> None:
+    def __init__(
+        self, *args: Any, load_vec_extension: bool = False, **kwargs: Any
+    ) -> None:
         self.load_vec_extension: bool = load_vec_extension
         # no extension necessary, sqlite will load correctly for each platform
         self.sqlite_vec_path = "/usr/local/lib/vec0"
         super().__init__(*args, **kwargs)
 
-    def _connect(self, *args, **kwargs) -> sqlite3.Connection:
-        conn: sqlite3.Connection = super()._connect(*args, **kwargs)
+    def _connect(self, *args: Any, **kwargs: Any) -> sqlite3.Connection:
+        conn: sqlite3.Connection = super()._connect(*args, **kwargs)  # type: ignore[misc]
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA temp_store=MEMORY;")
+        conn.execute("PRAGMA mmap_size=268435456;")  # 256 MB — reduces read() syscalls
         if self.load_vec_extension:
             self._load_vec_extension(conn)
 
@@ -27,7 +34,7 @@ class SqliteVecQueueDatabase(SqliteQueueDatabase):
         conn.enable_load_extension(False)
 
     def _register_regexp(self, conn: sqlite3.Connection) -> None:
-        def regexp(expr: str, item: str) -> bool:
+        def regexp(expr: str, item: str | None) -> bool:
             if item is None:
                 return False
             try:
@@ -38,12 +45,20 @@ class SqliteVecQueueDatabase(SqliteQueueDatabase):
         conn.create_function("REGEXP", 2, regexp)
 
     def delete_embeddings_thumbnail(self, event_ids: list[str]) -> None:
+        if not event_ids:
+            return
         ids = ",".join(["?" for _ in event_ids])
-        self.execute_sql(f"DELETE FROM vec_thumbnails WHERE id IN ({ids})", event_ids)
+        self.execute_sql(
+            f"DELETE FROM vec_thumbnails WHERE id IN ({ids})", tuple(event_ids)
+        )
 
     def delete_embeddings_description(self, event_ids: list[str]) -> None:
+        if not event_ids:
+            return
         ids = ",".join(["?" for _ in event_ids])
-        self.execute_sql(f"DELETE FROM vec_descriptions WHERE id IN ({ids})", event_ids)
+        self.execute_sql(
+            f"DELETE FROM vec_descriptions WHERE id IN ({ids})", tuple(event_ids)
+        )
 
     def drop_embeddings_tables(self) -> None:
         self.execute_sql("""

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import atexit
 import logging
@@ -20,7 +18,7 @@ class Service(ABC):
         self,
         *,
         name: Optional[str] = None,
-        manager: Optional[ServiceManager] = None,
+        manager: Optional["ServiceManager"] = None,
     ):
         if name:
             self.__dict__["name"] = name
@@ -37,7 +35,7 @@ class Service(ABC):
             return type(self).__qualname__
 
     @property
-    def manager(self) -> ServiceManager:
+    def manager(self) -> "ServiceManager":
         """The service manager this service is registered with."""
         try:
             return self.__manager
@@ -144,9 +142,9 @@ class Service(ABC):
 
 
 default_service_manager_lock = threading.Lock()
-default_service_manager: Optional[ServiceManager] = None
+default_service_manager: Optional["ServiceManager"] = None
 
-current_service_manager: ContextVar[ServiceManager] = ContextVar(
+current_service_manager: ContextVar["ServiceManager"] = ContextVar(
     "current_service_manager"
 )
 
@@ -193,7 +191,7 @@ class ServiceManager:
     _event_loop: asyncio.AbstractEventLoop
 
     # The pending command counter is used to ensure all commands have been queued before shutdown.
-    _pending_commands: AtomicCounter
+    _pending_commands: "AtomicCounter"
 
     # The set of pending tasks after they have been received by the background thread and spawned.
     _tasks: set
@@ -249,7 +247,7 @@ class ServiceManager:
         return self._logger
 
     @classmethod
-    def current(cls) -> ServiceManager:
+    def current(cls) -> "ServiceManager":
         """The service manager set in the current context (async task or thread).
 
         A global default service manager will be automatically created on first access."""

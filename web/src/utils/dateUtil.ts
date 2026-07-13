@@ -304,6 +304,10 @@ export const formatSecondsToDuration = (
     return "Invalid duration";
   }
 
+  if (seconds === 0) {
+    return "0 seconds";
+  }
+
   const duration = intervalToDuration({ start: 0, end: seconds * 1000 });
   return formatDuration(duration, {
     format: ["hours", "minutes", "seconds"],
@@ -422,9 +426,9 @@ export const convertLocalDateToTimestamp = (dateString: string): number => {
       break;
     case "YMD":
       [year, month, day] = [
-        dateString.slice(0, 2),
-        dateString.slice(2, 4),
-        dateString.slice(4),
+        dateString.slice(0, 4),
+        dateString.slice(4, 6),
+        dateString.slice(6),
       ];
       break;
     default:

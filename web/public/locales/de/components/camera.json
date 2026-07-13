@@ -66,7 +66,7 @@
       "label": "Kameras",
       "desc": "Wähle Kameras für diese Gruppe aus."
     },
-    "label": "Kameragruppen",
+    "label": "Kamera Gruppen",
     "edit": "Kameragruppe bearbeiten",
     "success": "Kameragruppe {{name}} wurde gespeichert."
   },
@@ -82,6 +82,7 @@
     "mask": "Maske",
     "motion": "Bewegung",
     "regions": "Regionen",
-    "boundingBox": "Begrenzungsrechteck"
+    "boundingBox": "Begrenzungsrechteck",
+    "paths": "Pfad"
   }
 }

@@ -33,7 +33,6 @@ from frigate.api.defs.response.review_response import (
     ReviewSummaryResponse,
 )
 from frigate.api.defs.tags import Tags
-from frigate.config import FrigateConfig
 from frigate.embeddings import EmbeddingsContext
 from frigate.models import Recordings, ReviewSegment, UserReviewStatus
 from frigate.review.types import SeverityEnum
@@ -606,9 +605,10 @@ def motion_activity(
         if not filtered:
             return JSONResponse(content=[])
         camera_list = list(filtered)
-        clauses.append((Recordings.camera << camera_list))
     else:
-        clauses.append((Recordings.camera << allowed_cameras))
+        camera_list = list(allowed_cameras)
+
+    clauses.append((Recordings.camera << camera_list))
 
     data: list[Recordings] = (
         Recordings.select(
@@ -636,14 +636,12 @@ def motion_activity(
     df.set_index(["start_time"], inplace=True)
 
     # normalize data
-    motion = (
-        df["motion"]
-        .resample(f"{scale}s")
-        .apply(lambda x: max(x, key=abs, default=0.0))
-        .fillna(0.0)
-        .to_frame()
-    )
-    cameras = df["camera"].resample(f"{scale}s").agg(lambda x: ",".join(set(x)))
+    motion = df["motion"].resample(f"{scale}s").max().fillna(0.0).to_frame()
+
+    if len(camera_list) == 1:
+        cameras = df["camera"].resample(f"{scale}s").first().fillna("")
+    else:
+        cameras = df["camera"].resample(f"{scale}s").agg(lambda x: ",".join(set(x)))
     df = motion.join(cameras)
 
     length = df.shape[0]
@@ -659,8 +657,14 @@ def motion_activity(
         else:
             df.iloc[i : i + chunk, 0] = 0.0
 
+    # Drop resample gap-fill buckets. The resample above emits a row for every
+    # {scale}s bucket spanning the range, and buckets with no recording get a
+    # motion of 0 (from fillna) and an empty camera (from joining an empty set).
+    df = df[df["camera"] != ""]
+
     # change types for output
-    df.index = df.index.astype(int) // (10**9)
+    # Convert index from DatetimeIndex back to unix timestamps
+    df.index = (df.index - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
     normalized = df.reset_index().to_dict("records")
     return JSONResponse(content=normalized)
 
@@ -743,13 +747,11 @@ async def set_not_reviewed(
 
 @router.post(
     "/review/summarize/start/{start_ts}/end/{end_ts}",
-    dependencies=[Depends(allow_any_authenticated())],
+    dependencies=[Depends(require_role(["admin"]))],
     description="Use GenAI to summarize review items over a period of time.",
 )
 def generate_review_summary(request: Request, start_ts: float, end_ts: float):
-    config: FrigateConfig = request.app.frigate_config
-
-    if not config.genai.provider:
+    if not request.app.genai_manager.description_client:
         return JSONResponse(
             content=(
                 {

@@ -1,0 +1,22 @@
+[package]
+name = "frigate-motion-rs"
+version = "0.1.0"
+edition = "2021"
+description = "SIMD-accelerated motion detection for Frigate NVR"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[features]
+default = ["simd-avx2"]
+simd-avx2 = []
+simd-fallback = []

@@ -46,8 +46,9 @@ class InterProcessCommunicator(Communicator):
                         (topic, value) = raw
                         response = self._dispatcher(topic, value)
                     else:
-                        logging.warning(
-                            f"Received unexpected data type in ZMQ recv_json: {type(raw)}"
+                        logger.warning(
+                            "Received unexpected data type in ZMQ recv_json: %s",
+                            type(raw),
                         )
                         response = None
 
@@ -61,8 +62,8 @@ class InterProcessCommunicator(Communicator):
     def stop(self) -> None:
         self.stop_event.set()
         self.reader_thread.join()
-        self.socket.close()
-        self.context.destroy()
+        self.socket.close(linger=0)
+        self.context.destroy(linger=0)
 
 
 class InterProcessRequestor:
@@ -82,5 +83,5 @@ class InterProcessRequestor:
             return ""
 
     def stop(self) -> None:
-        self.socket.close()
-        self.context.destroy()
+        self.socket.close(linger=0)
+        self.context.destroy(linger=0)

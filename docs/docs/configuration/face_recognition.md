@@ -3,13 +3,23 @@ id: face_recognition
 title: Face Recognition
 ---
 
+import ConfigTabs from "@site/src/components/ConfigTabs";
+import TabItem from "@theme/TabItem";
+import NavPath from "@site/src/components/NavPath";
+
 Face recognition identifies known individuals by matching detected faces with previously learned facial data. When a known `person` is recognized, their name will be added as a `sub_label`. This information is included in the UI, filters, as well as in notifications.
+
+:::info
+
+Face recognition requires a one-time internet connection to download detection and embedding models from GitHub. Once cached, models work fully offline. See [Network Requirements](/frigate/network_requirements#one-time-model-downloads) for details.
+
+:::
 
 ## Model Requirements
 
 ### Face Detection
 
-When running a Frigate+ model (or any custom model that natively detects faces) should ensure that `face` is added to the [list of objects to track](../plus/#available-label-types) either globally or for a specific camera. This will allow face detection to run at the same time as object detection and be more efficient.
+When running a Frigate+ model (or any custom model that natively detects faces) should ensure that `face` is added to the [list of objects to track](../plus/index.md#available-label-types) either globally or for a specific camera. This will allow face detection to run at the same time as object detection and be more efficient.
 
 When running a default COCO model or another model that does not include `face` as a detectable label, face detection will run via CV2 using a lightweight DNN model that runs on the CPU. In this case, you should _not_ define `face` in your list of objects to track.
 
@@ -40,50 +50,101 @@ The `large` model is optimized for accuracy, an integrated or discrete GPU / NPU
 
 ## Configuration
 
-Face recognition is disabled by default, face recognition must be enabled in the UI or in your config file before it can be used. Face recognition is a global configuration setting.
+Face recognition is disabled by default and must be enabled before it can be used. Face recognition is a global configuration setting.
+
+<ConfigTabs>
+<TabItem value="ui">
+
+Navigate to <NavPath path="Settings > Enrichments > Face recognition" />.
+
+- Set **Enable face recognition** to on
+
+</TabItem>
+<TabItem value="yaml">
 
 ```yaml
 face_recognition:
   enabled: true
 ```
 
+</TabItem>
+</ConfigTabs>
+
 Like the other real-time processors in Frigate, face recognition runs on the camera stream defined by the `detect` role in your config. To ensure optimal performance, select a suitable resolution for this stream in your camera's firmware that fits your specific scene and requirements.
 
 ## Advanced Configuration
 
-Fine-tune face recognition with these optional parameters at the global level of your config. The only optional parameters that can be set at the camera level are `enabled` and `min_area`.
+Fine-tune face recognition with these optional parameters. The only optional parameters that can be set at the camera level are `enabled` and `min_area`.
 
 ### Detection
 
-- `detection_threshold`: Face detection confidence score required before recognition runs:
+<ConfigTabs>
+<TabItem value="ui">
+
+Navigate to <NavPath path="Settings > Enrichments > Face recognition" />.
+
+- **Detection threshold**: Face detection confidence score required before recognition runs. This field only applies to the standalone face detection model; `min_score` should be used to filter for models that have face detection built in.
   - Default: `0.7`
-  - Note: This is field only applies to the standalone face detection model, `min_score` should be used to filter for models that have face detection built in.
-- `min_area`: Defines the minimum size (in pixels) a face must be before recognition runs.
-  - Default: `500` pixels.
-  - Depending on the resolution of your camera's `detect` stream, you can increase this value to ignore small or distant faces.
+- **Minimum face area**: Minimum size (in pixels) a face must be before recognition runs. Depending on the resolution of your camera's `detect` stream, you can increase this value to ignore small or distant faces.
+  - Default: `750` pixels
+
+</TabItem>
+<TabItem value="yaml">
+
+```yaml
+face_recognition:
+  enabled: true
+  detection_threshold: 0.7
+  min_area: 750
+```
+
+</TabItem>
+</ConfigTabs>
 
 ### Recognition
 
-- `model_size`: Which model size to use, options are `small` or `large`
-- `unknown_score`: Min score to mark a person as a potential match, matches at or below this will be marked as unknown.
-  - Default: `0.8`.
-- `recognition_threshold`: Recognition confidence score required to add the face to the object as a sub label.
-  - Default: `0.9`.
-- `min_faces`: Min face recognitions for the sub label to be applied to the person object.
+<ConfigTabs>
+<TabItem value="ui">
+
+Navigate to <NavPath path="Settings > Enrichments > Face recognition" />.
+
+- **Model size**: Which model size to use, options are `small` or `large`.
+- **Unknown score threshold**: Min score to mark a person as a potential match; matches at or below this will be marked as unknown.
+  - Default: `0.8`
+- **Recognition threshold**: Recognition confidence score required to add the face to the object as a sub label.
+  - Default: `0.9`
+- **Minimum faces**: Min face recognitions for the sub label to be applied to the person object.
   - Default: `1`
-- `save_attempts`: Number of images of recognized faces to save for training.
-  - Default: `200`.
-- `blur_confidence_filter`: Enables a filter that calculates how blurry the face is and adjusts the confidence based on this.
-  - Default: `True`.
-- `device`: Target a specific device to run the face recognition model on (multi-GPU installation).
-  - Default: `None`.
-  - Note: This setting is only applicable when using the `large` model. See [onnxruntime's provider options](https://onnxruntime.ai/docs/execution-providers/)
+- **Save attempts**: Number of images of recognized faces to save for training.
+  - Default: `200`
+- **Blur confidence filter**: Enables a filter that calculates how blurry the face is and adjusts the confidence based on this.
+  - Default: `True`
+- **Device**: Target a specific device to run the face recognition model on (multi-GPU installation). This setting is only applicable when using the `large` model. See [onnxruntime's provider options](https://onnxruntime.ai/docs/execution-providers/).
+  - Default: `None`
+
+</TabItem>
+<TabItem value="yaml">
+
+```yaml
+face_recognition:
+  enabled: true
+  model_size: small
+  unknown_score: 0.8
+  recognition_threshold: 0.9
+  min_faces: 1
+  save_attempts: 200
+  blur_confidence_filter: true
+  device: None
+```
+
+</TabItem>
+</ConfigTabs>
 
 ## Usage
 
 Follow these steps to begin:
 
-1. **Enable face recognition** in your configuration file and restart Frigate.
+1. **Enable face recognition** in your configuration and restart Frigate.
 2. **Upload one face** using the **Add Face** button's wizard in the Face Library section of the Frigate UI. Read below for the best practices on expanding your training set.
 3. When Frigate detects and attempts to recognize a face, it will appear in the **Train** tab of the Face Library, along with its associated recognition confidence.
 4. From the **Train** tab, you can **assign the face** to a new or existing person to improve recognition accuracy for the future.
@@ -110,7 +171,7 @@ When choosing images to include in the face training set it is recommended to al
 - If it is difficult to make out details in a persons face it will not be helpful in training.
 - Avoid images with extreme under/over-exposure.
 - Avoid blurry / pixelated images.
-- Avoid training on infrared (gray-scale). The models are trained on color images and will be able to extract features from gray-scale images.
+- Avoid training on infrared (gray-scale). The models are trained on color images and will not be able to extract features from gray-scale images.
 - Using images of people wearing hats / sunglasses may confuse the model.
 - Do not upload too many similar images at the same time, it is recommended to train no more than 4-6 similar images for each person to avoid over-fitting.
 

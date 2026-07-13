@@ -20,8 +20,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { TooltipPortal } from "@radix-ui/react-tooltip";
 
 export type ReviewTimelineProps = {
-  timelineRef: RefObject<HTMLDivElement>;
-  contentRef: RefObject<HTMLDivElement>;
+  timelineRef: RefObject<HTMLDivElement | null>;
+  contentRef: RefObject<HTMLDivElement | null>;
   segmentDuration: number;
   timelineDuration: number;
   timelineStartAligned: number;
@@ -70,7 +70,7 @@ export function ReviewTimeline({
   scrollToSegment,
   isZooming,
   zoomDirection,
-  getRecordingAvailability,
+  getRecordingAvailability: _getRecordingAvailability,
   onZoomChange,
   possibleZoomLevels,
   currentZoomLevel,
@@ -343,28 +343,12 @@ export function ReviewTimeline({
 
   useEffect(() => {
     if (onHandlebarDraggingChange) {
-      onHandlebarDraggingChange(isDraggingHandlebar);
+      // Keep existing callback name but treat it as a generic dragging signal.
+      // This allows consumers (e.g. export-handle timelines) to correctly
+      // enable preview scrubbing while dragging export handles.
+      onHandlebarDraggingChange(isDragging);
     }
-  }, [isDraggingHandlebar, onHandlebarDraggingChange]);
-
-  const isHandlebarInNoRecordingPeriod = useMemo(() => {
-    if (!getRecordingAvailability || handlebarTime === undefined) return false;
-
-    // Check current segment
-    const currentAvailability = getRecordingAvailability(handlebarTime);
-    if (currentAvailability !== false) return false;
-
-    // Check if at least one adjacent segment also has no recordings
-    const beforeAvailability = getRecordingAvailability(
-      handlebarTime - segmentDuration,
-    );
-    const afterAvailability = getRecordingAvailability(
-      handlebarTime + segmentDuration,
-    );
-
-    // If current segment has no recordings AND at least one adjacent segment also has no recordings
-    return beforeAvailability === false || afterAvailability === false;
-  }, [getRecordingAvailability, handlebarTime, segmentDuration]);
+  }, [isDragging, onHandlebarDraggingChange]);
 
   return (
     <>
@@ -421,12 +405,6 @@ export function ReviewTimeline({
                     ></div>
                   </div>
                 </div>
-                {/* TODO: determine if we should keep this tooltip */}
-                {false && isHandlebarInNoRecordingPeriod && (
-                  <div className="absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 rounded-md bg-destructive/80 px-4 py-1 text-center text-xs text-white shadow-lg">
-                    No recordings
-                  </div>
-                )}
               </div>
             )}
             {showExportHandles && (
@@ -536,7 +514,7 @@ export function ReviewTimeline({
               </Button>
             </TooltipTrigger>
             <TooltipPortal>
-              <TooltipContent>{t("zoomIn")}</TooltipContent>
+              <TooltipContent>{t("zoomOut")}</TooltipContent>
             </TooltipPortal>
           </Tooltip>
           <Tooltip>
@@ -559,7 +537,7 @@ export function ReviewTimeline({
               </Button>
             </TooltipTrigger>
             <TooltipPortal>
-              <TooltipContent>{t("zoomOut")}</TooltipContent>
+              <TooltipContent>{t("zoomIn")}</TooltipContent>
             </TooltipPortal>
           </Tooltip>
         </div>

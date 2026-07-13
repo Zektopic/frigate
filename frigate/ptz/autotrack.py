@@ -48,6 +48,22 @@ def ptz_moving_at_frame_time(frame_time, ptz_start_time, ptz_stop_time):
     )
 
 
+def transform_is_finite(coord_transformations) -> bool:
+    """Return True if a norfair coordinate transform contains only finite values.
+
+    A near-singular homography (common when the motion estimator can't find
+    enough stable features during zoom on a low-texture scene) can produce
+    inf/nan matrix entries. norfair accumulates the homography across frames, so
+    a single bad transform poisons every subsequent one and propagates nan into
+    the tracker's distance function, crashing the camera process.
+    """
+    for attr in ("homography_matrix", "inverse_homography_matrix", "movement_vector"):
+        value = getattr(coord_transformations, attr, None)
+        if value is not None and not np.all(np.isfinite(value)):
+            return False
+    return True
+
+
 class PtzMotionEstimator:
     def __init__(self, config: CameraConfig, ptz_metrics: PTZMetrics) -> None:
         self.frame_manager = SharedMemoryFrameManager()
@@ -116,7 +132,9 @@ class PtzMotionEstimator:
                 mask[y1:y2, x1:x2] = 0
 
             # merge camera config motion mask with detections. Norfair function needs 0,1 mask
-            mask = np.bitwise_and(mask, self.camera_config.motion.mask).clip(max=1)
+            mask = np.bitwise_and(mask, self.camera_config.motion.rasterized_mask).clip(
+                max=1
+            )
 
             # Norfair estimator function needs color so it can convert it right back to gray
             frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGRA)
@@ -132,6 +150,19 @@ class PtzMotionEstimator:
                     f"Autotracker: motion estimator couldn't get transformations for {camera} at frame time {frame_time}"
                 )
                 self.coord_transformations = None
+
+            # A degenerate homography can yield non-finite transform values that
+            # norfair would accumulate and feed to the tracker as nan estimates.
+            # Drop the bad transform and request a reset so the estimator rebuilds
+            # a fresh reference frame instead of poisoning every following frame.
+            if self.coord_transformations is not None and not transform_is_finite(
+                self.coord_transformations
+            ):
+                logger.warning(
+                    f"Autotracker: motion estimator produced a non-finite transform for {camera} at frame time {frame_time}, resetting"
+                )
+                self.coord_transformations = None
+                self.ptz_metrics.reset.set()
 
             try:
                 logger.debug(
@@ -899,7 +930,7 @@ class PtzAutoTracker:
         # Check direction difference
         velocities = np.round(velocities)
         invalid_dirs = False
-        if not np.any(np.linalg.norm(velocities, axis=1)):
+        if np.all(np.linalg.norm(velocities, axis=1)):
             cosine_sim = np.dot(velocities[0], velocities[1]) / (
                 np.linalg.norm(velocities[0]) * np.linalg.norm(velocities[1])
             )
@@ -1065,7 +1096,7 @@ class PtzAutoTracker:
                 f"{camera}: Zoom test: below dimension threshold: {below_dimension_threshold} width: {bb_right - bb_left}, max width: {camera_width * (self.zoom_factor[camera] + 0.1)}, height: {bb_bottom - bb_top}, max height: {camera_height * (self.zoom_factor[camera] + 0.1)}"
             )
             logger.debug(
-                f"{camera}: Zoom test: below velocity threshold: {below_velocity_threshold} velocity x: {abs(average_velocity[0])}, x threshold: {velocity_threshold_x}, velocity y: {abs(average_velocity[0])}, y threshold: {velocity_threshold_y}"
+                f"{camera}: Zoom test: below velocity threshold: {below_velocity_threshold} velocity x: {abs(average_velocity[0])}, x threshold: {velocity_threshold_x}, velocity y: {abs(average_velocity[1])}, y threshold: {velocity_threshold_y}"
             )
             logger.debug(f"{camera}: Zoom test: at max zoom: {at_max_zoom}")
             logger.debug(f"{camera}: Zoom test: at min zoom: {at_min_zoom}")
@@ -1329,6 +1360,8 @@ class PtzAutoTracker:
         return self.tracked_object[camera]["region"]
 
     def autotrack_object(self, camera: str, obj: TrackedObject):
+        if camera not in self.config.cameras:
+            return
         camera_config = self.config.cameras[camera]
 
         if camera_config.onvif.autotracking.enabled:

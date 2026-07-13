@@ -14,7 +14,7 @@ try:
 except ModuleNotFoundError:
     TRT_SUPPORT = False
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 from typing_extensions import Literal
 
 from frigate.detectors.detection_api import DetectionApi
@@ -46,8 +46,21 @@ if TRT_SUPPORT:
 
 
 class TensorRTDetectorConfig(BaseDetectorConfig):
+    """TensorRT detector for Nvidia Jetson devices using serialized TensorRT engines for accelerated inference."""
+
+    model_config = ConfigDict(
+        title="TensorRT",
+    )
+
     type: Literal[DETECTOR_KEY]
-    device: int = Field(default=0, title="GPU Device Index")
+    device: int = Field(
+        default=0, title="GPU Device Index", description="The GPU device index to use."
+    )
+    conf_th: float = Field(
+        default=0.4,
+        title="Confidence Threshold",
+        description="Confidence threshold for the TensorRT detector.",
+    )
 
 
 class HostDeviceMem(object):
@@ -245,7 +258,7 @@ class TensorRtDetector(DetectionApi):
             cuda.CUctx_flags.CU_CTX_MAP_HOST, detector_config.device
         )
 
-        self.conf_th = 0.4  ##TODO: model config parameter
+        self.conf_th = detector_config.conf_th
         self.nms_threshold = 0.4
         err, self.stream = cuda.cuStreamCreate(0)
         self.trt_logger = TrtLogger()

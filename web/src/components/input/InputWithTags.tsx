@@ -50,6 +50,7 @@ import {
 import { toast } from "sonner";
 import useSWR from "swr";
 import { FrigateConfig } from "@/types/frigateConfig";
+import { use24HourTime } from "@/hooks/use-date-utils";
 import { MdImageSearch } from "react-icons/md";
 import { useTranslation } from "react-i18next";
 import { getTranslatedLabel } from "@/utils/i18n";
@@ -80,6 +81,8 @@ export default function InputWithTags({
   const { data: config } = useSWR<FrigateConfig>("config", {
     revalidateOnFocus: false,
   });
+  const is24Hour = use24HourTime(config);
+  const resolvedTimeFormat = is24Hour ? "24hour" : ("12hour" as const);
 
   const allAudioListenLabels = useMemo<Set<string>>(() => {
     if (!config) {
@@ -126,7 +129,8 @@ export default function InputWithTags({
   const inputRef = useRef<HTMLInputElement>(null);
   const commandRef = useRef<HTMLDivElement>(null);
 
-  // TODO: search history from browser storage
+  const [recentSearches, setRecentSearches, recentSearchesLoaded] =
+    useUserPersistence<SavedSearchQuery[]>("frigate-search-recent");
 
   const [searchHistory, setSearchHistory, searchHistoryLoaded] =
     useUserPersistence<SavedSearchQuery[]>("frigate-search-history");
@@ -431,12 +435,8 @@ export default function InputWithTags({
       const [startTime, endTime] = (filterValues as string)
         .replace("-", ",")
         .split(",");
-      return `${
-        config?.ui.time_format === "24hour"
-          ? startTime
-          : convertTo12Hour(startTime)
-      } - ${
-        config?.ui.time_format === "24hour" ? endTime : convertTo12Hour(endTime)
+      return `${is24Hour ? startTime : convertTo12Hour(startTime)} - ${
+        is24Hour ? endTime : convertTo12Hour(endTime)
       }`;
     } else if (filterType === "min_score" || filterType === "max_score") {
       return Math.round(Number(filterValues) * 100).toString() + "%";
@@ -478,7 +478,7 @@ export default function InputWithTags({
         (filterType === "time_range" &&
           isValidTimeRange(
             trimmedValue.replace("-", ","),
-            config?.ui.time_format,
+            resolvedTimeFormat,
           )) ||
         ((filterType === "min_score" || filterType === "max_score") &&
           !isNaN(Number(trimmedValue)) &&
@@ -495,7 +495,7 @@ export default function InputWithTags({
             ? trimmedValue
                 .replace("-", ",")
                 .split(",")
-                .map((time) => to24Hour(time.trim(), config?.ui.time_format))
+                .map((time) => to24Hour(time.trim(), resolvedTimeFormat))
                 .join(",")
             : trimmedValue,
         );
@@ -511,7 +511,7 @@ export default function InputWithTags({
         setCurrentFilterType(null);
       }
     },
-    [allSuggestions, createFilter, config],
+    [allSuggestions, createFilter, resolvedTimeFormat],
   );
 
   const handleInputChange = useCallback(
@@ -598,7 +598,7 @@ export default function InputWithTags({
           suggestion = suggestion
             .replace("-", ",")
             .split(",")
-            .map((time) => to24Hour(time.trim(), config?.ui.time_format))
+            .map((time) => to24Hour(time.trim(), resolvedTimeFormat))
             .join(",");
         }
         createFilter(currentFilterType, suggestion);
@@ -627,7 +627,33 @@ export default function InputWithTags({
 
       inputRef.current?.focus();
     },
-    [createFilter, currentFilterType, allSuggestions, config],
+    [createFilter, currentFilterType, allSuggestions, resolvedTimeFormat],
+  );
+
+  const generateRecentSearchName = useCallback(
+    (query: string, currentFilters: SearchFilter) => {
+      const filterParts: string[] = [];
+      Object.entries(currentFilters).forEach(([key, val]) => {
+        if (key !== "query") {
+          if (Array.isArray(val)) {
+            val.forEach((v) => filterParts.push(`${key}:${v}`));
+          } else {
+            filterParts.push(`${key}:${val}`);
+          }
+        }
+      });
+
+      const filterString = filterParts.join(" ");
+      if (query && filterString) {
+        return `${query} (${filterString})`;
+      } else if (query) {
+        return query;
+      } else if (filterString) {
+        return `(${filterString})`;
+      }
+      return "";
+    },
+    [],
   );
 
   const handleSearch = useCallback(
@@ -635,8 +661,29 @@ export default function InputWithTags({
       setSearch(value);
       setInputFocused(false);
       inputRef?.current?.blur();
+
+      if (recentSearchesLoaded) {
+        const name = generateRecentSearchName(value, filters);
+        if (name) {
+          const newEntry = { name, search: value, filter: filters };
+          setRecentSearches(
+            [
+              newEntry,
+              ...(recentSearches ?? []).filter((item) => item.name !== name),
+            ].slice(0, 10),
+          );
+        }
+      }
     },
-    [setSearch, setInputFocused],
+    [
+      setSearch,
+      setInputFocused,
+      filters,
+      recentSearches,
+      setRecentSearches,
+      recentSearchesLoaded,
+      generateRecentSearchName,
+    ],
   );
 
   const handleInputKeyDown = useCallback(
@@ -697,7 +744,7 @@ export default function InputWithTags({
             onFocus={handleInputFocus}
             onBlur={handleInputBlur}
             onKeyDown={handleInputKeyDown}
-            className="text-md h-9 pr-32"
+            className="h-9 pr-32"
             placeholder={t("placeholder.search")}
           />
           <div className="absolute right-3 top-0 flex h-full flex-row items-center justify-center gap-5">
@@ -779,10 +826,7 @@ export default function InputWithTags({
                     </li>
                     <li>
                       {t("filter.tips.desc.step5", {
-                        exampleTime:
-                          config?.ui.time_format == "24hour"
-                            ? "15:00-16:00"
-                            : "3:00PM-4:00PM",
+                        exampleTime: is24Hour ? "15:00-16:00" : "3:00PM-4:00PM",
                       })}
                     </li>
                     <li>{t("filter.tips.desc.step6")}</li>
@@ -915,6 +959,26 @@ export default function InputWithTags({
               </div>
             </CommandGroup>
           )}
+
+          {!currentFilterType &&
+            !inputValue &&
+            recentSearchesLoaded &&
+            (recentSearches?.length ?? 0) > 0 && (
+              <CommandGroup heading={t("recentSearches")}>
+                {recentSearches?.map((suggestion, index) => (
+                  <CommandItem
+                    key={index}
+                    className="flex cursor-pointer items-center justify-between"
+                    onSelect={() => {
+                      setFilters(suggestion.filter ?? {});
+                      setSearch(suggestion.search);
+                    }}
+                  >
+                    <span>{suggestion.name}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
 
           {!currentFilterType &&
             !inputValue &&

@@ -280,7 +280,7 @@ async def create_face(request: Request, name: str):
     success response with details about the registration, or an error if face recognition
     is not enabled or the image cannot be processed.""",
 )
-async def register_face(request: Request, name: str, file: UploadFile):
+def register_face(request: Request, name: str, file: UploadFile):
     if not request.app.frigate_config.face_recognition.enabled:
         return JSONResponse(
             status_code=400,
@@ -288,7 +288,7 @@ async def register_face(request: Request, name: str, file: UploadFile):
         )
 
     context: EmbeddingsContext = request.app.embeddings
-    result = None if context is None else context.register_face(name, await file.read())
+    result = None if context is None else context.register_face(name, file.file.read())
 
     if not isinstance(result, dict):
         return JSONResponse(
@@ -313,7 +313,7 @@ async def register_face(request: Request, name: str, file: UploadFile):
     registered faces in the system. Returns the recognized face name and confidence score,
     or an error if face recognition is not enabled or the image cannot be processed.""",
 )
-async def recognize_face(request: Request, file: UploadFile):
+def recognize_face(request: Request, file: UploadFile):
     if not request.app.frigate_config.face_recognition.enabled:
         return JSONResponse(
             status_code=400,
@@ -321,7 +321,7 @@ async def recognize_face(request: Request, file: UploadFile):
         )
 
     context: EmbeddingsContext = request.app.embeddings
-    result = context.recognize_face(await file.read())
+    result = context.recognize_face(file.file.read())
 
     if not isinstance(result, dict):
         return JSONResponse(
@@ -335,6 +335,82 @@ async def recognize_face(request: Request, file: UploadFile):
     return JSONResponse(
         status_code=200 if result.get("success", True) else 400,
         content=result,
+    )
+
+
+@router.post(
+    "/faces/{name}/reclassify",
+    response_model=GenericResponse,
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Reclassify a face image to a different name",
+    description="""Moves a single face image from one person's folder to another.
+    The image is moved and renamed, and the face classifier is cleared to
+    incorporate the change. Returns a success message or an error if the
+    image or target name is invalid.""",
+)
+def reclassify_face_image(request: Request, name: str, body: dict = None):
+    if not request.app.frigate_config.face_recognition.enabled:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "Face recognition is not enabled.", "success": False},
+        )
+
+    json: dict[str, Any] = body or {}
+    image_id = sanitize_filename(json.get("id", ""))
+    new_name = sanitize_filename(json.get("new_name", ""))
+
+    if not image_id or not new_name:
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": "Both 'id' and 'new_name' are required.",
+                }
+            ),
+            status_code=400,
+        )
+
+    if new_name == name:
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": "New name must differ from the current name.",
+                }
+            ),
+            status_code=400,
+        )
+
+    source_folder = os.path.join(FACE_DIR, sanitize_filename(name))
+    source_file = os.path.join(source_folder, image_id)
+
+    if not os.path.isfile(source_file):
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": f"Image not found: {image_id}",
+                }
+            ),
+            status_code=404,
+        )
+
+    target_filename = f"{new_name}-{datetime.datetime.now().timestamp()}.webp"
+    target_folder = os.path.join(FACE_DIR, new_name)
+
+    os.makedirs(target_folder, exist_ok=True)
+    shutil.move(source_file, os.path.join(target_folder, target_filename))
+
+    # Clean up empty source folder
+    if os.path.exists(source_folder) and not os.listdir(source_folder):
+        os.rmdir(source_folder)
+
+    context: EmbeddingsContext = request.app.embeddings
+    context.clear_face_classifier()
+
+    return JSONResponse(
+        content=({"success": True, "message": "Successfully reclassified face."}),
+        status_code=200,
     )
 
 
@@ -783,6 +859,101 @@ def delete_classification_dataset_images(
 
     return JSONResponse(
         content=({"success": True, "message": "Successfully deleted images."}),
+        status_code=200,
+    )
+
+
+@router.post(
+    "/classification/{name}/dataset/{category}/reclassify",
+    response_model=GenericResponse,
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Reclassify a dataset image to a different category",
+    description="""Moves a single dataset image from one category to another.
+    The image is re-saved as PNG in the target category and removed from the source.""",
+)
+def reclassify_classification_image(
+    request: Request, name: str, category: str, body: dict = None
+):
+    config: FrigateConfig = request.app.frigate_config
+
+    if name not in config.classification.custom:
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": f"{name} is not a known classification model.",
+                }
+            ),
+            status_code=404,
+        )
+
+    json: dict[str, Any] = body or {}
+    image_id = sanitize_filename(json.get("id", ""))
+    new_category = sanitize_filename(json.get("new_category", ""))
+
+    if not image_id or not new_category:
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": "Both 'id' and 'new_category' are required.",
+                }
+            ),
+            status_code=400,
+        )
+
+    if new_category == category:
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": "New category must differ from the current category.",
+                }
+            ),
+            status_code=400,
+        )
+
+    sanitized_name = sanitize_filename(name)
+    source_folder = os.path.join(
+        CLIPS_DIR, sanitized_name, "dataset", sanitize_filename(category)
+    )
+    source_file = os.path.join(source_folder, image_id)
+
+    if not os.path.isfile(source_file):
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": f"Image not found: {image_id}",
+                }
+            ),
+            status_code=404,
+        )
+
+    random_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    timestamp = datetime.datetime.now().timestamp()
+    new_name = f"{new_category}-{timestamp}-{random_id}.png"
+    target_folder = os.path.join(CLIPS_DIR, sanitized_name, "dataset", new_category)
+
+    os.makedirs(target_folder, exist_ok=True)
+
+    img = cv2.imread(source_file)
+    cv2.imwrite(os.path.join(target_folder, new_name), img)
+    os.unlink(source_file)
+
+    # Clean up empty source folder (unless it is "none")
+    if (
+        os.path.exists(source_folder)
+        and not os.listdir(source_folder)
+        and category.lower() != "none"
+    ):
+        os.rmdir(source_folder)
+
+    # Mark dataset as changed so UI knows retraining is needed
+    write_training_metadata(sanitized_name, 0)
+
+    return JSONResponse(
+        content=({"success": True, "message": "Successfully reclassified image."}),
         status_code=200,
     )
 

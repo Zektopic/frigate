@@ -339,6 +339,15 @@ def get_ort_providers(
                 )
             else:
                 continue
+        elif provider == "VulkanExecutionProvider":
+            if device and device.lower() == "vulkan":
+                device_id = 0
+                providers.append(provider)
+                options.append(
+                    {
+                        "device_id": device_id,
+                    }
+                )
         elif provider == "OpenVINOExecutionProvider":
             # OpenVINO is used directly
             if device == "OpenVINO":
@@ -352,8 +361,11 @@ def get_ort_providers(
                         "device_type": device,
                     }
                 )
-        elif provider == "MIGraphXExecutionProvider":
-            migraphx_cache_dir = os.path.join(MODEL_CACHE_DIR, "migraphx")
+        elif provider in ("MIGraphXExecutionProvider", "ROCmExecutionProvider"):
+            provider_type = (
+                "migraphx" if provider == "MIGraphXExecutionProvider" else "rocm"
+            )
+            migraphx_cache_dir = os.path.join(MODEL_CACHE_DIR, provider_type)
             os.makedirs(migraphx_cache_dir, exist_ok=True)
 
             providers.append(provider)
