@@ -27,6 +27,7 @@ ncnn.destroy_gpu_instance();ncnn.create_gpu_instance()
 net=ncnn.Net();net.set_vulkan_device(ncnn.get_gpu_device(0))
 o=net.opt;o.use_vulkan_compute=True;o.use_fp16_arithmetic=True
 o.use_fp16_packed=True;o.use_fp16_storage=True
+o.num_threads=2
 net.load_param("{param}");net.load_model("{bin}")
 sys.stderr.write("READY\n");sys.stderr.flush()
 while True:
@@ -45,7 +46,13 @@ while True:
  os.write(1,struct.pack('>I',len(raw)));os.write(1,raw)
 "#, param=param, bin=bin, in_=in_name, out_=out_name, ms=ms);
 
+        // ncnn CPU-fallback layers use OpenMP: default thread count (all
+        // cores) oversubscribes and the workers spin-wait between parallel
+        // regions. 2 threads + passive waiting benchmarked ~2x faster
+        // (556ms -> 292ms for yolo26s) at a fraction of the CPU.
         let mut child = Command::new("python3").arg("-c").arg(&code)
+            .env("OMP_NUM_THREADS", "2")
+            .env("OMP_WAIT_POLICY", "PASSIVE")
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
         let stdin = child.stdin.take().unwrap();
