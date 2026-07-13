@@ -84,3 +84,26 @@ def intersection_over_union_rust(box_a, box_b) -> float:
 
     return float(lib.intersection_over_union(arr_a, arr_b))
 
+
+def track_distance_rust(detection, estimate) -> float:
+    """Norfair association distance between two boxes in Rust.
+
+    Each argument is a sequence of 4 numbers [x1, y1, x2, y2] (flattened
+    2x2 norfair points). Returns +inf for degenerate/non-finite boxes,
+    matching frigate.track.norfair_tracker.distance.
+    """
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    lib.track_distance.argtypes = [
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_double),
+    ]
+    lib.track_distance.restype = ctypes.c_double
+
+    det = (ctypes.c_double * 4)(*detection)
+    est = (ctypes.c_double * 4)(*estimate)
+
+    return float(lib.track_distance(det, est))
+
