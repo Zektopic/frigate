@@ -23,3 +23,5 @@ Tested frontend functionality using `npm run test` (Vitest).
 - Successfully ran isolated tests with `npm run test src/` (115 passing tests across 10 suites).
 
 Documented the necessary fixes and testing mock improvements in `Jules/improvements.md` for future implementation.
+
+- Backend and frontend tests were attempted. Frontend passes on `src/`, backend needs test_runner.py fixes for missing mocks.
