@@ -1,3 +1,22 @@
+# libncnn with Vulkan + C API, for direct Rust FFI inference (no Python
+# subprocess). SIMPLEVK bundles ncnn's own Vulkan loader, so no libvulkan-dev
+# is needed at build time; at runtime it dlopens the container's libvulkan.
+FROM debian:bookworm-slim AS ncnn-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git cmake g++ make ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+# Tag must match the pip ncnn version (1.0.YYYYMMDD) the models are
+# validated against — older libncnn mis-executes newer YOLO exports.
+RUN git clone --depth 1 --branch 20260526 https://github.com/Tencent/ncnn.git /ncnn \
+    && cd /ncnn && git submodule update --init --recursive --depth 1
+RUN cmake -S /ncnn -B /ncnn/build -DCMAKE_BUILD_TYPE=Release \
+        -DNCNN_VULKAN=ON -DNCNN_SIMPLEVK=ON -DNCNN_SHARED_LIB=ON -DNCNN_C_API=ON \
+        -DNCNN_BUILD_TOOLS=OFF -DNCNN_BUILD_EXAMPLES=OFF -DNCNN_BUILD_BENCHMARK=OFF \
+        -DNCNN_BUILD_TESTS=OFF -DNCNN_PYTHON=OFF \
+    && cmake --build /ncnn/build -j"$(nproc)" \
+    && cmake --install /ncnn/build --prefix /opt/ncnn-install \
+    && cp -L /opt/ncnn-install/lib/libncnn.so /libncnn.so
+
 FROM rust:slim-bookworm AS rust-builder
 WORKDIR /build
 
@@ -25,6 +44,7 @@ FROM ghcr.io/blakeblackshear/frigate:stable
 RUN pip install --break-system-packages ncnn
 
 # Copy Rust detector and libraries from builder
+COPY --from=ncnn-builder /libncnn.so /opt/frigate/libncnn.so
 COPY --from=rust-builder /build/frigate-detector-rs/target/release/frigate-detector-rs /opt/frigate/frigate-detector-rs
 COPY --from=rust-builder /build/frigate-motion-rs/target/release/libfrigate_motion_rs.so /opt/frigate/libfrigate_motion_rs.so
 COPY --from=rust-builder /build/frigate-yolo-rs/target/release/libfrigate_yolo_rs.so /opt/frigate/libfrigate_yolo_rs.so

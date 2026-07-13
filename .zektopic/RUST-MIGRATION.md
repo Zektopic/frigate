@@ -10,7 +10,9 @@ These performance-critical components have been successfully migrated to Rust to
 
 1. **`frigate-detector-rs` & `frigate-yolo-rs`**:
    * Rayon-parallel and hardware-optimized post-processing (DFL decoding, Non-Maximum Suppression (NMS), coordinate scaling, and class filters) for YOLO models.
-   * Runs model inference via a decoupled python subprocess worker to prevent GPU crashes on AMD RADV and bypass Python GIL.
+   * **Direct ncnn C-API inference** (2026-07-13): dlopens `/opt/frigate/libncnn.so` (built in a dedicated Docker stage, version-matched to pip ncnn) and runs the Vulkan forward pass in-process — no Python subprocess, no second pipe hop, fp16→f32 converted in Rust (exhaustively unit-tested). Python subprocess retained as automatic fallback when the lib is absent.
+   * Parity-verified against the PyTorch model. This surfaced a long-standing accuracy bug: pyncnn maps 4D numpy input to a `dims=4 c=1` Mat, systematically crushing class scores (chair 0.56 → refrigerator 0.11). The FFI's 3D mat is correct; the Python fallback now reshapes to 3D as well.
+   * Debug switch: `NCNN_FFI_NO_VULKAN=1` forces CPU inference for parity checks.
    * ncnn worker pinned to `num_threads=2` with `OMP_WAIT_POLICY=PASSIVE` — default OpenMP threading oversubscribed the CPU on Vulkan-fallback layers and spin-waited between parallel regions (~2× slower inference at ~174% CPU). See GPU-DETECTOR.md § ncnn thread tuning.
 2. **`frigate-motion-rs`**:
    * Evaluates high-framerate raw video frames to isolate motion regions (contour finding, thresholding).

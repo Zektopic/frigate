@@ -1,7 +1,10 @@
-//! Threaded Rust detector — ncnn via subprocess + rayon post-process.
+//! Threaded Rust detector — ncnn (direct C-API FFI, or Python subprocess
+//! fallback) + rayon post-process.
 //! Drop-in replacement for Python YOLO worker subprocess.
 //!
 //! stdin/stdout pipe protocol compatible with ONNX plugin.
+
+mod ncnn_ffi;
 
 use crossbeam::channel::{bounded, Sender, Receiver};
 use rayon::prelude::*;
@@ -90,6 +93,36 @@ while True:
     }
 }
 
+// ── Inference backend: direct FFI preferred, Python subprocess fallback ──
+
+enum Backend {
+    Ffi(ncnn_ffi::NcnnFfi),
+    Proc(NcnnProc),
+}
+
+impl Backend {
+    fn create(param: &str, bin: &str, in_name: &str, out_name: &str, ms: u32) -> io::Result<Self> {
+        match ncnn_ffi::NcnnFfi::new(param, bin, in_name, out_name, ms) {
+            Ok(ffi) => {
+                eprintln!("NCNN_FFI direct libncnn backend active");
+                eprintln!("NCNN_READY");
+                Ok(Backend::Ffi(ffi))
+            }
+            Err(e) => {
+                eprintln!("NCNN_FFI unavailable ({e}), using Python subprocess");
+                Ok(Backend::Proc(NcnnProc::spawn(param, bin, in_name, out_name, ms)?))
+            }
+        }
+    }
+
+    fn forward(&mut self, frame_f16: &[u8]) -> io::Result<Vec<f32>> {
+        match self {
+            Backend::Ffi(f) => f.forward(frame_f16),
+            Backend::Proc(p) => p.forward(frame_f16),
+        }
+    }
+}
+
 // ── Rayon-parallel post-process ───────────────────────────────────
 
 fn process_rayon(raw: &[f32], n_cells: usize, model_size: f32,
@@ -158,8 +191,13 @@ fn main() -> io::Result<()> {
     let ms: u32 = args[5].parse().unwrap_or(640);
     let is_yolo26 = args[6] == "yolo26";
 
-    // Spawn ncnn subprocess
-    let mut ncnn = NcnnProc::spawn(&args[1], &args[2], &args[3], &args[4], ms)?;
+    // OpenMP tuning must be in our environment before libncnn's first
+    // parallel region (harmless for the subprocess fallback, which sets
+    // its own env).
+    std::env::set_var("OMP_NUM_THREADS", "2");
+    std::env::set_var("OMP_WAIT_POLICY", "PASSIVE");
+
+    let mut ncnn = Backend::create(&args[1], &args[2], &args[3], &args[4], ms)?;
 
     // Channels
     let (tx_frame, rx_frame): (Sender<Msg>, Receiver<Msg>) = bounded(2);
