@@ -98,11 +98,15 @@ impl NcnnFfi {
 
         let net = unsafe { net_create() };
         let opt = unsafe { option_create() };
+        // NCNN_FFI_NO_VULKAN=1 forces CPU inference (debug/parity checks).
+        let use_vulkan = std::env::var("NCNN_FFI_NO_VULKAN").map_or(1, |v| {
+            if v == "1" { 0 } else { 1 }
+        });
         unsafe {
             // 2 threads + passive OpenMP waiting: benchmarked optimal for the
             // CPU-fallback layers on this host (see GPU-DETECTOR.md).
             option_set_num_threads(opt, 2);
-            option_set_vulkan(opt, 1);
+            option_set_vulkan(opt, use_vulkan);
             net_set_option(net, opt);
         }
         // Optional (Vulkan builds only): pin device 0 explicitly.
@@ -273,5 +277,24 @@ mod tests {
             assert!(ok, "bits {bits:#06x}: got {got}, want {want}");
         }
         assert!(f16_to_f32(0x7e00).is_nan());
+    }
+}
+
+#[cfg(test)]
+mod exhaustive_tests {
+    use super::f16_to_f32;
+
+    #[test]
+    fn f16_conversion_all_bit_patterns() {
+        for bits in 0..=u16::MAX {
+            let want = half::f16::from_bits(bits).to_f32();
+            let got = f16_to_f32(bits);
+            if want.is_nan() {
+                assert!(got.is_nan(), "bits {bits:#06x}: got {got}, want NaN");
+            } else {
+                assert_eq!(got.to_bits(), want.to_bits(),
+                    "bits {bits:#06x}: got {got}, want {want}");
+            }
+        }
     }
 }

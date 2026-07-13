@@ -635,7 +635,10 @@ while True:
     # Frigate sends float16 to halve pipe I/O; convert to float32 for ncnn
     frame = np.frombuffer(data, dtype=np.float16).astype(np.float32).copy()
     _, c, fh, fw = 1, 3, model_size, model_size
-    frame = frame.reshape(1, c, fh, fw)
+    # 3D (c,h,w) — NOT 4D: pyncnn maps a 4D array to a dims=4 c=1 Mat,
+    # which the model misreads, systematically degrading class scores
+    # (verified vs the PyTorch model: chair 0.61 became refrigerator 0.11).
+    frame = frame.reshape(c, fh, fw)
     # Frigate sends 0-1, which is what ultralytics ncnn exports expect.
     # Do NOT scale to 0-255: saturated input makes the model hallucinate
     # high-confidence detections (false positives on empty scenes).
