@@ -160,7 +160,7 @@ services:
 
 | Model | Architecture | Inference | CPU | Notes |
 |-------|-------------|-----------|-----|-------|
-| YOLO26s | `frigate-detector-rs` | ~292ms | low | **Active** — `num_threads=2` + `OMP_WAIT_POLICY=PASSIVE` |
+| YOLO26s | `frigate-detector-rs` | ~104ms | low | **Active** — `num_threads=2` + `OMP_WAIT_POLICY=PASSIVE` |
 | YOLO26n | `frigate-detector-rs` | ~75ms | low | Fast fallback (same thread settings) |
 | YOLOv5s | In-process | ~75ms | ~50% total | Supported fallback |
 | YOLO26n | In-process | ~30ms | ❌ SIGSEGV | Unsupported (triggers RADV fork bug) |
@@ -182,6 +182,13 @@ inference was *slower*, not faster:
 Fix lives in `frigate-detector-rs/src/main.rs`: `o.num_threads=2` in the
 embedded ncnn script plus `OMP_NUM_THREADS=2` / `OMP_WAIT_POLICY=PASSIVE`
 env on the spawned worker.
+
+Note: the benchmark numbers above were measured while the live detector
+shared the GPU. With the GPU uncontended, yolo26s runs at **~104ms** in
+production — fast enough for two cameras at the full 5fps detect rate.
+Anything else using the GPU (e.g. a BOINC/PrimeGrid OpenCL task) multiplies
+inference latency; keep the GPU exclusive to Frigate
+(`sudo systemctl stop boinc-client`).
 
 ## Verified Hardware
 
