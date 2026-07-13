@@ -14,7 +14,7 @@ Ready to create the execution plan.
 Tested backend functionality with unit tests using `python3 test_runner.py`. Identified multiple failures and errors primarily stemming from incomplete mocking in `test_runner.py`.
 - **Permission Errors**: Tests fail trying to create `/config/model_cache` due to lack of permissions. Setting `CONFIG_DIR` to a temporary writable location (e.g. `/tmp/config`) resolves some but not all hardcoded `/config` issues.
 - **Pydantic Validation Mocks**: Profile tests expecting `pydantic.ValidationError` fail because `MockPydanticValidationError` is not properly integrated into the `MockPydantic` validation logic.
-- **Missing Module Mocks**: `norfair.drawing.draw_boxes` is missing from `test_runner.py`, causing `frigate.video` import failures.
+- **Missing Module Mocks**: `norfair.drawing.draw_boxes` is missing from `test_runner.py`, causing `frigate.video` import failures. Additionally, `peewee` is not fully mocked, leading to `ModuleNotFoundError` during `models.py` import when testing HTTP API endpoints.
 - **Mock Return Values**: Several tests fail because they expect specific return types (integers, strings) but receive `MagicMock` objects (e.g. `unidecode()`, `ndarray.shape`, `cv2.cvtColor().shape`).
 - **Logic Mismatches**: Mocked behavior deviates from expected execution in areas like shared memory management and go2rtc restricted source checks.
 
