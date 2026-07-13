@@ -29,6 +29,21 @@ from frigate.util.image import (
 )
 from frigate.util.object import average_boxes, median_of_boxes
 
+# Rust association distance — same math as distance() below, without the
+# per-call numpy small-array overhead. Falls back to numpy when the shared
+# library is unavailable.
+try:
+    from frigate.util.frame_rs import (
+        frame_rs_available as _frame_rs_available,
+    )
+    from frigate.util.frame_rs import (
+        track_distance_rust as _track_distance_rust,
+    )
+
+    _HAS_RUST_DISTANCE = _frame_rs_available()
+except Exception:  # pragma: no cover - import guard
+    _HAS_RUST_DISTANCE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +56,9 @@ logger = logging.getLogger(__name__)
 def distance(detection: np.ndarray, estimate: np.ndarray) -> float:
     # ultimately, this should try and estimate distance in 3-dimensional space
     # consider change in location, width, and height
+
+    if _HAS_RUST_DISTANCE and detection.shape == (2, 2) and estimate.shape == (2, 2):
+        return _track_distance_rust(detection.ravel(), estimate.ravel())
 
     estimate_dim = np.diff(estimate, axis=0).flatten()
     detection_dim = np.diff(detection, axis=0).flatten()

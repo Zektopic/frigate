@@ -473,6 +473,47 @@ pub unsafe extern "C" fn intersection_over_union(
     inter_area / union_area
 }
 
+/// Norfair tracker association distance (port of
+/// `frigate.track.norfair_tracker.distance`).
+///
+/// `det` and `est` each point to 4 f64s `[x1, y1, x2, y2]`.  Returns the
+/// euclidean norm of the change vector (relative bottom-center shift plus
+/// width/height ratios), or +inf for degenerate / non-finite boxes.
+///
+/// # Safety
+/// `det` and `est` must point to valid arrays of 4 f64s.
+#[no_mangle]
+pub unsafe extern "C" fn track_distance(det: *const f64, est: *const f64) -> f64 {
+    let d = std::slice::from_raw_parts(det, 4);
+    let e = std::slice::from_raw_parts(est, 4);
+
+    let ew = e[2] - e[0];
+    let eh = e[3] - e[1];
+    let dw = d[2] - d[0];
+    let dh = d[3] - d[1];
+    if !ew.is_finite()
+        || !eh.is_finite()
+        || !dw.is_finite()
+        || !dh.is_finite()
+        || ew <= 0.0
+        || eh <= 0.0
+        || dw <= 0.0
+        || dh <= 0.0
+    {
+        return f64::INFINITY;
+    }
+
+    // bottom-center positions, shift relative to estimate size
+    let dx = ((d[0] + d[2]) * 0.5 - (e[0] + e[2]) * 0.5) / ew;
+    let dy = (d[1].max(d[3]) - e[1].max(e[3])) / eh;
+
+    // width/height ratios normalized to 0
+    let wr = ew.max(dw) / ew.min(dw) - 1.0;
+    let hr = eh.max(dh) / eh.min(dh) - 1.0;
+
+    (dx * dx + dy * dy + wr * wr + hr * hr).sqrt()
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -589,6 +630,40 @@ mod tests {
         unsafe {
             let iou = intersection_over_union(box_a.as_ptr(), box_c.as_ptr());
             assert_eq!(iou, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_track_distance() {
+        // identical boxes -> 0
+        let a = [10.0f64, 20.0, 110.0, 220.0];
+        unsafe {
+            assert_eq!(track_distance(a.as_ptr(), a.as_ptr()), 0.0);
+        }
+
+        // known value: det shifted +50 in x, same size
+        // dx = 50/100 = 0.5, dy = 0, wr = hr = 0 -> distance 0.5
+        let b = [60.0f64, 20.0, 160.0, 220.0];
+        unsafe {
+            let dist = track_distance(b.as_ptr(), a.as_ptr());
+            assert!((dist - 0.5).abs() < 1e-12, "got {dist}");
+        }
+
+        // double width: wr = 1.0, dx = 50/100 = 0.5 (center moves w/2)
+        let c = [10.0f64, 20.0, 210.0, 220.0];
+        unsafe {
+            let dist = track_distance(c.as_ptr(), a.as_ptr());
+            let want = (0.5f64 * 0.5 + 1.0).sqrt();
+            assert!((dist - want).abs() < 1e-12, "got {dist}, want {want}");
+        }
+
+        // degenerate / non-finite -> inf
+        let zero_w = [10.0f64, 20.0, 10.0, 220.0];
+        let nan_box = [f64::NAN, 20.0, 110.0, 220.0];
+        unsafe {
+            assert!(track_distance(zero_w.as_ptr(), a.as_ptr()).is_infinite());
+            assert!(track_distance(a.as_ptr(), zero_w.as_ptr()).is_infinite());
+            assert!(track_distance(nan_box.as_ptr(), a.as_ptr()).is_infinite());
         }
     }
 }
