@@ -636,7 +636,9 @@ while True:
     frame = np.frombuffer(data, dtype=np.float16).astype(np.float32).copy()
     _, c, fh, fw = 1, 3, model_size, model_size
     frame = frame.reshape(1, c, fh, fw)
-    frame *= 255.0  # denormalise (Frigate sends 0-1, model expects 0-255)
+    # Frigate sends 0-1, which is what ultralytics ncnn exports expect.
+    # Do NOT scale to 0-255: saturated input makes the model hallucinate
+    # high-confidence detections (false positives on empty scenes).
 
     mat_in = ncnn.Mat(frame)
     with net.create_extractor() as ex:

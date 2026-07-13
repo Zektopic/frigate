@@ -38,7 +38,7 @@ while True:
   c=os.read(0,s-len(d))
   if not c:break
   d+=c
- f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(1,3,{ms},{ms})*255
+ f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(1,3,{ms},{ms})
  with net.create_extractor() as ex:
   ex.input("{in_}",ncnn.Mat(f))
   ret,out=ex.extract("{out_}")
