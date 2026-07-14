@@ -25,3 +25,7 @@ Tested frontend functionality using `npm run test` (Vitest).
 Documented the necessary fixes and testing mock improvements in `Jules/improvements.md` for future implementation.
 
 - Backend and frontend tests were attempted. Frontend passes on `src/`, backend needs test_runner.py fixes for missing mocks.
+
+## Test Run Outcomes (Latest)
+- **Backend Tests:** Ran 681 tests with failures (26 failures, 196 errors). Missing dependencies/mocks (`filelock`, `requests`, `numpy`, `cv2`, `peewee`, `numpy` and `openvino`) still cause many issues. Some tests throw assertion errors like `test_overlapping_objects_reduced` and `test_vert_stacked_cars_not_reduced` in `test_video.py`. Also `MockPydanticValidationError` was not raised in `test_profiles.py`. Shared memory frame manager testing fails because `UntrackedSharedMemory` mock is called unexpectedly.
+- **Frontend Tests:** Successfully ran Vitest on 115 tests in `web/src/`. All 115 tests passed perfectly without errors (node warnings about `punycode` only). E2E tests were skipped by targeting only `src/`.
