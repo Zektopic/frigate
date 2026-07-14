@@ -106,4 +106,3 @@ def track_distance_rust(detection, estimate) -> float:
     est = (ctypes.c_double * 4)(*estimate)
 
     return float(lib.track_distance(det, est))
-

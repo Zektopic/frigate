@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Generative AI module for Frigate."""
 
 import importlib
@@ -36,7 +37,7 @@ __all__ = [
     "register_genai_provider",
 ]
 
-PROVIDERS: dict[str, type['GenAIClient']] = {}
+PROVIDERS: dict[str, type["GenAIClient"]] = {}
 
 
 def register_genai_provider(key: GenAIProviderEnum) -> Callable:
