@@ -90,6 +90,7 @@ class TestTransformIsFinite(unittest.TestCase):
 class TestIntersectionOverUnion(unittest.TestCase):
     def test_iou_normal(self) -> None:
         from frigate.util.image import intersection_over_union
+
         box_a = [10, 10, 20, 20]
         box_b = [15, 15, 25, 25]
         # Intersection: [15, 15, 20, 20] -> w=6, h=6 -> area = 36
@@ -102,6 +103,7 @@ class TestIntersectionOverUnion(unittest.TestCase):
 
     def test_iou_disjoint(self) -> None:
         from frigate.util.image import intersection_over_union
+
         box_a = [0, 0, 10, 10]
         box_b = [20, 20, 30, 30]
         iou = intersection_over_union(box_a, box_b)
@@ -109,6 +111,7 @@ class TestIntersectionOverUnion(unittest.TestCase):
 
     def test_iou_identical(self) -> None:
         from frigate.util.image import intersection_over_union
+
         box_a = [100, 100, 200, 200]
         iou = intersection_over_union(box_a, box_a)
         self.assertEqual(iou, 1.0)
@@ -116,4 +119,3 @@ class TestIntersectionOverUnion(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
