@@ -48,3 +48,9 @@ Based on the test runs and codebase review, here are several suggested improveme
 - Tests were run, and some mocks in `test_runner.py` were identified to be missing or returning incorrect values (e.g. MagicMock instead of tuple for `.shape`).
 - Backend tests were run (`python3 test_runner.py`), resulting in failures related to `MockPydanticValidationError`, `os.makedirs(MODEL_CACHE_DIR)` permission errors in `/config`, missing mock methods on `cv2`, `unidecode`, and more.
 - Frontend tests were successfully run isolated (`cd web && npm run test src/`) passing all 115 tests.
+
+
+## Backend Unit Test Mock State
+Extensive effort was put into resolving mocked dependencies (`numpy`, `cv2`, `pydantic_core.ValidationError`, `unidecode`) for `test_runner.py`.
+Although some mock updates worked, `pydantic.ValidationError` still isn't fully mocked for `test_profiles.py` because `MockPydanticValidationError` isn't structurally equivalent to `pydantic_core.ValidationError` which is now the base exception in Pydantic v2. Similarly, mock numpy array indexing behaviors clash with backend logic.
+Future action: It is highly recommended to run backend tests solely via the Docker environment (`make run_tests`) to avoid brittle sys.modules patching for complex C-extensions like `cv2` and `numpy`.
