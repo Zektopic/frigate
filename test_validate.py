@@ -1,5 +1,6 @@
 import sys
 import unittest
-from frigate.config import AuthConfig
-auth = AuthConfig(roles={"house_only": ["front_door", "back_door"]})
-print(auth.roles)
+from frigate.config import AuthConfig, ProxyConfig
+from frigate.config.proxy import HeaderMappingConfig
+proxy = ProxyConfig(header_map={"user": "Remote-User", "role": "Remote-Role"}, separator=",")
+print(proxy.header_map)
