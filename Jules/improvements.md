@@ -48,3 +48,11 @@ Based on the test runs and codebase review, here are several suggested improveme
 - Tests were run, and some mocks in `test_runner.py` were identified to be missing or returning incorrect values (e.g. MagicMock instead of tuple for `.shape`).
 - Backend tests were run (`python3 test_runner.py`), resulting in failures related to `MockPydanticValidationError`, `os.makedirs(MODEL_CACHE_DIR)` permission errors in `/config`, missing mock methods on `cv2`, `unidecode`, and more.
 - Frontend tests were successfully run isolated (`cd web && npm run test src/`) passing all 115 tests.
+
+## Test Environment Setup and Code Review Request (Update 2)
+
+- The backend mock test runner (`test_runner.py`) has been significantly improved by explicitly mocking `numpy.ndarray.shape`, `cv2.cvtColor`, `cv2.dnn.NMSBoxes`, and a deeper pseudo-implementation of `pydantic` `BaseModel`.
+- `CONFIG_DIR` is now forcibly mocked to point to a temporary writable directory (`/tmp/config`) and `os.makedirs` intercepts `/config` paths to bypass `PermissionError: [Errno 13] Permission denied: '/config'`.
+- Despite these enhancements, tests still face structural limitations with `sys.modules`. Errors such as `TypeError: 'bool' object is not iterable` (when evaluating mocked Pydantic dict serialization), `AttributeError: 'MockBaseModel' object has no attribute 'enabled'`, and assertions failing due to complex `numpy` array matching prevent full pass rates.
+- Moving forward, the true fix is repairing the Docker BuildKit/containerd overlayfs issue locally, so `make run_tests` can correctly build the container dependencies and execute tests natively instead of hacking `sys.modules`.
+- Frontend vitest tests perform flawlessly (115 passing) when scoped to `src/`.

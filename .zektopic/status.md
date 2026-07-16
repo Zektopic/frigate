@@ -25,3 +25,11 @@ Tested frontend functionality using `npm run test` (Vitest).
 Documented the necessary fixes and testing mock improvements in `Jules/improvements.md` for future implementation.
 
 - Backend and frontend tests were attempted. Frontend passes on `src/`, backend needs test_runner.py fixes for missing mocks.
+
+## Test Environment Setup and Code Review Request (Update 2)
+
+I have implemented multiple missing backend mocks in `test_runner.py` (e.g. `numpy`, `cv2`, `peewee`, and better mocked implementations of `pydantic`). We explicitly redirected the `CONFIG_DIR` to `/tmp/config` in the test environment to overcome `os.makedirs` permission errors.
+
+Despite these improvements, running the backend tests (via `test_runner.py`) still results in numerous failures (50 failures, 164 errors) due to complex dependency structures (e.g. `numpy` dimension assertions, `pydantic` iterative validation and serialization logic, `fastapi` routing, and `openvino` absence). Due to the brittle nature of these `sys.modules` hacks, the backend tests should ideally run in a fully populated Docker environment (`make run_tests`), but `make run_tests` currently fails with `mount source: "overlay"... err: invalid argument` on this environment setup.
+
+On the frontend side, I executed the unit tests using `npm install --legacy-peer-deps` and `npm run test src/`. All 115 tests completed successfully and efficiently.
