@@ -30,6 +30,12 @@ const PLACEHOLDER_PNG = Buffer.from(
   "base64",
 );
 
+// 1x1 transparent WEBP
+const PLACEHOLDER_WEBP = Buffer.from(
+  "UklGRhIAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==",
+  "base64",
+);
+
 export interface ApiMockOverrides {
   config?: DeepPartial<typeof BASE_CONFIG>;
   profile?: UserProfile;
@@ -250,7 +256,7 @@ export class MediaMocker {
     await this.page.route("**/api/*/latest.webp**", (route) =>
       route.fulfill({
         contentType: "image/webp",
-        body: PLACEHOLDER_PNG,
+        body: PLACEHOLDER_WEBP,
       }),
     );
 
