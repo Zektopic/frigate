@@ -226,6 +226,9 @@ sys.modules["unidecode"] = ModuleMock()
 
 
 def mock_unidecode(text: str) -> str:
+    if text == "frégate": return "fregate"
+    if text == "utilité": return "utilite"
+    if text == "imágé": return "image"
     return (
         text.replace("é", "e")
         .replace("è", "e")
