@@ -78,6 +78,32 @@ class TestShouldUpdateDb(unittest.TestCase):
         current_event["has_clip"] = True
         self.assertFalse(should_update_db(prev_event, current_event))
 
+    def test_event_ending_previously_saved_clip_removed(self):
+        prev_event, current_event = self._get_events()
+        prev_event["has_clip"] = True
+        current_event["has_clip"] = False
+        current_event["end_time"] = 12345.0
+        self.assertTrue(should_update_db(prev_event, current_event))
+
+    def test_event_ending_previously_saved_snapshot_removed(self):
+        prev_event, current_event = self._get_events()
+        prev_event["has_snapshot"] = True
+        current_event["has_snapshot"] = False
+        current_event["end_time"] = 12345.0
+        self.assertTrue(should_update_db(prev_event, current_event))
+
+    def test_values_changed_without_clip_or_snapshot(self):
+        prev_event, current_event = self._get_events()
+        current_event["top_score"] = 0.8
+        self.assertFalse(should_update_db(prev_event, current_event))
+
+    def test_clip_removed_mid_event(self):
+        prev_event, current_event = self._get_events()
+        prev_event["has_clip"] = True
+        current_event["has_clip"] = False
+        current_event["top_score"] = 0.8
+        self.assertFalse(should_update_db(prev_event, current_event))
+
 
 if __name__ == "__main__":
     unittest.main()
