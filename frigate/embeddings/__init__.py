@@ -218,10 +218,10 @@ class EmbeddingsContext:
             SELECT
                 id
             FROM vec_descriptions
-            WHERE id LIKE ?
+            WHERE id LIKE '%' || ? || '%'
         """
 
-        return self.db.execute_sql(sql_query, (f"%{name}%",)).fetchall()
+        return self.db.execute_sql(sql_query, (name,)).fetchall()
 
     def reprocess_face(self, face_file: str) -> dict[str, Any]:
         return self.requestor.send_data(
