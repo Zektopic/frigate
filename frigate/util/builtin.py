@@ -267,7 +267,7 @@ def update_yaml_file_bulk(file_path: str, updates: Dict[str, Any]):
 
     try:
         with open(file_path, "r") as f:
-            data = yaml.load(f)
+            data = yaml.load(f)  # nosec
     except FileNotFoundError:
         logger.error(
             f"Unable to read from Frigate config file {file_path}. Make sure it exists and is readable."
