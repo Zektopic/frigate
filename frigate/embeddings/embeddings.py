@@ -1,5 +1,6 @@
 """SQLite-vec embeddings database."""
 
+import concurrent.futures
 import datetime
 import io
 import logging
@@ -597,11 +598,19 @@ class Embeddings:
                 Trigger.delete().where(
                     Trigger.camera == camera.name, Trigger.name.in_(triggers_to_remove)
                 ).execute()
-                for trigger_name in triggers_to_remove:
-                    # Only remove thumbnail files for thumbnail triggers
-                    if existing_triggers[trigger_name].type == "thumbnail":
-                        self.remove_trigger_thumbnail(
-                            camera.name, existing_triggers[trigger_name].data
+
+                thumbnails_to_remove = [
+                    existing_triggers[name].data for name in triggers_to_remove
+                    if existing_triggers[name].type == "thumbnail"
+                ]
+                if thumbnails_to_remove:
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        # Consume the generator to ensure any exceptions are raised
+                        list(
+                            executor.map(
+                                lambda event_id: self.remove_trigger_thumbnail(camera.name, event_id),
+                                thumbnails_to_remove
+                            )
                         )
 
     def write_trigger_thumbnail(
