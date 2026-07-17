@@ -74,9 +74,9 @@ def _build_config(
 
     return FrigateConfig(
         mqtt={"host": "mqtt"},
-        auth={"roles": roles},
+        auth={"roles": roles, "enabled": True},
         cameras=cameras,
-        proxy={"separator": ","},
+        proxy={"header_map": {"user": "Remote-User", "role": "Remote-Role"}, "separator": ","},
     )
 
 

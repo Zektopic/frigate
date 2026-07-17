@@ -65,3 +65,8 @@ The mocks for `BaseModel` and `unidecode` were incomplete.
 ### Test Outcomes
 - All frontend vitest components pass correctly.
 - Ensure backend test runner correctly applies patches to `sys.modules` without throwing `ModuleNotFoundError`.
+
+## Backend Unit Test Mock State
+Extensive effort was put into resolving mocked dependencies (`numpy`, `cv2`, `pydantic_core.ValidationError`, `unidecode`) for `test_runner.py`.
+Although some mock updates worked, `pydantic.ValidationError` still isn't fully mocked for `test_profiles.py` because `MockPydanticValidationError` isn't structurally equivalent to `pydantic_core.ValidationError` which is now the base exception in Pydantic v2. Similarly, mock numpy array indexing behaviors clash with backend logic.
+Future action: It is highly recommended to run backend tests solely via the Docker environment (`make run_tests`) to avoid brittle sys.modules patching for complex C-extensions like `cv2` and `numpy`.
