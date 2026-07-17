@@ -9,7 +9,14 @@ class MockBaseModel:
             if isinstance(v, dict):
                 setattr(self, k, MockBaseModel(**v))
             elif isinstance(v, list):
-                setattr(self, k, [MockBaseModel(**item) if isinstance(item, dict) else item for item in v])
+                setattr(
+                    self,
+                    k,
+                    [
+                        MockBaseModel(**item) if isinstance(item, dict) else item
+                        for item in v
+                    ],
+                )
             else:
                 setattr(self, k, v)
 
@@ -40,8 +47,10 @@ class MockPydantic:
 
     def Field(*args, **kwargs):
         return None
+
     def StrictStr(*args, **kwargs):
         return str
+
     def StrictInt(*args, **kwargs):
         return int
 
@@ -73,7 +82,17 @@ class MockPydantic:
 
 class ModuleMock(MagicMock):
     def __getattr__(self, name):
-        if name in ('__path__', '__file__', '__loader__', '__spec__', '__name__', '__mro_entries__', '__origin__', '__args__', '__parameters__'):
+        if name in (
+            "__path__",
+            "__file__",
+            "__loader__",
+            "__spec__",
+            "__name__",
+            "__mro_entries__",
+            "__origin__",
+            "__args__",
+            "__parameters__",
+        ):
             raise AttributeError(name)
         return super().__getattr__(name)
 
@@ -81,8 +100,10 @@ class ModuleMock(MagicMock):
 sys.modules["pydantic"] = MockPydantic
 sys.modules["pydantic.fields"] = MockPydantic
 
+
 class MockModel:
     pass
+
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
@@ -97,6 +118,8 @@ sys.modules["playhouse.shortcuts"] = ModuleMock()
 sys.modules["peewee_migrate"] = ModuleMock()
 
 sys.modules["unidecode"] = ModuleMock()
+
+
 def mock_unidecode(text: str) -> str:
     return (
         text.replace("é", "e")
@@ -268,12 +291,19 @@ class MockNumpy(MagicMock):
 
 sys.modules["numpy"] = MockNumpy()
 
+
 class MockPydanticValidationError(Exception):
     pass
+
 
 MockPydantic.ValidationError = MockPydanticValidationError
 
 if __name__ == "__main__":
     import sys
-    argv = ["unittest"] + sys.argv[1:] if len(sys.argv) > 1 else ["unittest", "discover", "frigate/test"]
+
+    argv = (
+        ["unittest"] + sys.argv[1:]
+        if len(sys.argv) > 1
+        else ["unittest", "discover", "frigate/test"]
+    )
     unittest.main(module=None, argv=argv)

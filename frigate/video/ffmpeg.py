@@ -85,10 +85,14 @@ def capture_frames(
                 if frame_buffer is None:
                     raise ValueError("frame_buffer is None")
 
-                from frigate.util.frame_rs import frame_rs_available, read_ffmpeg_frame_to_ptr
+                from frigate.util.frame_rs import (
+                    frame_rs_available,
+                    read_ffmpeg_frame_to_ptr,
+                )
 
                 if frame_rs_available():
                     import ctypes
+
                     addr = ctypes.addressof(ctypes.c_char.from_buffer(frame_buffer))
                     fd = ffmpeg_process.stdout.fileno()
                     rc = read_ffmpeg_frame_to_ptr(fd, addr, frame_size)

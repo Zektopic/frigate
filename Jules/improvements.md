@@ -52,3 +52,16 @@ Based on the test runs and codebase review, here are several suggested improveme
 - Enhanced testing environment by explicitly returning integer tuples for `cv2.cvtColor().shape` to allow downstream assertions to work correctly.
 - Added a basic `cv2.dnn.NMSBoxes` implementation in mocks to support tests utilizing `reduce_detections`.
 - Note: Tests involving `numpy` and `Pydantic` mock behaviors still need refinement. Mocking `numpy.array().shape` and `numpy.prod` is essential to prevent `MagicMock` instances from causing comparison assertion errors (e.g. `AssertionError: <MockNumpy name='mock.ndarray().shape'> != (1620, 1920)`).
+
+### Backend Testing Updates (test_runner.py mocks)
+I have run Python unittests locally using `python3 test_runner.py` and identified further test mock failures.
+The mocks for `BaseModel` and `unidecode` were incomplete.
+- We fixed the `BaseModel` mock to include an `__init__` constructor that accepts `**kwargs`.
+- We fixed the `unidecode` mock to map accented characters to non-accented ones.
+- However, there remain multiple tests failing due to Missing dependencies such as `filelock`, `numpy`, and `requests` preventing smooth imports, and `TypeError` when dealing with `cv2` properties being MagicMocks when integers were expected.
+- We need to accurately mock `RootModel` on `pydantic` in `test_runner.py`.
+- Shared Memory frame manager caching test assumptions are being violated due to `UntrackedSharedMemory` being called.
+
+### Test Outcomes
+- All frontend vitest components pass correctly.
+- Ensure backend test runner correctly applies patches to `sys.modules` without throwing `ModuleNotFoundError`.

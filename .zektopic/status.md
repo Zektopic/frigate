@@ -30,3 +30,7 @@ Documented the necessary fixes and testing mock improvements in `Jules/improveme
 - Improved `test_runner.py` by adding more robust mocking for `cv2.cvtColor`, specifically ensuring that `.shape` returns a tuple. This resolved several failures in `test_video.py` and other modules that depend on OpenCV shape assertions.
 - Verified frontend tests still run successfully (115 tests passed).
 - Test environment is now more stable, but additional mocking around `numpy` and `Pydantic` validation is still required for the remaining backend unit test failures to be resolved completely.
+
+## Test Run Outcomes (Latest)
+- **Backend Tests:** Ran 681 tests with failures (26 failures, 196 errors). Missing dependencies/mocks (`filelock`, `requests`, `numpy`, `cv2`, `peewee`, `numpy` and `openvino`) still cause many issues. Some tests throw assertion errors like `test_overlapping_objects_reduced` and `test_vert_stacked_cars_not_reduced` in `test_video.py`. Also `MockPydanticValidationError` was not raised in `test_profiles.py`. Shared memory frame manager testing fails because `UntrackedSharedMemory` mock is called unexpectedly.
+- **Frontend Tests:** Successfully ran Vitest on 115 tests in `web/src/`. All 115 tests passed perfectly without errors (node warnings about `punycode` only). E2E tests were skipped by targeting only `src/`.

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Generative AI module for Frigate."""
 
 import importlib

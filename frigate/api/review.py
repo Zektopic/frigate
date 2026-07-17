@@ -664,7 +664,7 @@ def motion_activity(
 
     # change types for output
     # Convert index from DatetimeIndex back to unix timestamps
-    df.index = (df.index - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+    df.index = (df.index - pd.Timestamp("1970-01-01")) // pd.Timedelta("1s")
     normalized = df.reset_index().to_dict("records")
     return JSONResponse(content=normalized)
 
