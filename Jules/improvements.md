@@ -88,3 +88,9 @@ Completed testing code execution, and found missing mock 'pydantic.json_schema' 
 
 ## Test_runner.py Execution note
 test_runner.py relies on patching sys.modules extensively for its unittests to pass in absence of docker compilation. Because these test the entire API logic from routing to pydantic serialization to pydantic schema dumps, the mocking must be completely comprehensive which makes test_runner.py fragile outside of docker context. For test completion outside docker, tests that pass are considered successfully handled.
+
+## Mock testing dependencies status update
+Pydantic schema loading exceptions have been resolved in the mocked framework. It was throwing warnings when building validation models due to `__pydantic_core_schema__` missing, which we added to `MockBaseModel`.
+
+## Mock testing dependencies status update 2
+Pydantic schema loading exceptions have been completely resolved in the mocked framework. It was throwing warnings when building validation models due to `__pydantic_core_schema__`, `__pydantic_validator__`, and `computed_field` missing, which we added to `MockBaseModel` and `MockPydantic`.
