@@ -227,8 +227,6 @@ sys.modules["playhouse.sqliteq"] = ModuleMock()
 sys.modules["playhouse.shortcuts"] = ModuleMock()
 sys.modules["peewee_migrate"] = ModuleMock()
 
-sys.modules["unidecode"] = ModuleMock()
-
 def mock_unidecode(text: str) -> str:
     if text == "frégate": return "fregate"
     if text == "utilité": return "utilite"
@@ -236,8 +234,17 @@ def mock_unidecode(text: str) -> str:
     if not isinstance(text, str): return text
     return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
 
+class UnidecodeMock(MagicMock):
+    def __call__(self, text):
+        return mock_unidecode(text)
+    def unidecode(self, text):
+        return mock_unidecode(text)
+
+unidecode_mock = UnidecodeMock()
+unidecode_mock.unidecode = mock_unidecode
+
+sys.modules["unidecode"] = unidecode_mock
 sys.modules["unidecode.unidecode"] = mock_unidecode
-sys.modules["unidecode"].unidecode = mock_unidecode
 
 # Mock numpy
 numpy_mock = ModuleMock()
@@ -343,9 +350,21 @@ sys.modules["scipy"] = ModuleMock()
 sys.modules["scipy.spatial"] = ModuleMock()
 sys.modules["scipy.ndimage"] = ModuleMock()
 sys.modules["sherpa_onnx"] = ModuleMock()
-sys.modules["zeep"] = ModuleMock()
-sys.modules["zeep.exceptions"] = ModuleMock()
-sys.modules["zeep.transports"] = ModuleMock()
+class TransportErrorMock(Exception): pass
+class FaultMock(Exception): pass
+class AsyncTransportMock:
+    def __init__(self, *args, **kwargs): pass
+
+zeep_mock = ModuleMock()
+zeep_exceptions_mock = ModuleMock()
+zeep_exceptions_mock.TransportError = TransportErrorMock
+zeep_exceptions_mock.Fault = FaultMock
+zeep_transports_mock = ModuleMock()
+zeep_transports_mock.AsyncTransport = AsyncTransportMock
+
+sys.modules["zeep"] = zeep_mock
+sys.modules["zeep.exceptions"] = zeep_exceptions_mock
+sys.modules["zeep.transports"] = zeep_transports_mock
 sys.modules["pathvalidate"] = ModuleMock()
 sys.modules["joserfc"] = ModuleMock()
 sys.modules["joserfc.jwt"] = ModuleMock()
