@@ -181,8 +181,32 @@ class MockPydantic:
     AnyHttpUrl = str
     SecretStr = str
 
+class FieldMock(MagicMock):
+    def __gt__(self, other):
+        return True
+    def __lt__(self, other):
+        return True
+    def __ge__(self, other):
+        return True
+    def __le__(self, other):
+        return True
+    def __eq__(self, other):
+        return True
+    def __ne__(self, other):
+        return True
+    def __hash__(self):
+        return 1
+    def __and__(self, other):
+        return True
+    def __or__(self, other):
+        return True
+    def __invert__(self):
+        return True
+
 class ModuleMock(MagicMock):
     def __getattr__(self, name):
+        if name in ("segment_size", "camera"):
+             return FieldMock()
         if name in (
             "__path__",
             "__file__",
@@ -209,13 +233,37 @@ sys.modules["pydantic.networks"] = MockPydantic
 
 
 peewee_mock = ModuleMock()
-class MockModel:
-    pass
+class MockDoesNotExist(Exception): pass
+
+class MockModelMetaclass(type):
+    def __getattr__(cls, name):
+        if name in ("segment_size", "camera", "video_path"):
+            return FieldMock()
+        return super().__getattr__(name)
+
+class MockModel(metaclass=MockModelMetaclass):
+    @classmethod
+    def insert(cls, *args, **kwargs):
+        mock_obj = MagicMock()
+        mock_obj.execute = MagicMock()
+        return mock_obj
+    @classmethod
+    def get(cls, *args, **kwargs):
+        raise MockDoesNotExist("DoesNotExist")
+    @classmethod
+    def select(cls, *args, **kwargs):
+        mock_obj = MagicMock()
+        mock_obj.where = MagicMock(return_value=mock_obj)
+        mock_obj.count = MagicMock(return_value=1)
+        mock_obj.scalar = MagicMock(return_value=1)
+        return mock_obj
+
 peewee_mock.Model = MockModel
+peewee_mock.DoesNotExist = MockDoesNotExist
 peewee_mock.chunked = lambda it, n: [it[i:i+n] for i in range(0, len(it), n)] if it else []
 sys.modules["peewee"] = peewee_mock
 sys.modules["peewee.DoesNotExists"] = MagicMock()
-sys.modules["peewee.DoesNotExist"] = Exception
+sys.modules["peewee.DoesNotExist"] = MockDoesNotExist
 sys.modules["peewee.DatabaseError"] = Exception
 sys.modules["peewee.OperationalError"] = Exception
 sys.modules["peewee.IntegrityError"] = Exception
@@ -225,7 +273,12 @@ sys.modules["playhouse"] = ModuleMock()
 sys.modules["playhouse.sqlite_ext"] = ModuleMock()
 sys.modules["playhouse.sqliteq"] = ModuleMock()
 sys.modules["playhouse.shortcuts"] = ModuleMock()
-sys.modules["peewee_migrate"] = ModuleMock()
+class MockRouter:
+    def __init__(self, *args, **kwargs): pass
+    def run(self, *args, **kwargs): pass
+peewee_migrate_mock = ModuleMock()
+peewee_migrate_mock.Router = MockRouter
+sys.modules["peewee_migrate"] = peewee_migrate_mock
 
 def mock_unidecode(text: str) -> str:
     if text == "frégate": return "fregate"
