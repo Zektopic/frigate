@@ -47,3 +47,23 @@ I have implemented multiple missing backend mocks in `test_runner.py` (e.g. `num
 Despite these improvements, running the backend tests (via `test_runner.py`) still results in numerous failures (50 failures, 164 errors) due to complex dependency structures (e.g. `numpy` dimension assertions, `pydantic` iterative validation and serialization logic, `fastapi` routing, and `openvino` absence). Due to the brittle nature of these `sys.modules` hacks, the backend tests should ideally run in a fully populated Docker environment (`make run_tests`), but `make run_tests` currently fails with `mount source: "overlay"... err: invalid argument` on this environment setup.
 
 On the frontend side, I executed the unit tests using `npm install --legacy-peer-deps` and `npm run test src/`. All 115 tests completed successfully and efficiently.
+Test results documented for the user
+- Resolved git merge conflict markers in test_runner.py.
+- Ran python3 test_runner.py and encountered numerous mock failures due to Pydantic v2 and complex numpy/cv2 assertions.
+- Tested make run_tests and identified a Docker BuildKit error (invalid argument for overlay mount) that prevents native test execution.
+- Successfully ran frontend tests (115 passing) when scoped to web/src/.
+
+## Testing Progress Update
+- Fixed git merge conflicts in `test_runner.py` that were causing `SyntaxError`s when attempting to run unit tests.
+- Attempted to run tests using Docker via `make run_tests`, however the sandbox environment cannot build Docker images due to `overlayfs` limits inside the container structure (`invalid argument` on overlay mount).
+- Ran backend unit tests natively using `python3 test_runner.py`. The suite starts successfully, resolving the initial syntax problems, but ~180 errors remain purely due to the `sys.modules` limitations mocking `pydantic`, `peewee`, and `numpy` missing core dependencies in the native environment.
+- Checked frontend tests in `web/` using `npm run test src/` and all 115 tests passed flawlessly.
+- Updated documentation in `Jules/improvements.md` with instructions on fixing the test runner's pydantic mocks and improving Docker test stability for the future.
+
+## Final Testing Environment Wrap-up
+- Confirmed `test_runner.py` is free of syntax errors and runs successfully despite missing core dependencies.
+- Frontend testing continues to be 100% stable when running `npm run test src/` in the `web` directory, with 115 tests passing.
+- Backend testing native to the environment shows extensive mock issues related to `PydanticValidationError`, `numpy` multi-dimensional arrays, and missing API routes (`peewee`). Future work should focus on allowing `make run_tests` to compile the Docker container properly to sidestep these brittle `sys.modules` mocks.
+
+## Final Testing Environment Wrap-up (Update)
+- Re-verified test execution by eliminating duplicated functions in the backend runner. Backend test fails output the exact same errors regarding mock components. Frontend continues to run 115 passing unit tests. Ready for final submit.
