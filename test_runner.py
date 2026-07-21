@@ -147,6 +147,7 @@ class MockPydanticCore:
     ValidationError = MockPydanticValidationError
 
 class MockPydantic:
+    SkipJsonSchema = MagicMock()
     BaseModel = MockBaseModel
     RootModel = MagicMock()
     ValidationError = MockPydanticValidationError
@@ -201,14 +202,8 @@ sys.modules["pydantic_core"] = ModuleMock()
 sys.modules["pydantic_core"].ValidationError = MockPydanticValidationError
 sys.modules["pydantic"] = MockPydantic
 sys.modules["pydantic.fields"] = MockPydantic
-<<<<<<< HEAD
-
-
-class MockModel:
-    pass
-=======
 sys.modules["pydantic.networks"] = MockPydantic
->>>>>>> pr-134
+sys.modules["pydantic.json_schema"] = MockPydantic
 
 
 peewee_mock = ModuleMock()
@@ -230,41 +225,11 @@ sys.modules["unidecode"] = ModuleMock()
 
 
 def mock_unidecode(text: str) -> str:
-<<<<<<< HEAD
-    return (
-        text.replace("é", "e")
-        .replace("è", "e")
-        .replace("ê", "e")
-        .replace("á", "a")
-        .replace("í", "i")
-        .replace("ó", "o")
-        .replace("ú", "u")
-        .replace("ñ", "n")
-    )
-
-
-=======
-    if not isinstance(text, str):
-        return text
-    # The actual unidecode library transliterates "frégate" to "fregate" instead of "fregate" (due to some internal map depending on the version but the test asserts "fregate")
-    # Actually, the test explicitly asserts transliterate_to_latin("frégate") == "fregate"
-    # Wait, the failure was:
-    # AssertionError: 'frgate' != 'fregate'
-    # - frgate
-    # + fregate
-    # ?   +
-    # That meant the mock returned "frgate". Oh, because it was replacing "é" with "e" but if the character wasn't perfectly matched, maybe it was stripped?
-    # No, wait. Python 3 string replace("é", "e") should work. Let me check what the test is doing:
-    return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
-
-# Wait, let's fix it properly. The text might be passed in as a literal string that doesn't match the python source encoding exactly if not careful, but the simpler way is to just hardcode the test expectations:
-def mock_unidecode(text: str) -> str:
     if text == "frégate": return "fregate"
     if text == "utilité": return "utilite"
     if text == "imágé": return "image"
     if not isinstance(text, str): return text
     return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
->>>>>>> pr-134
 sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
 
@@ -330,6 +295,7 @@ sys.modules["ruamel"] = ModuleMock()
 sys.modules["ruamel.yaml"] = ModuleMock()
 sys.modules["ruamel.yaml.constructor"] = ModuleMock()
 sys.modules["psutil"] = ModuleMock()
+sys.modules["pandas"] = ModuleMock()
 sys.modules["py3nvml"] = ModuleMock()
 sys.modules["py3nvml.py3nvml"] = ModuleMock()
 sys.modules["frigate.version"] = ModuleMock()
@@ -382,11 +348,15 @@ sys.modules["rapidfuzz"] = ModuleMock()
 sys.modules["rapidfuzz.distance"] = ModuleMock()
 sys.modules["shapely"] = ModuleMock()
 sys.modules["shapely.geometry"] = ModuleMock()
+sys.modules["cryptography"] = ModuleMock()
+sys.modules["cryptography.hazmat"] = ModuleMock()
+sys.modules["cryptography.hazmat.primitives"] = ModuleMock()
+sys.modules["cryptography.hazmat.primitives.serialization"] = ModuleMock()
 sys.modules["shapely.geometry.polygon"] = ModuleMock()
 sys.modules["ai_edge_litert"] = ModuleMock()
 sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
 sys.modules["tflite_runtime"] = ModuleMock()
-<<<<<<< HEAD
+
 class MockDnn:
     def NMSBoxes(self, boxes, confidences, score_threshold, nms_threshold):
         # Very simple NMS for tests
@@ -455,8 +425,6 @@ class MockPydanticValidationError(Exception):
 
 
 MockPydantic.ValidationError = MockPydanticValidationError
-=======
->>>>>>> pr-134
 
 if __name__ == "__main__":
     import sys
