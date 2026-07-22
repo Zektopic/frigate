@@ -71,13 +71,19 @@ class EventCleanup(threading.Thread):
         distinct_labels = self.get_removed_camera_labels()
 
         ## Expire events from cameras no longer in the config
-        # loop over object types in db
+
+        # group labels by expire_days
+        expire_days_to_labels = {}
         for event in distinct_labels:
-            # get expiration time for this label
             expire_days = retain_config.objects.get(
                 str(event.label), retain_config.default
             )
+            if expire_days not in expire_days_to_labels:
+                expire_days_to_labels[expire_days] = []
+            expire_days_to_labels[expire_days].append(str(event.label))
 
+        # loop over grouped object types in db
+        for expire_days, grouped_labels in expire_days_to_labels.items():
             expire_after = (
                 datetime.datetime.now() - datetime.timedelta(days=expire_days)
             ).timestamp()
@@ -91,7 +97,7 @@ class EventCleanup(threading.Thread):
                 .where(
                     Event.camera.not_in(self.camera_keys),  # type: ignore[arg-type,call-arg,misc]
                     Event.start_time < expire_after,
-                    Event.label == event.label,
+                    Event.label << grouped_labels,
                     Event.retain_indefinitely == False,
                 )
                 .namedtuples()
@@ -113,7 +119,7 @@ class EventCleanup(threading.Thread):
             query = Event.select(Event.id).where(
                 Event.camera.not_in(self.camera_keys),  # type: ignore[arg-type,call-arg,misc]
                 Event.start_time < expire_after,
-                Event.label == event.label,
+                Event.label << grouped_labels,
                 Event.retain_indefinitely == False,
             )
 
@@ -148,13 +154,18 @@ class EventCleanup(threading.Thread):
             # get distinct objects in database for this camera
             distinct_labels = self.get_camera_labels(name)
 
-            # loop over object types in db
+            # group labels by expire_days
+            expire_days_to_labels = {}
             for event in distinct_labels:
-                # get expiration time for this label
                 expire_days = retain_config.objects.get(
                     str(event.label), retain_config.default
                 )
+                if expire_days not in expire_days_to_labels:
+                    expire_days_to_labels[expire_days] = []
+                expire_days_to_labels[expire_days].append(str(event.label))
 
+            # loop over grouped object types in db
+            for expire_days, grouped_labels in expire_days_to_labels.items():
                 expire_after = (
                     datetime.datetime.now() - datetime.timedelta(days=expire_days)
                 ).timestamp()
@@ -168,7 +179,7 @@ class EventCleanup(threading.Thread):
                     .where(
                         Event.camera == name,
                         Event.start_time < expire_after,
-                        Event.label == event.label,
+                        Event.label << grouped_labels,
                         Event.retain_indefinitely == False,
                     )
                     .namedtuples()
