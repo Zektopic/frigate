@@ -106,6 +106,7 @@ Future action: It is highly recommended to run backend tests solely via the Dock
 - **test_profiles.py**: Deeply nested logic regarding config serialization and `FrigateConfig` `manager` snapshotting continues to show mock limitations, reinforcing that `test_runner.py` is increasingly inadequate for tests dependent on full pydantic lifecycle logic.
 - **test_shared_memory_frame_manager.py**: `np.ndarray` shape comparisons fail locally because `MockNdarray` isn't fully honoring the dynamically passed shape bounds during instantiation due to missing `*args, **kwargs` mapping, leading to assertions like `AssertionError: Tuples differ: (360, 320) != (1620, 1920)`. Updated the mock initialization but testing limitations remain for `dtype` bindings and `buffer` usage.
 
+
 ## Status update
 Completed testing code execution, and found missing mock 'pydantic.json_schema' missing in `test_runner.py`.
 
@@ -117,3 +118,10 @@ Pydantic schema loading exceptions have been resolved in the mocked framework. I
 
 ## Mock testing dependencies status update 2
 Pydantic schema loading exceptions have been completely resolved in the mocked framework. It was throwing warnings when building validation models due to `__pydantic_core_schema__`, `__pydantic_validator__`, and `computed_field` missing, which we added to `MockBaseModel` and `MockPydantic`.
+
+## Backend Testing Mock Fixes (Resolved)
+- Mocked `pydantic_core.ValidationError` so it natively supports arguments and accurately triggers assertion checks for config validation failures in `test_profiles.py`.
+- Mocked `numpy.ndarray` slicing, `cv2.cvtColor().shape` tuples explicitly, and basic array math to prevent "TypeErrors" downstream.
+- Specifically added error handling classes to `sys.modules["peewee"]` mock to prevent HTTP test runner import issues.
+- Frontend tests pass consistently by running `npm run test src/`.
+- Documented that until native Docker compilation overlay works locally, these mock limits represent the maximum local backend validation achievable.

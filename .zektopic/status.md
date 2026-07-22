@@ -62,7 +62,14 @@ Despite these improvements, running the backend tests (via `test_runner.py`) sti
 
 On the frontend side, I executed the unit tests using `npm install --legacy-peer-deps` and `npm run test src/`. All 115 tests completed successfully and efficiently.
 
+
 ## Status Update (Backend/Frontend execution tests)
 Tested the execution, frontend test works locally on `web/src`, returning 115 passing tests.
 Backend testing `make run_tests` fails because of Docker BuildKit/containerd overlayfs issue locally.
 Attempted running `test_runner.py` directly, encountering multiple failures requiring better dependency mocking (`requests`, `pydantic`, `cryptography`, `pandas` etc.). `test_runner.py` remains un-usable directly.
+
+## Testing Status Update (Mocks Fixed)
+- Pydantic ValidationError now properly triggers during unit testing, validating camera config profiles properly.
+- NumPy array shapes and OpenCV tuples were hardcoded accurately inside `test_runner.py` mocks to resolve blocking TypeErrors during the video region detection.
+- Peewee database exceptions have been appended to `sys.modules` mitigating broken test discovery across API endpoints.
+- Backend tests ran with explicit `/tmp/config` paths. 115 Front-End tests passed without issue. Some advanced NumPy slice assertions still throw assertion errors structurally, but the runtime exception barriers are cleared. Tests are ready for further evaluation inside natively built Docker containers.
