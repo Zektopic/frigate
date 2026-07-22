@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+import operator
 from functools import reduce
 from pathlib import Path
 from typing import List
@@ -10,7 +11,7 @@ import pandas as pd
 from fastapi import APIRouter, Request
 from fastapi.params import Depends
 from fastapi.responses import JSONResponse
-from peewee import Case, DoesNotExist, IntegrityError, fn, operator
+from peewee import Case, DoesNotExist, IntegrityError, fn
 from playhouse.shortcuts import model_to_dict
 
 from frigate.api.auth import (
@@ -530,7 +531,7 @@ async def set_multiple_reviewed(
 )
 def delete_reviews(body: ReviewModifyMultipleBody):
     list_of_ids = body.ids
-    reviews = (
+    reviews = list(
         ReviewSegment.select(
             ReviewSegment.camera,
             ReviewSegment.start_time,
@@ -538,32 +539,66 @@ def delete_reviews(body: ReviewModifyMultipleBody):
         )
         .where(ReviewSegment.id << list_of_ids)
         .dicts()
-        .iterator()
     )
     recording_ids = []
 
+    camera_ranges = {}
     for review in reviews:
+        camera = review["camera"]
         start_time = review["start_time"]
         end_time = review["end_time"]
-        camera_name = review["camera"]
-        recordings = (
-            Recordings.select(Recordings.id, Recordings.path)
-            .where(
-                Recordings.start_time.between(start_time, end_time)
-                | Recordings.end_time.between(start_time, end_time)
-                | (
-                    (start_time > Recordings.start_time)
-                    & (end_time < Recordings.end_time)
-                )
+
+        if camera not in camera_ranges:
+            camera_ranges[camera] = {
+                "min_start": start_time,
+                "max_end": end_time,
+                "reviews": [],
+            }
+
+        camera_ranges[camera]["min_start"] = min(
+            camera_ranges[camera]["min_start"], start_time
+        )
+        camera_ranges[camera]["max_end"] = max(
+            camera_ranges[camera]["max_end"], end_time
+        )
+        camera_ranges[camera]["reviews"].append((start_time, end_time))
+
+    clauses = []
+    for camera, data in camera_ranges.items():
+        clauses.append(
+            (Recordings.camera == camera)
+            & (Recordings.start_time <= data["max_end"])
+            & (Recordings.end_time >= data["min_start"])
+        )
+
+    if clauses:
+        candidate_recordings = (
+            Recordings.select(
+                Recordings.id,
+                Recordings.path,
+                Recordings.camera,
+                Recordings.start_time,
+                Recordings.end_time,
             )
-            .where(Recordings.camera == camera_name)
+            .where(reduce(operator.or_, clauses))
             .dicts()
             .iterator()
         )
 
-        for recording in recordings:
-            Path(recording["path"]).unlink(missing_ok=True)
-            recording_ids.append(recording["id"])
+        for recording in candidate_recordings:
+            camera = recording["camera"]
+            rec_start = recording["start_time"]
+            rec_end = recording["end_time"]
+
+            for rev_start, rev_end in camera_ranges[camera]["reviews"]:
+                if (
+                    (rec_start >= rev_start and rec_start <= rev_end)
+                    or (rec_end >= rev_start and rec_end <= rev_end)
+                    or (rev_start > rec_start and rev_end < rec_end)
+                ):
+                    Path(recording["path"]).unlink(missing_ok=True)
+                    recording_ids.append(recording["id"])
+                    break
 
     # delete recordings and review segments
     Recordings.delete().where(Recordings.id << recording_ids).execute()
