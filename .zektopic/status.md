@@ -47,3 +47,6 @@ I have implemented multiple missing backend mocks in `test_runner.py` (e.g. `num
 Despite these improvements, running the backend tests (via `test_runner.py`) still results in numerous failures (50 failures, 164 errors) due to complex dependency structures (e.g. `numpy` dimension assertions, `pydantic` iterative validation and serialization logic, `fastapi` routing, and `openvino` absence). Due to the brittle nature of these `sys.modules` hacks, the backend tests should ideally run in a fully populated Docker environment (`make run_tests`), but `make run_tests` currently fails with `mount source: "overlay"... err: invalid argument` on this environment setup.
 
 On the frontend side, I executed the unit tests using `npm install --legacy-peer-deps` and `npm run test src/`. All 115 tests completed successfully and efficiently.
+
+## Test Runner Note
+The `test_runner.py` mock approach has hit its limits for complex nested Pydantic validations. The Docker-based environment is strongly recommended as the source of truth for testing going forward.
