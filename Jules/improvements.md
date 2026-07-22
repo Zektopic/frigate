@@ -106,7 +106,6 @@ Future action: It is highly recommended to run backend tests solely via the Dock
 - **test_profiles.py**: Deeply nested logic regarding config serialization and `FrigateConfig` `manager` snapshotting continues to show mock limitations, reinforcing that `test_runner.py` is increasingly inadequate for tests dependent on full pydantic lifecycle logic.
 - **test_shared_memory_frame_manager.py**: `np.ndarray` shape comparisons fail locally because `MockNdarray` isn't fully honoring the dynamically passed shape bounds during instantiation due to missing `*args, **kwargs` mapping, leading to assertions like `AssertionError: Tuples differ: (360, 320) != (1620, 1920)`. Updated the mock initialization but testing limitations remain for `dtype` bindings and `buffer` usage.
 
-
 ## Status update
 Completed testing code execution, and found missing mock 'pydantic.json_schema' missing in `test_runner.py`.
 
@@ -125,3 +124,27 @@ Pydantic schema loading exceptions have been completely resolved in the mocked f
 - Specifically added error handling classes to `sys.modules["peewee"]` mock to prevent HTTP test runner import issues.
 - Frontend tests pass consistently by running `npm run test src/`.
 - Documented that until native Docker compilation overlay works locally, these mock limits represent the maximum local backend validation achievable.
+
+## Code Testing Outcomes and Future Work
+1. **test_runner.py Conflicts**: We encountered git merge conflict markers () in  related to , , and  mocks. These were resolved by keeping the  blocks for  and , and removing the conflict markers. The local test runner now executes without .
+2. **Docker Build Failure**: Attempting to run echo 'VERSION = "0.18.0-d89cb17"' > frigate/version.py
+echo 'VITE_GIT_COMMIT_HASH=d89cb17' > web/.env
+docker buildx build --target=frigate --file docker/main/Dockerfile . \
+	--tag frigate:latest \
+	--load fails during the  container build due to an  mount error in BuildKit (). This necessitates running tests natively with , which is still severely limited by missing Pydantic v2 metadata mocks, complex numpy implementations, and OpenCV C-extensions.
+3. **Remaining Backend Failures**: A total of 187 errors/failures remain out of 681 tests when running . Notably,  still fails heavily on  assertions and deep dictionary serialization missing default values.
+4. **Frontend Success**: 115 Vitest tests run perfectly in isolation via `cd web && npm run test src/`.
+
+## Code Testing Outcomes and Future Work
+1. **test_runner.py Conflicts**: We encountered git merge conflict markers in `test_runner.py` related to `MockDnn`, `MockPydanticValidationError`, and `unidecode` mocks. These were resolved by keeping the `HEAD` blocks for `MockDnn` and `unidecode`, and removing the conflict markers. The local test runner now executes without `SyntaxError`.
+2. **Docker Build Failure**: Attempting to run `make run_tests` fails during the `frigate` container build due to an `overlayfs` mount error in BuildKit. This necessitates running tests natively with `test_runner.py`, which is still severely limited by missing Pydantic v2 metadata mocks, complex numpy implementations, and OpenCV C-extensions.
+3. **Remaining Backend Failures**: A total of 187 errors/failures remain out of 681 tests when running `test_runner.py`. Notably, `test_profiles.py` still fails heavily on `MockPydanticValidationError` assertions and deep dictionary serialization missing default values.
+4. **Frontend Success**: 115 Vitest tests run perfectly in isolation via `cd web && npm run test src/`.
+
+## Final Testing Environment Wrap-up
+- Fixed syntax errors inside `test_runner.py` allowing backend tests to at least execute natively.
+- Mocks for Pydantic v2 metadata, `numpy.ndarray.shape`, and OpenCV bounding box NMS continue to fail native tests. A permanent solution requires fixing the local Docker engine's overlay mount issues so that `make run_tests` can correctly build the `frigate:latest` container.
+- Frontend test suite is entirely passing when isolating the execution to `src/` inside the `web/` folder, effectively bypassing `vitest` and `playwright` conflicts.
+
+## Final Testing Environment Wrap-up (Update)
+- Note: There was a duplicate `def mock_unidecode` declaration remaining from previous git conflict resolution which was removed, but Pydantic Mock limitations still block 187/681 unit tests (failures=49, errors=138, skipped=4) via `test_runner.py`. Wait for Docker resolution to completely test backend.

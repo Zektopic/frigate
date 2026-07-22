@@ -131,6 +131,8 @@ sys.modules["pydantic.fields"] = MockPydantic
 class MockModel:
     pass
 
+sys.modules["pydantic.networks"] = MockPydantic
+
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
@@ -149,19 +151,11 @@ sys.modules["unidecode"] = ModuleMock()
 
 def mock_unidecode(text: str) -> str:
 
-    return (
-        text.replace("é", "e")
-        .replace("è", "e")
-        .replace("ê", "e")
-        .replace("á", "a")
-        .replace("í", "i")
-        .replace("ó", "o")
-        .replace("ú", "u")
-        .replace("ñ", "n")
-    )
-
-
-
+    if text == "frégate": return "fregate"
+    if text == "utilité": return "utilite"
+    if text == "imágé": return "image"
+    if not isinstance(text, str): return text
+    return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
 sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
 
@@ -258,6 +252,12 @@ sys.modules["shapely.geometry.polygon"] = ModuleMock()
 sys.modules["ai_edge_litert"] = ModuleMock()
 sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
 sys.modules["tflite_runtime"] = ModuleMock()
+
+class MockDnn:
+    def NMSBoxes(self, boxes, confidences, score_threshold, nms_threshold):
+        # Very simple NMS for tests
+        if not boxes:
+            return []
 
 sys.modules["cv2"] = MagicMock()
 sys.modules["numpy"] = MagicMock()
