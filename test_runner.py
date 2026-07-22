@@ -51,7 +51,20 @@ class MockPydanticValidationError(Exception):
         return self._errors
 
 
+class MockPydanticValidationError(Exception):
+    def __init__(self, title="Validation Error", errors=None):
+        super().__init__(title)
+        self._errors = errors or []
+    def errors(self):
+        return self._errors
+
 class MockPydantic:
+
+
+    AfterValidator = MagicMock()
+    ValidationInfo = MagicMock()
+    field_serializer = MagicMock()
+    TypeAdapter = MagicMock()
     BaseModel = MockBaseModel
 
 
@@ -356,16 +369,6 @@ class MockNumpy(MagicMock):
 
 
 sys.modules["numpy"] = MockNumpy()
-
-
-
-class MockPydanticValidationError(Exception):
-    def __init__(self, title="Validation Error", errors=None):
-        super().__init__(title)
-        self._errors = errors or []
-
-    def errors(self):
-        return self._errors
 
 
 if "pydantic_core" in sys.modules:
