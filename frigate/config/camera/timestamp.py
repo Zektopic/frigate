@@ -13,10 +13,7 @@ __all__ = [
 ]
 
 
-# TODO: Identify what the default format to display timestamps is
 DEFAULT_TIME_FORMAT = "%m/%d/%Y %H:%M:%S"
-# German Style:
-# DEFAULT_TIME_FORMAT = "%d.%m.%Y %H:%M:%S"
 
 
 class TimestampPositionEnum(str, Enum):
