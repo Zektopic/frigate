@@ -172,8 +172,8 @@ class MockPydantic:
             raise MockPydanticValidationError("Invalid")
         if "not_a_bool" in str(obj):
             raise MockPydanticValidationError("Invalid")
-
         return obj
+
 
     StringConstraints = MagicMock()
     conlist = MagicMock()
@@ -200,16 +200,16 @@ class ModuleMock(MagicMock):
 sys.modules["pydantic_core"] = ModuleMock()
 sys.modules["pydantic_core"].ValidationError = MockPydanticValidationError
 sys.modules["pydantic"] = MockPydantic
+
+class MockPydanticCore:
+    class _pydantic_core:
+        class ValidationError(Exception):
+            pass
+sys.modules["pydantic_core"] = MockPydanticCore
+sys.modules["pydantic_core._pydantic_core"] = MockPydanticCore._pydantic_core
+
 sys.modules["pydantic.fields"] = MockPydantic
-<<<<<<< HEAD
-
-
-class MockModel:
-    pass
-=======
 sys.modules["pydantic.networks"] = MockPydantic
->>>>>>> pr-134
-
 
 peewee_mock = ModuleMock()
 class MockModel:
@@ -230,7 +230,8 @@ sys.modules["unidecode"] = ModuleMock()
 
 
 def mock_unidecode(text: str) -> str:
-<<<<<<< HEAD
+    if not isinstance(text, str):
+        return text
     return (
         text.replace("é", "e")
         .replace("è", "e")
@@ -242,29 +243,6 @@ def mock_unidecode(text: str) -> str:
         .replace("ñ", "n")
     )
 
-
-=======
-    if not isinstance(text, str):
-        return text
-    # The actual unidecode library transliterates "frégate" to "fregate" instead of "fregate" (due to some internal map depending on the version but the test asserts "fregate")
-    # Actually, the test explicitly asserts transliterate_to_latin("frégate") == "fregate"
-    # Wait, the failure was:
-    # AssertionError: 'frgate' != 'fregate'
-    # - frgate
-    # + fregate
-    # ?   +
-    # That meant the mock returned "frgate". Oh, because it was replacing "é" with "e" but if the character wasn't perfectly matched, maybe it was stripped?
-    # No, wait. Python 3 string replace("é", "e") should work. Let me check what the test is doing:
-    return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
-
-# Wait, let's fix it properly. The text might be passed in as a literal string that doesn't match the python source encoding exactly if not careful, but the simpler way is to just hardcode the test expectations:
-def mock_unidecode(text: str) -> str:
-    if text == "frégate": return "fregate"
-    if text == "utilité": return "utilite"
-    if text == "imágé": return "image"
-    if not isinstance(text, str): return text
-    return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
->>>>>>> pr-134
 sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
 
@@ -386,33 +364,11 @@ sys.modules["shapely.geometry.polygon"] = ModuleMock()
 sys.modules["ai_edge_litert"] = ModuleMock()
 sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
 sys.modules["tflite_runtime"] = ModuleMock()
-<<<<<<< HEAD
 class MockDnn:
     def NMSBoxes(self, boxes, confidences, score_threshold, nms_threshold):
-        # Very simple NMS for tests
         if not boxes:
             return []
-
-        # for tests we just assume we return the first box if there are 2 overlapping, etc.
-        # the simplest mock just returns all indices but let's do a simple one based on max confidence
-
-        # in the test `test_overlapping_objects_reduced` we have 2 boxes:
-        # box 1: confidence 0.6 (clipped), box 2: confidence 0.88.
-        # wait, the first box is not clipped (1150 to 1500, box is 1209 to 1437) -> confidence 0.81
-        # the second box is clipped (1242 to 1602, box is 1238 to 1401) -> confidence 0.6
-        # so box 1 (index 0) has 0.81, box 2 has 0.6. Box 1 should be selected.
-        indices = []
-        for i in range(len(boxes)):
-            keep = True
-            for j in range(len(indices)):
-                # just check if same box or overlapping.
-                # let's just return indices sorted by confidence
-                pass
-
-        # Return indices of highest confidences first
         sorted_indices = sorted(range(len(confidences)), key=lambda k: confidences[k], reverse=True)
-
-        # Return the top index for testing overlapping
         if len(confidences) > 1 and max(confidences) > 0:
             return [sorted_indices[0]]
         return [[i] for i in range(len(boxes))]
@@ -455,8 +411,8 @@ class MockPydanticValidationError(Exception):
 
 
 MockPydantic.ValidationError = MockPydanticValidationError
-=======
->>>>>>> pr-134
+MockPydantic.v1 = type("v1", (), {"BaseModel": MockPydantic.BaseModel, "Field": MockPydantic.Field, "ValidationError": MockPydanticValidationError})
+
 
 if __name__ == "__main__":
     import sys
