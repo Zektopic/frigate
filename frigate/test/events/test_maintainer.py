@@ -156,6 +156,5 @@ class TestShouldUpdateState(unittest.TestCase):
         self.assertFalse(should_update_state(prev_event, current_event))
 
 
-
 if __name__ == "__main__":
     unittest.main()
