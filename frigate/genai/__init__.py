@@ -1,6 +1,7 @@
-from __future__ import annotations
-
 """Generative AI module for Frigate."""
+
+
+from __future__ import annotations
 
 import importlib
 import json
@@ -16,7 +17,6 @@ from pydantic import ValidationError
 from frigate.config import CameraConfig, GenAIConfig, GenAIProviderEnum
 from frigate.const import CLIPS_DIR
 from frigate.data_processing.post.types import ReviewMetadata
-from frigate.genai.manager import GenAIClientManager
 from frigate.genai.prompts import (
     build_object_description_prompt,
     build_review_description_prompt,
@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "GenAIClient",
-    "GenAIClientManager",
     "GenAIConfig",
     "GenAIProviderEnum",
     "PROVIDERS",
