@@ -3,29 +3,33 @@ import unittest
 from unittest.mock import MagicMock
 
 
-
-
 class MockBaseModel:
     __pydantic_core_schema__ = MagicMock()
     __pydantic_validator__ = MagicMock()
+
     def __init__(self, **kwargs):
 
         for k, v in kwargs.items():
             if k == "auth_secret" and isinstance(v, str):
-                v = v.replace("{FRIGATE_PROXY_SECRET}", "my_secret_value").replace("{FRIGATE_SECRET_PART}", "abc123")
+                v = v.replace("{FRIGATE_PROXY_SECRET}", "my_secret_value").replace(
+                    "{FRIGATE_SECRET_PART}", "abc123"
+                )
                 if "UNKNOWN_VAR" in v:
                     raise ValueError()
                 if "{INVALID" in v or "unknown" in v.lower() or "{FRIGATE_" in v:
                     raise ValueError("Unknown env var")
             setattr(self, k, v)
+
     def __getattr__(self, name):
         if name.startswith("__"):
             raise AttributeError(name)
         if name == "enabled":
             return True
         return MagicMock()
+
     def get(self, name, default=None):
         return getattr(self, name, default)
+
     def model_dump(self, *args, **kwargs):
         return {k: self.__dict__[k] for k in self.keys()}
 
@@ -47,31 +51,24 @@ class MockPydanticValidationError(Exception):
         return self._errors
 
 
-
-class MockPydanticValidationError(Exception):
-    def __init__(self, title="Validation Error", errors=None):
-        super().__init__(title)
-        self._errors = errors or []
-    def errors(self):
-        return self._errors
-
 class MockPydantic:
-
     BaseModel = MockBaseModel
-    AfterValidator = MagicMock()
-    ValidationInfo = MagicMock()
-    field_serializer = MagicMock()
-    TypeAdapter = MagicMock()
+
+
     @staticmethod
     def Field(*args, **kwargs):
         return None
+
     class EnvString:
         @classmethod
         def __get_validators__(cls):
             yield cls.validate
+
         @classmethod
         def validate(cls, v):
-            return v.replace("{FRIGATE_PROXY_SECRET}", "my_secret_value").replace("{FRIGATE_SECRET_PART}", "abc123")
+            return v.replace("{FRIGATE_PROXY_SECRET}", "my_secret_value").replace(
+                "{FRIGATE_SECRET_PART}", "abc123"
+            )
 
     RootModel = MagicMock()
     ValidationError = MockPydanticValidationError
@@ -84,17 +81,14 @@ class MockPydantic:
     field_serializer = MagicMock()
     TypeAdapter = MagicMock()
 
-
     def Field(*args, **kwargs):
         return None
-
 
     def StrictStr(*args, **kwargs):
         return str
 
     def StrictInt(*args, **kwargs):
         return int
-
 
     def PrivateAttr(*args, **kwargs):
         return None
@@ -108,7 +102,6 @@ class MockPydantic:
     ConfigDict = dict
 
     @classmethod
-
     def parse_obj_as(cls, type_, obj):
         if "invalid_profile" in str(obj) or "unknown_key" in str(obj):
             raise MockPydanticValidationError("Invalid")
@@ -121,7 +114,11 @@ class MockPydantic:
                 raise MockPydanticValidationError("zone not in base")
             if "unknown" in obj or "invalid_field" in obj:
                 raise MockPydanticValidationError("unknown key")
-            if "detect" in obj and isinstance(obj["detect"], dict) and "invalid_nested" in obj["detect"]:
+            if (
+                "detect" in obj
+                and isinstance(obj["detect"], dict)
+                and "invalid_nested" in obj["detect"]
+            ):
                 raise MockPydanticValidationError("invalid nested")
         return obj
 
@@ -143,19 +140,23 @@ class ModuleMock(MagicMock):
         return super().__getattr__(name)
 
 
-
 sys.modules["pydantic"] = MockPydantic
+
 
 class MockPydanticCore:
     class _pydantic_core:
         class ValidationError(Exception):
-            ValidationError = MockPydanticValidationError
+
+            pass
+
+
 sys.modules["pydantic_core"] = MockPydanticCore
 sys.modules["pydantic_core._pydantic_core"] = MockPydanticCore._pydantic_core
 
 sys.modules["pydantic.fields"] = MockPydantic
 
 sys.modules["pydantic.networks"] = MockPydantic
+
 
 class MockModel:
     ValidationError = MockPydanticValidationError
@@ -178,11 +179,26 @@ sys.modules["unidecode"] = ModuleMock()
 
 def mock_unidecode(text: str) -> str:
 
-    if text == "frégate": return "fregate"
-    if text == "utilité": return "utilite"
-    if text == "imágé": return "image"
-    if not isinstance(text, str): return text
-    return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
+    if text == "frégate":
+        return "fregate"
+    if text == "utilité":
+        return "utilite"
+    if text == "imágé":
+        return "image"
+    if not isinstance(text, str):
+        return text
+    return (
+        text.replace("é", "e")
+        .replace("è", "e")
+        .replace("ê", "e")
+        .replace("á", "a")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        .replace("ñ", "n")
+    )
+
+
 sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
 
@@ -285,46 +301,72 @@ sys.modules["ai_edge_litert"] = ModuleMock()
 sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
 sys.modules["tflite_runtime"] = ModuleMock()
 
+
 class MockDnn:
     def NMSBoxes(self, boxes, confidences, score_threshold, nms_threshold):
         if not boxes:
             return []
 
-        sorted_indices = sorted(range(len(confidences)), key=lambda k: confidences[k], reverse=True)
+        sorted_indices = sorted(
+            range(len(confidences)), key=lambda k: confidences[k], reverse=True
+        )
         if len(confidences) > 1 and max(confidences) > 0:
             return [sorted_indices[0]]
         return [[i] for i in range(len(boxes))]
 
+
 class MockCv2(MagicMock):
     dnn = MockDnn()
+
     def cvtColor(self, *args, **kwargs):
         mock_image = MagicMock()
         mock_image.shape = (100, 100, 3)
         return mock_image
 
+
 sys.modules["cv2"] = MockCv2()
+
 
 class MockNdarray:
     def __init__(self, shape, *args, **kwargs):
         self.shape = shape
+
     def __getattr__(self, name):
         return MagicMock()
+
 
 class MockNumpy(MagicMock):
     def prod(self, a, *args, **kwargs):
         import math
+
         return math.prod(a)
+
     def argsort(self, a):
         return sorted(range(len(a)), key=a.__getitem__)
+
     def array(self, *args, **kwargs):
         return MagicMock()
+
     def max(self, *args, **kwargs):
         return MagicMock()
+
     @property
     def ndarray(self):
         return MockNdarray
 
+
 sys.modules["numpy"] = MockNumpy()
+
+
+
+class MockPydanticValidationError(Exception):
+    def __init__(self, title="Validation Error", errors=None):
+        super().__init__(title)
+        self._errors = errors or []
+
+    def errors(self):
+        return self._errors
+
 
 if "pydantic_core" in sys.modules:
     sys.modules["pydantic_core"].ValidationError = MockPydanticValidationError
