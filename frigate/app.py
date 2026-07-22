@@ -378,9 +378,11 @@ class FrigateApp:
             try:
                 largest_frame = max(
                     [
-                        det.model.height * det.model.width * 3
-                        if det.model is not None
-                        else 320
+                        (
+                            det.model.height * det.model.width * 3
+                            if det.model is not None
+                            else 320
+                        )
                         for det in self.config.detectors.values()
                     ]
                 )
@@ -560,14 +562,14 @@ class FrigateApp:
 
                 self.config.auth.admin_first_time_login = True
 
-                logger.info("********************************************************")
-                logger.info("********************************************************")
-                logger.info("***    Auth is enabled, but no users exist.          ***")
-                logger.info("***    Created a default user:                       ***")
-                logger.info("***    User: admin                                   ***")
-                logger.info(f"***    Password: {password}   ***")
-                logger.info("********************************************************")
-                logger.info("********************************************************")
+                print("********************************************************")
+                print("********************************************************")
+                print("***    Auth is enabled, but no users exist.          ***")
+                print("***    Created a default user:                       ***")
+                print("***    User: admin                                   ***")
+                print(f"***    Password: {password}   ***")
+                print("********************************************************")
+                print("********************************************************")
             elif self.config.auth.reset_admin_password:
                 password = secrets.token_hex(16)
                 password_hash = hash_password(
@@ -580,12 +582,12 @@ class FrigateApp:
                     notification_tokens=[],
                 ).execute()
 
-                logger.info("********************************************************")
-                logger.info("********************************************************")
-                logger.info("***    Reset admin password set in the config.       ***")
-                logger.info(f"***    Password: {password}   ***")
-                logger.info("********************************************************")
-                logger.info("********************************************************")
+                print("********************************************************")
+                print("********************************************************")
+                print("***    Reset admin password set in the config.       ***")
+                print(f"***    Password: {password}   ***")
+                print("********************************************************")
+                print("********************************************************")
 
     def start(self) -> None:
         logger.info(f"Starting Frigate ({VERSION})")
