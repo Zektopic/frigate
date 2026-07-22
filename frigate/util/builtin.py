@@ -262,12 +262,12 @@ def split_config_key_path(key_path_str: str) -> list[str]:
 
 
 def update_yaml_file_bulk(file_path: str, updates: Dict[str, Any]):
-    yaml = YAML()
-    yaml.indent(mapping=2, sequence=4, offset=2)
+    yaml_parser = YAML(typ="rt")
+    yaml_parser.indent(mapping=2, sequence=4, offset=2)
 
     try:
         with open(file_path, "r") as f:
-            data = yaml.load(f)  # nosec
+            data = yaml_parser.load(f)  # nosec
     except FileNotFoundError:
         logger.error(
             f"Unable to read from Frigate config file {file_path}. Make sure it exists and is readable."
@@ -288,7 +288,7 @@ def update_yaml_file_bulk(file_path: str, updates: Dict[str, Any]):
 
     try:
         with open(file_path, "w") as f:
-            yaml.dump(data, f)
+            yaml_parser.dump(data, f)
     except Exception as e:
         logger.error(f"Unable to write to Frigate config file {file_path}: {e}")
 

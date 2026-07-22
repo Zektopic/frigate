@@ -9,7 +9,7 @@ import threading
 import time
 
 import numpy as np
-from peewee import DoesNotExist, IntegrityError
+from peewee import IntegrityError
 from PIL import Image
 from playhouse.shortcuts import model_to_dict
 
@@ -614,7 +614,8 @@ class Embeddings:
                 ).execute()
 
                 thumbnails_to_remove = [
-                    existing_triggers[name].data for name in triggers_to_remove
+                    existing_triggers[name].data
+                    for name in triggers_to_remove
                     if existing_triggers[name].type == "thumbnail"
                 ]
                 if thumbnails_to_remove:
@@ -622,8 +623,10 @@ class Embeddings:
                         # Consume the generator to ensure any exceptions are raised
                         list(
                             executor.map(
-                                lambda event_id: self.remove_trigger_thumbnail(camera.name, event_id),
-                                thumbnails_to_remove
+                                lambda event_id: self.remove_trigger_thumbnail(
+                                    camera.name, event_id
+                                ),
+                                thumbnails_to_remove,
                             )
                         )
 
