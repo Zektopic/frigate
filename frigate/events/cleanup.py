@@ -73,11 +73,11 @@ class EventCleanup(threading.Thread):
         ## Expire events from cameras no longer in the config
 
         # group labels by expire_days
-        expire_days_to_labels = {}
+        expire_days_to_labels: dict[float, list[str]] = {}
         for event in distinct_labels:
-            expire_days = retain_config.objects.get(
+            expire_days = float(retain_config.objects.get(
                 str(event.label), retain_config.default
-            )
+            ))
             if expire_days not in expire_days_to_labels:
                 expire_days_to_labels[expire_days] = []
             expire_days_to_labels[expire_days].append(str(event.label))
@@ -155,17 +155,17 @@ class EventCleanup(threading.Thread):
             distinct_labels = self.get_camera_labels(name)
 
             # group labels by expire_days
-            expire_days_to_labels = {}
+            expire_days_to_labels_conf: dict[float, list[str]] = {}
             for event in distinct_labels:
-                expire_days = retain_config.objects.get(
+                expire_days = float(retain_config.objects.get(
                     str(event.label), retain_config.default
-                )
-                if expire_days not in expire_days_to_labels:
-                    expire_days_to_labels[expire_days] = []
-                expire_days_to_labels[expire_days].append(str(event.label))
+                ))
+                if expire_days not in expire_days_to_labels_conf:
+                    expire_days_to_labels_conf[expire_days] = []
+                expire_days_to_labels_conf[expire_days].append(str(event.label))
 
             # loop over grouped object types in db
-            for expire_days, grouped_labels in expire_days_to_labels.items():
+            for expire_days, grouped_labels in expire_days_to_labels_conf.items():
                 expire_after = (
                     datetime.datetime.now() - datetime.timedelta(days=expire_days)
                 ).timestamp()
