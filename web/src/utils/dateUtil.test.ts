@@ -73,6 +73,9 @@ describe("epochToLong", () => {
   test("should handle negative epoch milliseconds", () => {
     expect(epochToLong(-1000)).toBe(-1);
   });
+  test("should handle missing epoch milliseconds gracefully (if NaN is returned)", () => {
+    expect(epochToLong(NaN)).toBeNaN();
+  });
 });
 
 describe("dateToLong", () => {
@@ -88,6 +91,14 @@ describe("dateToLong", () => {
   test("should handle dates before epoch", () => {
     const date = new Date("1969-12-31T23:59:59.000Z");
     expect(dateToLong(date)).toBe(-1);
+  });
+  test("should handle invalid dates", () => {
+    const invalidDate = new Date("invalid date string");
+    expect(dateToLong(invalidDate)).toBeNaN();
+  });
+  test("should handle undefined and null", () => {
+    expect(() => dateToLong(undefined as unknown as Date)).toThrowError();
+    expect(() => dateToLong(null as unknown as Date)).toThrowError();
   });
 });
 
