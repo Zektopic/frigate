@@ -55,11 +55,15 @@ for line in lines:
         if not hasattr(self, 'ffmpeg_cmds'): self.ffmpeg_cmds = []
 
 """)
-    elif "def __init__(self, **kwargs):" in line and len(new_lines) > 0 and new_lines[-1].strip() != "class MockBaseModel:":
-        pass # Skip the original init we just replaced
+    elif (
+        "def __init__(self, **kwargs):" in line
+        and len(new_lines) > 0
+        and new_lines[-1].strip() != "class MockBaseModel:"
+    ):
+        pass  # Skip the original init we just replaced
     elif len(new_lines) > 0 and "def __init__(self" in new_lines[-1]:
-         # Skip the original body of init
-         pass
+        # Skip the original body of init
+        pass
     else:
         new_lines.append(line)
 
