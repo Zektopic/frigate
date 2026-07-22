@@ -41,6 +41,13 @@ class MockBaseModel:
 
 
 
+class MockPydanticValidationError(Exception):
+    def __init__(self, title="Validation Error", errors=None):
+        super().__init__(title)
+        self._errors = errors or []
+    def errors(self):
+        return self._errors
+
 class MockPydantic:
 
     BaseModel = MockBaseModel
@@ -60,6 +67,10 @@ class MockPydantic:
 
     SkipJsonSchema = MagicMock()
     BaseModel = MockBaseModel
+    AfterValidator = MagicMock()
+    ValidationInfo = MagicMock()
+    TypeAdapter = MagicMock()
+    field_serializer = MagicMock()
 
 
     def Field(*args, **kwargs):
@@ -302,13 +313,6 @@ class MockNumpy(MagicMock):
         return MockNdarray
 
 sys.modules["numpy"] = MockNumpy()
-
-class MockPydanticValidationError(Exception):
-    def __init__(self, title="Validation Error", errors=None):
-        super().__init__(title)
-        self._errors = errors or []
-    def errors(self):
-        return self._errors
 
 if "pydantic_core" in sys.modules:
     sys.modules["pydantic_core"].ValidationError = MockPydanticValidationError

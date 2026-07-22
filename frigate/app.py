@@ -560,14 +560,14 @@ class FrigateApp:
 
                 self.config.auth.admin_first_time_login = True
 
-                logger.info("********************************************************")
-                logger.info("********************************************************")
-                logger.info("***    Auth is enabled, but no users exist.          ***")
-                logger.info("***    Created a default user:                       ***")
-                logger.info("***    User: admin                                   ***")
-                logger.info(f"***    Password: {password}   ***")
-                logger.info("********************************************************")
-                logger.info("********************************************************")
+                print("********************************************************", flush=True)
+                print("********************************************************", flush=True)
+                print("***    Auth is enabled, but no users exist.          ***", flush=True)
+                print("***    Created a default user:                       ***", flush=True)
+                print("***    User: admin                                   ***", flush=True)
+                print(f"***    Password: {password}   ***", flush=True)
+                print("********************************************************", flush=True)
+                print("********************************************************", flush=True)
             elif self.config.auth.reset_admin_password:
                 password = secrets.token_hex(16)
                 password_hash = hash_password(
@@ -580,12 +580,12 @@ class FrigateApp:
                     notification_tokens=[],
                 ).execute()
 
-                logger.info("********************************************************")
-                logger.info("********************************************************")
-                logger.info("***    Reset admin password set in the config.       ***")
-                logger.info(f"***    Password: {password}   ***")
-                logger.info("********************************************************")
-                logger.info("********************************************************")
+                print("********************************************************", flush=True)
+                print("********************************************************", flush=True)
+                print("***    Reset admin password set in the config.       ***", flush=True)
+                print(f"***    Password: {password}   ***", flush=True)
+                print("********************************************************", flush=True)
+                print("********************************************************", flush=True)
 
     def start(self) -> None:
         logger.info(f"Starting Frigate ({VERSION})")
