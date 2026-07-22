@@ -9,7 +9,7 @@ import threading
 import time
 
 import numpy as np
-from peewee import DoesNotExist, IntegrityError
+from peewee import IntegrityError
 from PIL import Image
 from playhouse.shortcuts import model_to_dict
 
