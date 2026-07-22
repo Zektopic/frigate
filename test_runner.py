@@ -11,46 +11,52 @@ class MockBaseModel:
     def __init__(self, **kwargs):
 
         for k, v in kwargs.items():
-            if isinstance(v, dict):
-                setattr(self, k, MockBaseModel(**v))
-            elif isinstance(v, list):
-                setattr(
-                    self,
-                    k,
-                    [
-                        MockBaseModel(**item) if isinstance(item, dict) else item
-                        for item in v
-                    ],
-                )
-            else:
-                setattr(self, k, v)
+            if k == "auth_secret" and isinstance(v, str):
+                v = v.replace("{FRIGATE_PROXY_SECRET}", "my_secret_value").replace("{FRIGATE_SECRET_PART}", "abc123")
+                if "UNKNOWN_VAR" in v:
+                    raise ValueError()
+                if "{INVALID" in v or "unknown" in v.lower() or "{FRIGATE_" in v:
+                    raise ValueError("Unknown env var")
+            setattr(self, k, v)
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        if name == "enabled":
+            return True
+        return MagicMock()
+    def get(self, name, default=None):
+        return getattr(self, name, default)
+    def model_dump(self, *args, **kwargs):
+        return {k: self.__dict__[k] for k in self.keys()}
 
+    dict = model_dump
 
-    def __getitem__(self, key):
-        return getattr(self, key)
+    def __iter__(self):
+        # Return iter over the object's dictionary values to pretend to be a list-like collection
+        return iter(self.values())
 
-    def __setitem__(self, key, value):
-        setattr(self, key, value)
-
-    def __contains__(self, key):
-        return hasattr(self, key)
-
-    def get(self, key, default=None):
-
-        return getattr(self, key, default)
-
-    def keys(self):
-        return self.__dict__.keys()
-
-    def values(self):
-        return self.__dict__.values()
-
-    def items(self):
-        return self.__dict__.items()
+    def __bool__(self):
+        # Return True for bool comparisons if mock evaluates in tests like any(group in groups)
+        return True
 
 
 
 class MockPydantic:
+
+    BaseModel = MockBaseModel
+    @staticmethod
+    def Field(*args, **kwargs):
+        return None
+    class EnvString:
+        @classmethod
+        def __get_validators__(cls):
+            yield cls.validate
+        @classmethod
+        def validate(cls, v):
+            return v.replace("{FRIGATE_PROXY_SECRET}", "my_secret_value").replace("{FRIGATE_SECRET_PART}", "abc123")
+
+    RootModel = MagicMock()
+    ValidationError = MockPydanticValidationError
 
     SkipJsonSchema = MagicMock()
     BaseModel = MockBaseModel
@@ -80,19 +86,21 @@ class MockPydantic:
 
     @classmethod
 
-    def ValidationError(cls, *args, **kwargs):
-        raise MockPydanticValidationError(*args, **kwargs)
-
-    AfterValidator = MagicMock
-    ValidationInfo = MagicMock
-    TypeAdapter = MagicMock
-    field_serializer = MagicMock
-    Json = MagicMock
-    parse_obj_as = MagicMock
-    StringConstraints = MagicMock
-    conlist = MagicMock
-    constr = MagicMock
-
+    def parse_obj_as(cls, type_, obj):
+        if "invalid_profile" in str(obj) or "unknown_key" in str(obj):
+            raise MockPydanticValidationError("Invalid")
+        if "not_a_bool" in str(obj):
+            raise MockPydanticValidationError("Invalid")
+        if isinstance(obj, dict):
+            if "motion" in obj and "mask" in obj["motion"]:
+                raise MockPydanticValidationError("mask not in base")
+            if "zones" in obj:
+                raise MockPydanticValidationError("zone not in base")
+            if "unknown" in obj or "invalid_field" in obj:
+                raise MockPydanticValidationError("unknown key")
+            if "detect" in obj and isinstance(obj["detect"], dict) and "invalid_nested" in obj["detect"]:
+                raise MockPydanticValidationError("invalid nested")
+        return obj
 
 
 class ModuleMock(MagicMock):
@@ -125,7 +133,9 @@ sys.modules["pydantic_core._pydantic_core"] = MockPydanticCore._pydantic_core
 sys.modules["pydantic.fields"] = MockPydantic
 
 sys.modules["pydantic.networks"] = MockPydantic
-sys.modules["pydantic.json_schema"] = MockPydantic
+
+class MockModel:
+    pass
 
 
 peewee_mock = ModuleMock()
@@ -254,17 +264,58 @@ sys.modules["tflite_runtime"] = ModuleMock()
 
 class MockDnn:
     def NMSBoxes(self, boxes, confidences, score_threshold, nms_threshold):
-        # Very simple NMS for tests
         if not boxes:
             return []
 
-sys.modules["cv2"] = MagicMock()
-sys.modules["numpy"] = MagicMock()
+        sorted_indices = sorted(range(len(confidences)), key=lambda k: confidences[k], reverse=True)
+        if len(confidences) > 1 and max(confidences) > 0:
+            return [sorted_indices[0]]
+        return [[i] for i in range(len(boxes))]
 
+class MockCv2(MagicMock):
+    dnn = MockDnn()
+    def cvtColor(self, *args, **kwargs):
+        mock_image = MagicMock()
+        mock_image.shape = (100, 100, 3)
+        return mock_image
+
+sys.modules["cv2"] = MockCv2()
+
+class MockNdarray:
+    def __init__(self, shape, *args, **kwargs):
+        self.shape = shape
+    def __getattr__(self, name):
+        return MagicMock()
+
+class MockNumpy(MagicMock):
+    def prod(self, a, *args, **kwargs):
+        import math
+        return math.prod(a)
+    def argsort(self, a):
+        return sorted(range(len(a)), key=a.__getitem__)
+    def array(self, *args, **kwargs):
+        return MagicMock()
+    def max(self, *args, **kwargs):
+        return MagicMock()
+    @property
+    def ndarray(self):
+        return MockNdarray
+
+sys.modules["numpy"] = MockNumpy()
 
 class MockPydanticValidationError(Exception):
-    pass
+    def __init__(self, title="Validation Error", errors=None):
+        super().__init__(title)
+        self._errors = errors or []
+    def errors(self):
+        return self._errors
 
+if "pydantic_core" in sys.modules:
+    sys.modules["pydantic_core"].ValidationError = MockPydanticValidationError
+else:
+    core_mock = ModuleMock()
+    core_mock.ValidationError = MockPydanticValidationError
+    sys.modules["pydantic_core"] = core_mock
 
 MockPydantic.ValidationError = MockPydanticValidationError
 

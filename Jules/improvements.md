@@ -151,3 +151,6 @@ docker buildx build --target=frigate --file docker/main/Dockerfile . \
 - Note: There was a duplicate `def mock_unidecode` declaration remaining from previous git conflict resolution which was removed, but Pydantic Mock limitations still block 187/681 unit tests (failures=49, errors=138, skipped=4) via `test_runner.py`. Wait for Docker resolution to completely test backend.
 
 - Attempted to run tests using python3 test_runner.py, encountered numerous import errors and missing mock modules (peewee, http_api, pydantic.json_schema, openvino, cryptography, pandas). Updated test_runner.py to include mocks for these missing dependencies, however testing environment is fragile.
+
+## Test Runner Mocking Complexity
+Attempted to update the `test_runner.py` mocks to fully mimic pydantic functionality for `test_profiles.py`. We observed that building a perfect mock for Pydantic v2 in `sys.modules` is extraordinarily complex and brittle, because it breaks fundamental duck typing and attribute resolution assumptions in tests (like `.enabled` access throwing exceptions or `isinstance(dict)` returning unexpected true/false in downstream validation). Future work should prioritize native execution via `make run_tests` rather than over-investing in local Python mock runners for complex frameworks like pydantic or cv2.

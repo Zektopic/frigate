@@ -96,3 +96,6 @@ Test results documented for the user
 - Re-verified test execution by eliminating duplicated functions in the backend runner. Backend test fails output the exact same errors regarding mock components. Frontend continues to run 115 passing unit tests. Ready for final submit.
 
 - Attempted to run tests using python3 test_runner.py, encountered numerous import errors and missing mock modules (peewee, http_api, pydantic.json_schema, openvino, cryptography, pandas). Updated test_runner.py to include mocks for these missing dependencies, however testing environment is fragile.
+
+## Test Runner Note
+The `test_runner.py` mock approach has hit its limits for complex nested Pydantic validations. The Docker-based environment is strongly recommended as the source of truth for testing going forward.
