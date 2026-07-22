@@ -3,6 +3,7 @@ from frigate.config.camera.ffmpeg import CameraFfmpegConfig, CameraInput
 from frigate.events.audio import get_ffmpeg_command
 from frigate.const import AUDIO_FORMAT, AUDIO_SAMPLE_RATE
 
+
 class TestAudioFfmpegCommand(unittest.TestCase):
     def test_get_ffmpeg_command_default_args(self):
         ffmpeg_config = CameraFfmpegConfig(
@@ -33,7 +34,13 @@ class TestAudioFfmpegCommand(unittest.TestCase):
     def test_get_ffmpeg_command_custom_input_args(self):
         # Override input args on the camera input
         ffmpeg_config = CameraFfmpegConfig(
-            inputs=[CameraInput(path="rtsp://test", roles=["audio", "detect"], input_args=["-custom", "arg1"])]
+            inputs=[
+                CameraInput(
+                    path="rtsp://test",
+                    roles=["audio", "detect"],
+                    input_args=["-custom", "arg1"],
+                )
+            ]
         )
         command = get_ffmpeg_command(ffmpeg_config)
 
@@ -48,7 +55,7 @@ class TestAudioFfmpegCommand(unittest.TestCase):
         # Override global args
         ffmpeg_config = CameraFfmpegConfig(
             global_args="-custom_global arg",
-            inputs=[CameraInput(path="rtsp://test", roles=["audio", "detect"])]
+            inputs=[CameraInput(path="rtsp://test", roles=["audio", "detect"])],
         )
         command = get_ffmpeg_command(ffmpeg_config)
 
@@ -60,7 +67,13 @@ class TestAudioFfmpegCommand(unittest.TestCase):
     def test_get_ffmpeg_command_with_preset(self):
         # Override input args with a preset string
         ffmpeg_config = CameraFfmpegConfig(
-            inputs=[CameraInput(path="rtsp://test", roles=["audio", "detect"], input_args="preset-rtsp-udp")]
+            inputs=[
+                CameraInput(
+                    path="rtsp://test",
+                    roles=["audio", "detect"],
+                    input_args="preset-rtsp-udp",
+                )
+            ]
         )
         command = get_ffmpeg_command(ffmpeg_config)
 
