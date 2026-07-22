@@ -3,6 +3,15 @@ import unittest
 from unittest.mock import MagicMock
 
 
+class MockPydanticValidationError(Exception):
+    def __init__(self, title="Validation Error", errors=None):
+        super().__init__(title)
+        self._errors = errors or []
+
+    def errors(self):
+        return self._errors
+
+
 class MockBaseModel:
     __pydantic_core_schema__ = MagicMock()
     __pydantic_validator__ = MagicMock()
@@ -45,12 +54,12 @@ class MockBaseModel:
 
 
 class MockPydantic:
-    BaseModel = MockBaseModel
-
-    @staticmethod
     def Field(*args, **kwargs):
         return None
 
+    BaseModel = MockBaseModel
+
+    @staticmethod
     class EnvString:
         @classmethod
         def __get_validators__(cls):
@@ -66,10 +75,20 @@ class MockPydantic:
     ValidationError = MockPydanticValidationError
 
     SkipJsonSchema = MagicMock()
-    BaseModel = MockBaseModel
+    AfterValidator = MagicMock
+    ValidationInfo = MagicMock
+    TypeAdapter = MagicMock
+    field_serializer = MagicMock
+    StringConstraints = MagicMock
 
-    def Field(*args, **kwargs):
-        return None
+    def conlist(*args, **kwargs):
+        return list
+
+    def constr(*args, **kwargs):
+        return str
+
+    Json = MagicMock
+    BaseModel = MockBaseModel
 
     def StrictStr(*args, **kwargs):
         return str
@@ -142,6 +161,7 @@ sys.modules["pydantic_core._pydantic_core"] = MockPydanticCore._pydantic_core
 sys.modules["pydantic.fields"] = MockPydantic
 
 sys.modules["pydantic.networks"] = MockPydantic
+sys.modules["pydantic.json_schema"] = MockPydantic
 
 
 class MockModel:
@@ -342,15 +362,6 @@ class MockNumpy(MagicMock):
 
 
 sys.modules["numpy"] = MockNumpy()
-
-
-class MockPydanticValidationError(Exception):
-    def __init__(self, title="Validation Error", errors=None):
-        super().__init__(title)
-        self._errors = errors or []
-
-    def errors(self):
-        return self._errors
 
 
 if "pydantic_core" in sys.modules:

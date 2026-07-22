@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 """Generative AI module for Frigate."""
 
 from __future__ import annotations
+
 import importlib
 import json
 import logging
