@@ -106,6 +106,7 @@ Future action: It is highly recommended to run backend tests solely via the Dock
 - **test_profiles.py**: Deeply nested logic regarding config serialization and `FrigateConfig` `manager` snapshotting continues to show mock limitations, reinforcing that `test_runner.py` is increasingly inadequate for tests dependent on full pydantic lifecycle logic.
 - **test_shared_memory_frame_manager.py**: `np.ndarray` shape comparisons fail locally because `MockNdarray` isn't fully honoring the dynamically passed shape bounds during instantiation due to missing `*args, **kwargs` mapping, leading to assertions like `AssertionError: Tuples differ: (360, 320) != (1620, 1920)`. Updated the mock initialization but testing limitations remain for `dtype` bindings and `buffer` usage.
 
+
 ## Status update
 Completed testing code execution, and found missing mock 'pydantic.json_schema' missing in `test_runner.py`.
 
@@ -148,3 +149,5 @@ docker buildx build --target=frigate --file docker/main/Dockerfile . \
 
 ## Final Testing Environment Wrap-up (Update)
 - Note: There was a duplicate `def mock_unidecode` declaration remaining from previous git conflict resolution which was removed, but Pydantic Mock limitations still block 187/681 unit tests (failures=49, errors=138, skipped=4) via `test_runner.py`. Wait for Docker resolution to completely test backend.
+
+- Attempted to run tests using python3 test_runner.py, encountered numerous import errors and missing mock modules (peewee, http_api, pydantic.json_schema, openvino, cryptography, pandas). Updated test_runner.py to include mocks for these missing dependencies, however testing environment is fragile.

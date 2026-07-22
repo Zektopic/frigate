@@ -62,6 +62,7 @@ Despite these improvements, running the backend tests (via `test_runner.py`) sti
 
 On the frontend side, I executed the unit tests using `npm install --legacy-peer-deps` and `npm run test src/`. All 115 tests completed successfully and efficiently.
 
+
 ## Status Update (Backend/Frontend execution tests)
 Tested the execution, frontend test works locally on `web/src`, returning 115 passing tests.
 Backend testing `make run_tests` fails because of Docker BuildKit/containerd overlayfs issue locally.
@@ -93,3 +94,5 @@ Test results documented for the user
 
 ## Final Testing Environment Wrap-up (Update)
 - Re-verified test execution by eliminating duplicated functions in the backend runner. Backend test fails output the exact same errors regarding mock components. Frontend continues to run 115 passing unit tests. Ready for final submit.
+
+- Attempted to run tests using python3 test_runner.py, encountered numerous import errors and missing mock modules (peewee, http_api, pydantic.json_schema, openvino, cryptography, pandas). Updated test_runner.py to include mocks for these missing dependencies, however testing environment is fragile.

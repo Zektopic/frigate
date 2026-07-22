@@ -51,10 +51,8 @@ class MockBaseModel:
 
 
 class MockPydantic:
-    PydanticJsonSchemaWarning = MagicMock()
+
     SkipJsonSchema = MagicMock()
-    JsonSchemaValue = dict
-    GenerateJsonSchema = MagicMock()
     BaseModel = MockBaseModel
 
 
@@ -126,12 +124,8 @@ sys.modules["pydantic_core._pydantic_core"] = MockPydanticCore._pydantic_core
 
 sys.modules["pydantic.fields"] = MockPydantic
 
-
-
-class MockModel:
-    pass
-
 sys.modules["pydantic.networks"] = MockPydantic
+sys.modules["pydantic.json_schema"] = MockPydantic
 
 
 peewee_mock = ModuleMock()
@@ -187,6 +181,7 @@ sys.modules["ruamel"] = ModuleMock()
 sys.modules["ruamel.yaml"] = ModuleMock()
 sys.modules["ruamel.yaml.constructor"] = ModuleMock()
 sys.modules["psutil"] = ModuleMock()
+sys.modules["pandas"] = ModuleMock()
 sys.modules["py3nvml"] = ModuleMock()
 sys.modules["py3nvml.py3nvml"] = ModuleMock()
 sys.modules["frigate.version"] = ModuleMock()
@@ -248,6 +243,10 @@ sys.modules["rapidfuzz.distance"] = ModuleMock()
 
 sys.modules["shapely"] = ModuleMock()
 sys.modules["shapely.geometry"] = ModuleMock()
+sys.modules["cryptography"] = ModuleMock()
+sys.modules["cryptography.hazmat"] = ModuleMock()
+sys.modules["cryptography.hazmat.primitives"] = ModuleMock()
+sys.modules["cryptography.hazmat.primitives.serialization"] = ModuleMock()
 sys.modules["shapely.geometry.polygon"] = ModuleMock()
 sys.modules["ai_edge_litert"] = ModuleMock()
 sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
