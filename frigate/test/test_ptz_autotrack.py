@@ -1,7 +1,9 @@
 import unittest
+
 import numpy as np
 
 from frigate.ptz.autotrack import transform_is_finite
+
 
 class DummyTransform:
     pass

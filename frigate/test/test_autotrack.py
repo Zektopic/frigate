@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+
 class TestPTZMovingAtFrameTime(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

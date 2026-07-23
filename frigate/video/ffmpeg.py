@@ -100,7 +100,7 @@ def capture_frames(
                         raise OSError("Rust frame reader failed or EOF")
                 else:
                     frame_buffer[:] = ffmpeg_process.stdout.read(frame_size)
-            except Exception as exc:
+            except Exception:
                 # shutdown has been initiated
                 if stop_event.is_set():
                     break

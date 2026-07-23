@@ -51,12 +51,6 @@ class MockPydanticValidationError(Exception):
         return self._errors
 
 
-class MockPydanticValidationError(Exception):
-    def __init__(self, title="Validation Error", errors=None):
-        super().__init__(title)
-        self._errors = errors or []
-    def errors(self):
-        return self._errors
 
 class MockPydantic:
 
@@ -94,8 +88,6 @@ class MockPydantic:
     field_serializer = MagicMock()
     TypeAdapter = MagicMock()
 
-    def Field(*args, **kwargs):
-        return None
 
     def StrictStr(*args, **kwargs):
         return str

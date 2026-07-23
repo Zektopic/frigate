@@ -1,6 +1,5 @@
-import unittest
-import sys
 import math
+import unittest
 from unittest.mock import MagicMock, patch
 
 
