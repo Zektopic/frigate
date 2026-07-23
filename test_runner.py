@@ -50,7 +50,6 @@ class MockPydanticValidationError(Exception):
     def errors(self):
         return self._errors
 
-
 class MockPydantic:
     BaseModel = MockBaseModel
 
@@ -76,7 +75,6 @@ class MockPydantic:
     BaseModel = MockBaseModel
     AfterValidator = MagicMock()
     ValidationInfo = MagicMock()
-
 
     def Field(*args, **kwargs):
         return None
