@@ -43,14 +43,23 @@ class MockBaseModel:
         # Return True for bool comparisons if mock evaluates in tests like any(group in groups)
         return True
 
+
+
 class MockPydanticValidationError(Exception):
     def __init__(self, title="Validation Error", errors=None):
         super().__init__(title)
         self._errors = errors or []
+
+
     def errors(self):
         return self._errors
 
+
 class MockPydantic:
+    AfterValidator = MagicMock()
+    ValidationInfo = MagicMock()
+    field_serializer = MagicMock()
+    TypeAdapter = MagicMock()
     BaseModel = MockBaseModel
 
     @staticmethod
@@ -76,8 +85,9 @@ class MockPydantic:
     AfterValidator = MagicMock()
     ValidationInfo = MagicMock()
 
-    def Field(*args, **kwargs):
-        return None
+
+    field_serializer = MagicMock()
+    TypeAdapter = MagicMock()
 
     def StrictStr(*args, **kwargs):
         return str
@@ -141,7 +151,6 @@ sys.modules["pydantic"] = MockPydantic
 class MockPydanticCore:
     class _pydantic_core:
         class ValidationError(Exception):
-
             pass
 
 

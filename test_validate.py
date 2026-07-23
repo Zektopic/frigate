@@ -1,7 +1,4 @@
-import sys
-import unittest
-from frigate.config import AuthConfig, ProxyConfig
-from frigate.config.proxy import HeaderMappingConfig
+from frigate.config import ProxyConfig
 
 proxy = ProxyConfig(
     header_map={"user": "Remote-User", "role": "Remote-Role"}, separator=","

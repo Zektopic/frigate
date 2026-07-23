@@ -1,7 +1,8 @@
 import unittest
+
 from frigate.config.camera.ffmpeg import CameraFfmpegConfig, CameraInput
-from frigate.events.audio import get_ffmpeg_command
 from frigate.const import AUDIO_FORMAT, AUDIO_SAMPLE_RATE
+from frigate.events.audio import get_ffmpeg_command
 
 
 class TestAudioFfmpegCommand(unittest.TestCase):

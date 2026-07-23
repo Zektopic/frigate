@@ -562,7 +562,6 @@ class FrigateApp:
 
                 self.config.auth.admin_first_time_login = True
 
-
                 print("********************************************************")
                 print("********************************************************")
                 print("***    Auth is enabled, but no users exist.          ***")
@@ -582,7 +581,6 @@ class FrigateApp:
                     password_hash=password_hash,
                     notification_tokens=[],
                 ).execute()
-
 
                 print("********************************************************")
                 print("********************************************************")
