@@ -197,3 +197,6 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 - Modules like `requests`, `cv2`, `numpy`, and `filelock` are mock dependencies required to successfully import backend module code. Currently, tests fail early because the required Python libraries are not installed and not mocked completely.
 - `MockPydantic` validation exceptions aren't handled correctly by the test suite causing false-positive test failures inside `frigate.test.test_profiles`.
 - The frontend tests currently show good coverage over `src/utils` and `src/components`, with all 115 tests passing, proving that Vitest is working exactly as intended without E2E match collision.
+
+## Docker Environment Limitations
+Attempting to build the frigate image natively using `make run_tests` fails during the container build due to an `overlayfs` mount error in BuildKit (`mount source: "overlay"... err: invalid argument`). This necessitates running tests natively with `test_runner.py`, which is still severely limited by missing Pydantic v2 metadata mocks, complex numpy implementations, and OpenCV C-extensions. Fixing the local Docker engine's overlay mount issues is strongly recommended so that `make run_tests` can correctly build the container dependencies.

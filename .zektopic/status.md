@@ -99,3 +99,7 @@ Test results documented for the user
 
 ## Test Runner Note
 The `test_runner.py` mock approach has hit its limits for complex nested Pydantic validations. The Docker-based environment is strongly recommended as the source of truth for testing going forward.
+
+## Test Run Outcomes (Update)
+- **Frontend Tests:** Successfully ran Vitest on 138 tests in `web/src/`. All 138 tests passed perfectly without errors (Node warnings about `punycode` only). E2E tests were bypassed by targeting only `src/`.
+- **Backend Tests:** Ran 682 tests natively via `test_runner.py` with failures (23 failures, 240 errors, 4 skipped). Missing dependencies/mocks continue to limit the python test runner outside of Docker compilation.
