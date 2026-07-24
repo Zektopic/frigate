@@ -154,7 +154,3 @@ docker buildx build --target=frigate --file docker/main/Dockerfile . \
 
 ## Test Runner Mocking Complexity
 Attempted to update the `test_runner.py` mocks to fully mimic pydantic functionality for `test_profiles.py`. We observed that building a perfect mock for Pydantic v2 in `sys.modules` is extraordinarily complex and brittle, because it breaks fundamental duck typing and attribute resolution assumptions in tests (like `.enabled` access throwing exceptions or `isinstance(dict)` returning unexpected true/false in downstream validation). Future work should prioritize native execution via `make run_tests` rather than over-investing in local Python mock runners for complex frameworks like pydantic or cv2.
-
-## Backend Testing Mocks and Fixes
-- `frigate/test/test_onvif_probe.py` fails with an `AssertionError: <MagicMock ...> is not <MagicMock ...>` when validating the fallback text password. The fallback logic assertions may require more specific mocked return values or equality checks rather than relying on identity (`assertIs`) of distinct MagicMock instances.
-- Complex Pydantic and OpenCV implementations continue to break local tests running under `test_runner.py` due to missing native types, and the Docker engine needs local compilation fixes.
