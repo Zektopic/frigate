@@ -75,9 +75,9 @@ class EventCleanup(threading.Thread):
         # group labels by expire_days
         expire_days_to_labels: dict[float, list[str]] = {}
         for event in distinct_labels:
-            expire_days = float(retain_config.objects.get(
-                str(event.label), retain_config.default
-            ))
+            expire_days = float(
+                retain_config.objects.get(str(event.label), retain_config.default)
+            )
             if expire_days not in expire_days_to_labels:
                 expire_days_to_labels[expire_days] = []
             expire_days_to_labels[expire_days].append(str(event.label))
@@ -157,9 +157,9 @@ class EventCleanup(threading.Thread):
             # group labels by expire_days
             expire_days_to_labels_conf: dict[float, list[str]] = {}
             for event in distinct_labels:
-                expire_days = float(retain_config.objects.get(
-                    str(event.label), retain_config.default
-                ))
+                expire_days = float(
+                    retain_config.objects.get(str(event.label), retain_config.default)
+                )
                 if expire_days not in expire_days_to_labels_conf:
                     expire_days_to_labels_conf[expire_days] = []
                 expire_days_to_labels_conf[expire_days].append(str(event.label))
