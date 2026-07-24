@@ -16,6 +16,7 @@ runs:
   steps:
     # Stop docker so we can mount more space at /var/lib/docker
     - name: Stop docker
+      if: runner.arch == 'X64'
       run: sudo systemctl stop docker
       shell: bash
 
@@ -24,6 +25,7 @@ runs:
     # root-reserve-mb is set high enough to leave room for tool caches
     # (e.g. docker/setup-qemu-action caches binfmt images in /opt/hostedtoolcache)
     - name: Maximize build space
+      if: runner.arch == 'X64'
       uses: easimon/maximize-build-space@master
       with:
         remove-dotnet: 'true'
@@ -34,6 +36,7 @@ runs:
         root-reserve-mb: '8192'
 
     - name: Start docker
+      if: runner.arch == 'X64'
       run: sudo systemctl start docker
       shell: bash
 
