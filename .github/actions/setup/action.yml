@@ -29,6 +29,10 @@ runs:
         build-mount-path: '/var/lib/docker'
         root-reserve-mb: '30720'
 
+    - name: Create docker tmp directory
+      shell: bash
+      run: sudo mkdir -p /var/lib/docker/tmp && sudo chmod 1777 /var/lib/docker/tmp
+
     - id: lowercaseRepo
       uses: ASzc/change-string-case-action@v5
       with:
