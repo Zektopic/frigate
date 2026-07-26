@@ -2,7 +2,7 @@
 
 import datetime
 import logging
-from typing import Tuple
+
 from zoneinfo import ZoneInfoNotFoundError
 
 import pytz
@@ -11,7 +11,7 @@ from tzlocal import get_localzone
 logger = logging.getLogger(__name__)
 
 
-def get_tz_modifiers(tz_name: str) -> Tuple[str, str, float]:
+def get_tz_modifiers(tz_name: str) -> tuple[str, str, float]:
     seconds_offset = (
         datetime.datetime.now(pytz.timezone(tz_name)).utcoffset().total_seconds()
     )
@@ -75,14 +75,14 @@ def get_dst_transitions(
     current = start_time
 
     # Get initial offset
-    dt = datetime.datetime.utcfromtimestamp(current).replace(tzinfo=pytz.UTC)
+    dt = datetime.datetime.fromtimestamp(current, tz=datetime.timezone.utc)
     local_dt = dt.astimezone(tz)
     prev_offset = local_dt.utcoffset().total_seconds()
     period_start = start_time
 
     # Check each day for offset changes
     while current <= end_time:
-        dt = datetime.datetime.utcfromtimestamp(current).replace(tzinfo=pytz.UTC)
+        dt = datetime.datetime.fromtimestamp(current, tz=datetime.timezone.utc)
         local_dt = dt.astimezone(tz)
         current_offset = local_dt.utcoffset().total_seconds()
 

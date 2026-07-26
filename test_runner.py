@@ -82,7 +82,6 @@ class MockPydantic:
     BaseModel = MockBaseModel
     AfterValidator = MagicMock()
     ValidationInfo = MagicMock()
-
     field_serializer = MagicMock()
     TypeAdapter = MagicMock()
 
