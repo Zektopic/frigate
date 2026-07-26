@@ -99,3 +99,9 @@ Test results documented for the user
 
 ## Test Runner Note
 The `test_runner.py` mock approach has hit its limits for complex nested Pydantic validations. The Docker-based environment is strongly recommended as the source of truth for testing going forward.
+
+## Final Testing Environment Wrap-up (Update 3)
+- I ran backend tests locally using `python3 test_runner.py`. The execution hit the known mock limitations (e.g., Pydantic v2 validation errors, missing dependencies for `numpy` logic, and `openvino`/`cv2` shapes mismatch), confirming that native docker execution (`make run_tests`) is the required path forward for perfect coverage.
+- The `make run_tests` target currently fails on local overlayfs BuildKit configurations (`mount source: "overlay"... err: invalid argument`), blocking dockerized native test execution.
+- I ran frontend tests via `cd web && npm run test src/`. These were successfully isolated from playwright collision issues, completely passing with 138/138 successful tests.
+- Captured output has been recorded. Future optimizations should involve fixing the Docker engine mount limit, fixing `test_runner.py` mocks for Pydantic if native tests must be supported, and enforcing isolated Vitest commands.

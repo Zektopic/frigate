@@ -154,3 +154,12 @@ docker buildx build --target=frigate --file docker/main/Dockerfile . \
 
 ## Test Runner Mocking Complexity
 Attempted to update the `test_runner.py` mocks to fully mimic pydantic functionality for `test_profiles.py`. We observed that building a perfect mock for Pydantic v2 in `sys.modules` is extraordinarily complex and brittle, because it breaks fundamental duck typing and attribute resolution assumptions in tests (like `.enabled` access throwing exceptions or `isinstance(dict)` returning unexpected true/false in downstream validation). Future work should prioritize native execution via `make run_tests` rather than over-investing in local Python mock runners for complex frameworks like pydantic or cv2.
+
+## Final Testing Environment and Build Improvements
+### Backend Native Execution Dependencies
+- The `make run_tests` Docker BuildKit failure (`overlayfs mount invalid argument`) remains the primary blocker for a healthy native testing environment on local setups. Investigating alternative Docker storage drivers (like `vfs` or disabling BuildKit) will greatly resolve dependency headaches.
+- Once native Docker tests execute successfully, the custom local Python script `test_runner.py` (which implements incredibly brittle `sys.modules` overriding for complex C-extensions) should be deprecated or scaled back entirely, as replicating accurate testing conditions for `pydantic` schemas, `openvino`, `numpy` mathematical constraints, and `cv2` object logic without proper libraries leads to massive false positive assertions and mock typing collisions.
+
+### Frontend Unit Testing Constraints
+- Vitest configuration explicitly requires isolation from Playwright integration tests. Executing test runners indiscriminately (e.g. `npm run test run`) triggers module collisions inside `@playwright/test`'s `test.describe()` definitions. To permanently resolve this, standard deployment rules should strictly restrict Vitest patterns (e.g. `npm run test src/`) or append ignoring boundaries directly inside the `web/vitest.config.ts` (e.g., `exclude: ['e2e/**']`).
+- When testing on different Node environments natively without containers, module resolution deprecations occur (e.g. `DEP0040 punycode module is deprecated`). Dependency trees for front-end parsing modules should be upgraded or audited for userland alternatives during future framework maintenance.
