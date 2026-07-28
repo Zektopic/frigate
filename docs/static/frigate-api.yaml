@@ -978,7 +978,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -1022,7 +1021,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -1177,7 +1175,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -1537,7 +1534,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -1585,7 +1581,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -1633,7 +1628,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -1675,7 +1669,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -1759,7 +1752,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -3288,7 +3280,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
               title: Body
       responses:
         '200':
@@ -5146,7 +5137,6 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
                 title: Response Create Trigger Embedding Trigger Embedding Post
         '422':
           description: Validation Error
@@ -5195,7 +5185,6 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
                 title: Response Update Trigger Embedding Trigger Embedding  
                   Camera Name   Name  Put
         '422':
@@ -5238,7 +5227,6 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
                 title: Response Delete Trigger Embedding Trigger Embedding  
                   Camera Name   Name  Delete
         '422':
@@ -5275,7 +5263,6 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
                 title: Response Get Triggers Status Triggers Status  Camera Name  
                   Get
         '422':
@@ -6952,7 +6939,6 @@ paths:
                 type: array
                 items:
                   type: object
-                  additionalProperties: true
                 title: Response No Recordings Recordings Unavailable Get
         '422':
           description: Validation Error
@@ -7154,8 +7140,7 @@ components:
           title: Update Topic
         config_data:
           anyOf:
-            - additionalProperties: true
-              type: object
+            - type: object
             - type: 'null'
           title: Config Data
         skip_save:
@@ -7478,7 +7463,6 @@ components:
         tool_calls:
           anyOf:
             - items:
-                additionalProperties: true
                 type: object
               type: array
             - type: 'null'
@@ -7734,7 +7718,6 @@ components:
             - type: 'null'
           title: Model Type
         data:
-          additionalProperties: true
           type: object
           title: Data
       type: object
@@ -7806,8 +7789,7 @@ components:
           default: true
         draw:
           anyOf:
-            - additionalProperties: true
-              type: object
+            - type: object
             - type: 'null'
           title: Draw
           default: {}
@@ -8050,8 +8032,7 @@ components:
           description: Error message for failed jobs
         results:
           anyOf:
-            - additionalProperties: true
-              type: object
+            - type: object
             - type: 'null'
           title: Results
           description: Result metadata for completed jobs
@@ -8274,7 +8255,6 @@ components:
             - type: 'null'
           title: Base Url
         provider_options:
-          additionalProperties: true
           type: object
           title: Provider Options
       type: object
@@ -8760,7 +8740,6 @@ components:
           type: string
           title: Tool Name
         arguments:
-          additionalProperties: true
           type: object
           title: Arguments
       type: object

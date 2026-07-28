@@ -99,3 +99,8 @@ Test results documented for the user
 
 ## Test Runner Note
 The `test_runner.py` mock approach has hit its limits for complex nested Pydantic validations. The Docker-based environment is strongly recommended as the source of truth for testing going forward.
+
+## Final Final Testing Environment Wrap-up (Update 3)
+- Tested backend using `python3 test_runner.py`. The backend tests continue to fail due to limitations with the mocked environment in `test_runner.py`. Specifically, missing dependencies and complex mock setups (such as `MockPydanticValidationError` not being raised correctly in `test_profiles.py` because the mock does not perfectly emulate Pydantic v2's `ValidationError`) lead to 23 failures and 240 errors out of 681 tests. Attempting to use Docker via `make run_tests` fails because of a BuildKit overlayfs issue.
+- Tested frontend using `cd web && npm ci && npm run test src/`. All 138 tests across 13 test files passed successfully in isolation.
+- To fully resolve backend testing issues, the BuildKit overlayfs issue needs to be addressed so that tests can be executed natively in the Docker environment.

@@ -79,12 +79,6 @@ class MockPydantic:
     ValidationError = MockPydanticValidationError
 
     SkipJsonSchema = MagicMock()
-    BaseModel = MockBaseModel
-    AfterValidator = MagicMock()
-    ValidationInfo = MagicMock()
-
-    field_serializer = MagicMock()
-    TypeAdapter = MagicMock()
 
     def StrictStr(*args, **kwargs):
         return str
