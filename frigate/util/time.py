@@ -2,7 +2,6 @@
 
 import datetime
 import logging
-from typing import Tuple
 from zoneinfo import ZoneInfoNotFoundError
 
 import pytz
@@ -11,7 +10,7 @@ from tzlocal import get_localzone
 logger = logging.getLogger(__name__)
 
 
-def get_tz_modifiers(tz_name: str) -> Tuple[str, str, float]:
+def get_tz_modifiers(tz_name: str) -> tuple[str, str, float]:
     seconds_offset = (
         datetime.datetime.now(pytz.timezone(tz_name)).utcoffset().total_seconds()
     )
