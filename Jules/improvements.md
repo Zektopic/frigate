@@ -154,3 +154,11 @@ docker buildx build --target=frigate --file docker/main/Dockerfile . \
 
 ## Test Runner Mocking Complexity
 Attempted to update the `test_runner.py` mocks to fully mimic pydantic functionality for `test_profiles.py`. We observed that building a perfect mock for Pydantic v2 in `sys.modules` is extraordinarily complex and brittle, because it breaks fundamental duck typing and attribute resolution assumptions in tests (like `.enabled` access throwing exceptions or `isinstance(dict)` returning unexpected true/false in downstream validation). Future work should prioritize native execution via `make run_tests` rather than over-investing in local Python mock runners for complex frameworks like pydantic or cv2.
+
+## Backend Testing Mocks and Fixes (Update 3)
+1. **Pydantic Validation**:
+   - `MockPydanticValidationError` in `test_runner.py` is failing to trigger in `test_profiles.py` when testing nested and invalid fields. While `pydantic_core.ValidationError` is mocked, the way `MockBaseModel` parses fields using `setattr(self, k, v)` bypasses actual Pydantic schema validation. A deeper mock that integrates with validation flows is necessary to properly catch and raise `MockPydanticValidationError`, or tests should be exclusively run in Docker.
+2. **Docker Testing Native Execution**:
+   - Running `make run_tests` fails on local environments with the `invalid argument` error when mounting BuildKit overlayfs (`mount source: "overlay"`). Investigating or bypassing this BuildKit issue is critical, as `test_runner.py` is too fragile and limited for comprehensive backend testing.
+3. **Missing OpenCV & Numpy Dependencies**:
+   - There are tests failing because mock functions like `unidecode`, `cv2.cvtColor`, and `ndarray.shape` return generic `MagicMock` instances instead of the expected tuples or lists, causing TypeErrors when assertions try to slice or compare them.
