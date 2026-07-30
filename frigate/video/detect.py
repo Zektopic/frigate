@@ -472,9 +472,7 @@ def process_frames(
                 cv2.COLOR_YUV2BGR_I420,
             )
             object_tracker.debug_draw(bgr_frame, frame_time)
-            cv2.imwrite(
-                f"debug/frames/track-{f'{frame_time:.6f}'}.jpg", bgr_frame
-            )
+            cv2.imwrite(f"debug/frames/track-{f'{frame_time:.6f}'}.jpg", bgr_frame)
         # debug
         if False:
             bgr_frame = cv2.cvtColor(
