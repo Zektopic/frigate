@@ -162,11 +162,3 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
    - Running `make run_tests` fails on local environments with the `invalid argument` error when mounting BuildKit overlayfs (`mount source: "overlay"`). Investigating or bypassing this BuildKit issue is critical, as `test_runner.py` is too fragile and limited for comprehensive backend testing.
 3. **Missing OpenCV & Numpy Dependencies**:
    - There are tests failing because mock functions like `unidecode`, `cv2.cvtColor`, and `ndarray.shape` return generic `MagicMock` instances instead of the expected tuples or lists, causing TypeErrors when assertions try to slice or compare them.
-
-## Backend Testing Mocks and Fixes (Update 4)
-1. **Docker Build OverlayFS Issue**:
-   - The primary roadblock for backend testing is the local BuildKit `overlayfs` failure (`invalid argument`) when running `make run_tests`. Fixing this environment issue is crucial, as native execution inside the `frigate:latest` container will resolve all missing dependency and complex mock issues automatically.
-2. **test_runner.py Fallback Enhancements**:
-   - If Docker cannot be used, `test_runner.py` requires comprehensive overhauls to its mock environment. Specifically:
-     - `requests`, `numpy`, `cv2`, `peewee`, and `filelock` need to be fully mocked with functional return types (e.g. valid `.shape` tuples for images, proper database exception handling).
-     - Pydantic v2 `ValidationError` and schema generation need an exact mock implementation to allow `test_profiles.py` to trigger validation failures correctly. Current string and `setattr` mocks bypass the schema engine.
