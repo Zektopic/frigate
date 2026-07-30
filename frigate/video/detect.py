@@ -473,7 +473,7 @@ def process_frames(
             )
             object_tracker.debug_draw(bgr_frame, frame_time)
             cv2.imwrite(
-                f"debug/frames/track-{f'{frame_time:.6f}'}.jpg", bgr_frame
+                f"debug/frames/track-{frame_time:.6f}.jpg", bgr_frame
             )
         # debug
         if False:
@@ -533,7 +533,11 @@ def process_frames(
                 )
 
             cv2.imwrite(
+<<<<<<< HEAD
                 f"debug/frames/{camera_config.name}-{f'{frame_time:.6f}'}.jpg",
+=======
+                f"debug/frames/{camera_config.name}-{frame_time:.6f}.jpg",
+>>>>>>> pr-184
                 bgr_frame,
             )
         # add to the queue if not full

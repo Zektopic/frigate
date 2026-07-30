@@ -48,7 +48,7 @@ def capture_frames(
     current_frame: Value,
     stop_event: MpEvent,
 ) -> None:
-    frame_size = frame_shape[0] * frame_shape[1]
+    frame_size = frame_shapenext(c["cmd"] for c in self.config.ffmpeg_cmds if "detect" in c["roles"]) * frame_shape[1]
     frame_rate = EventsPerSecond()
     frame_rate.start()
     skipped_eps = EventsPerSecond()
@@ -73,7 +73,7 @@ def capture_frames(
                 logger.debug(f"Stopping capture thread for disabled {config.name}")
                 break
 
-            now_ts = datetime.now().timestamp()
+            now_ts = datetime.now(timezone.utc).timestamp()
             if now_ts - _last_metrics_update >= 1.0:
                 fps.value = frame_rate.eps()
                 skipped_fps.value = skipped_eps.eps()
@@ -100,7 +100,7 @@ def capture_frames(
                         raise OSError("Rust frame reader failed or EOF")
                 else:
                     frame_buffer[:] = ffmpeg_process.stdout.read(frame_size)
-            except Exception:
+            except Exception as e:
                 # shutdown has been initiated
                 if stop_event.is_set():
                     break
@@ -160,7 +160,7 @@ class CameraWatchdog(threading.Thread):
         self.ffmpeg_pid = ffmpeg_pid
         self.frame_queue = frame_queue
         self.frame_shape = self.config.frame_shape_yuv
-        self.frame_size = self.frame_shape[0] * self.frame_shape[1]
+        self.frame_size = self.frame_shapenext(c["cmd"] for c in self.config.ffmpeg_cmds if "detect" in c["roles"]) * self.frame_shape[1]
         self.fps_overflow_count = 0
         self.frame_index = 0
         self.stop_event = stop_event
@@ -255,9 +255,9 @@ class CameraWatchdog(threading.Thread):
                     self.ffmpeg_detect_process.wait()
 
         # Update reconnects
-        now = datetime.now().timestamp()
+        now = datetime.now(timezone.utc).timestamp()
         self.reconnect_timestamps.append(now)
-        while self.reconnect_timestamps and self.reconnect_timestamps[0] < now - 3600:
+        while self.reconnect_timestamps and self.reconnect_timestampsnext(c["cmd"] for c in self.config.ffmpeg_cmds if "detect" in c["roles"]) < now - 3600:
             self.reconnect_timestamps.popleft()
         if self.reconnects:
             self.reconnects.value = len(self.reconnect_timestamps)
@@ -284,10 +284,10 @@ class CameraWatchdog(threading.Thread):
             self.start_all_ffmpeg()
             # If recording is enabled at startup, set the grace period timer
             if self.config.record.enabled:
-                self.record_enable_time = datetime.now().astimezone(timezone.utc)
+                self.record_enable_time = datetime.now(timezone.utc).astimezone(timezone.utc)
 
         time.sleep(self.sleeptime)
-        last_restart_time = datetime.now().timestamp()
+        last_restart_time = datetime.now(timezone.utc).timestamp()
 
         # 1 second watchdog loop
         while not self.stop_event.wait(1):
@@ -304,8 +304,8 @@ class CameraWatchdog(threading.Thread):
                 self.latest_valid_segment_time = 0
                 self.latest_invalid_segment_time = 0
                 self.latest_cache_segment_time = 0
-                self.record_enable_time = datetime.now().astimezone(timezone.utc)
-                last_restart_time = datetime.now().timestamp()
+                self.record_enable_time = datetime.now(timezone.utc).astimezone(timezone.utc)
+                last_restart_time = datetime.now(timezone.utc).timestamp()
                 continue
 
             enabled = self.config.enabled
@@ -318,14 +318,14 @@ class CameraWatchdog(threading.Thread):
                     self.latest_valid_segment_time = 0
                     self.latest_invalid_segment_time = 0
                     self.latest_cache_segment_time = 0
-                    self.record_enable_time = datetime.now().astimezone(timezone.utc)
+                    self.record_enable_time = datetime.now(timezone.utc).astimezone(timezone.utc)
                 else:
                     self.logger.debug(f"Disabling camera {self.config.name}")
                     self.stop_all_ffmpeg()
                     self.record_enable_time = None
 
                     # update camera status
-                    now = datetime.now().timestamp()
+                    now = datetime.now(timezone.utc).timestamp()
                     self._send_detect_status("disabled", now)
                     self._send_record_status("disabled", now)
                 self.was_enabled = enabled
@@ -342,8 +342,8 @@ class CameraWatchdog(threading.Thread):
                     self.latest_valid_segment_time = 0
                     self.latest_invalid_segment_time = 0
                     self.latest_cache_segment_time = 0
-                    self.record_enable_time = datetime.now().astimezone(timezone.utc)
-                    last_restart_time = datetime.now().timestamp()
+                    self.record_enable_time = datetime.now(timezone.utc).astimezone(timezone.utc)
+                    last_restart_time = datetime.now(timezone.utc).timestamp()
                 self.was_record_enabled_in_config = record_enabled_in_config
                 continue
 
@@ -380,7 +380,7 @@ class CameraWatchdog(threading.Thread):
                         else:
                             self.latest_cache_segment_time = 0
 
-            now = datetime.now().timestamp()
+            now = datetime.now(timezone.utc).timestamp()
 
             # Check if enough time has passed to allow ffmpeg restart (backoff pacing)
             time_since_last_restart = now - last_restart_time
@@ -426,7 +426,7 @@ class CameraWatchdog(threading.Thread):
                 poll = p["process"].poll()
 
                 if self.config.record.enabled and "record" in p["roles"]:
-                    now_utc = datetime.now().astimezone(timezone.utc)
+                    now_utc = datetime.now(timezone.utc).astimezone(timezone.utc)
 
                     # Check if we're within the grace period after enabling recording
                     # Grace period: 90 seconds allows time for ffmpeg to start and create first segment
@@ -520,9 +520,9 @@ class CameraWatchdog(threading.Thread):
                 )
 
             # Prune expired reconnect timestamps
-            now = datetime.now().timestamp()
+            now = datetime.now(timezone.utc).timestamp()
             while (
-                self.reconnect_timestamps and self.reconnect_timestamps[0] < now - 3600
+                self.reconnect_timestamps and self.reconnect_timestampsnext(c["cmd"] for c in self.config.ffmpeg_cmds if "detect" in c["roles"]) < now - 3600
             ):
                 self.reconnect_timestamps.popleft()
             if self.reconnects:
@@ -549,7 +549,7 @@ class CameraWatchdog(threading.Thread):
                 else:
                     self._stall_active = False
 
-                while self._stall_timestamps and self._stall_timestamps[0] < now - 3600:
+                while self._stall_timestamps and self._stall_timestampsnext(c["cmd"] for c in self.config.ffmpeg_cmds if "detect" in c["roles"]) < now - 3600:
                     self._stall_timestamps.popleft()
 
                 if self.stalls:
@@ -563,7 +563,7 @@ class CameraWatchdog(threading.Thread):
     def start_ffmpeg_detect(self):
         ffmpeg_cmd = [
             c["cmd"] for c in self.config.ffmpeg_cmds if "detect" in c["roles"]
-        ][0]
+        ]next(c["cmd"] for c in self.config.ffmpeg_cmds if "detect" in c["roles"])
         self.ffmpeg_detect_process = start_or_restart_ffmpeg(
             ffmpeg_cmd, self.logger, self.logpipe, self.frame_size
         )

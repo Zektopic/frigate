@@ -86,7 +86,7 @@ class FrigateWatchdog(threading.Thread):
             exitcode,
         )
 
-        now = datetime.datetime.now().timestamp()
+        now = datetime.datetime.now(datetime.timezone.utc).timestamp()
 
         if entry.is_restarting_too_fast(now):
             logger.error(
@@ -115,7 +115,7 @@ class FrigateWatchdog(threading.Thread):
     def run(self) -> None:
         time.sleep(10)
         while not self.stop_event.wait(10):
-            now = datetime.datetime.now().timestamp()
+            now = datetime.datetime.now(datetime.timezone.utc).timestamp()
 
             # check the detection processes
             for name, detector in self.detectors.items():

@@ -162,3 +162,12 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
    - Running `make run_tests` fails on local environments with the `invalid argument` error when mounting BuildKit overlayfs (`mount source: "overlay"`). Investigating or bypassing this BuildKit issue is critical, as `test_runner.py` is too fragile and limited for comprehensive backend testing.
 3. **Missing OpenCV & Numpy Dependencies**:
    - There are tests failing because mock functions like `unidecode`, `cv2.cvtColor`, and `ndarray.shape` return generic `MagicMock` instances instead of the expected tuples or lists, causing TypeErrors when assertions try to slice or compare them.
+
+## Final Testing Environment and Build Improvements
+### Backend Native Execution Dependencies
+- The `make run_tests` Docker BuildKit failure (`overlayfs mount invalid argument`) remains the primary blocker for a healthy native testing environment on local setups. Investigating alternative Docker storage drivers (like `vfs` or disabling BuildKit) will greatly resolve dependency headaches.
+- Once native Docker tests execute successfully, the custom local Python script `test_runner.py` (which implements incredibly brittle `sys.modules` overriding for complex C-extensions) should be deprecated or scaled back entirely, as replicating accurate testing conditions for `pydantic` schemas, `openvino`, `numpy` mathematical constraints, and `cv2` object logic without proper libraries leads to massive false positive assertions and mock typing collisions.
+
+### Frontend Unit Testing Constraints
+- Vitest configuration explicitly requires isolation from Playwright integration tests. Executing test runners indiscriminately (e.g. `npm run test run`) triggers module collisions inside `@playwright/test`'s `test.describe()` definitions. To permanently resolve this, standard deployment rules should strictly restrict Vitest patterns (e.g. `npm run test src/`) or append ignoring boundaries directly inside the `web/vitest.config.ts` (e.g., `exclude: ['e2e/**']`).
+- When testing on different Node environments natively without containers, module resolution deprecations occur (e.g. `DEP0040 punycode module is deprecated`). Dependency trees for front-end parsing modules should be upgraded or audited for userland alternatives during future framework maintenance.

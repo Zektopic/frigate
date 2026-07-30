@@ -331,11 +331,11 @@ def main():
                 (arg for arg in args if arg is not type(None)), field_type
             )
 
-        # Handle Dict[str, SomeModel] - extract the value type
+        # Handle dict[str, SomeModel] - extract the value type
         if origin is dict:
             args = get_args(field_type)
             if args and len(args) > 1:
-                field_type = args[1]  # Get value type from Dict[key, value]
+                field_type = args[1]  # Get value type from dict[key, value]
 
         # Start with field's top-level metadata (label, description)
         section_data = get_field_translations(field_info)
