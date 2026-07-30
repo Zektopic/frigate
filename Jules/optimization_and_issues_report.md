@@ -56,3 +56,15 @@ I have run Python unittests locally using `python3 test_runner.py` and identifie
 The mocks for `BaseModel` and `unidecode` were incomplete.
 - We fixed the `BaseModel` mock to include an `__init__` constructor that accepts `**kwargs`.
 - We fixed the `unidecode` mock to map accented characters to non-accented ones.
+
+### Backend Testing Updates (test_runner.py & make run_tests)
+I have run Python unittests locally using `python3 test_runner.py` and attempted to run natively via `make run_tests`.
+
+Issues identified:
+1. Docker BuildKit `overlayfs` issue (`mount source: "overlay"... err: invalid argument`) prevents running `make run_tests` locally, blocking native backend test execution.
+2. The `python3 test_runner.py` mock environment continues to fail with 23 failures and 240 errors (out of 682 tests). This is due to missing dependencies and incomplete mocks for `requests`, `peewee`, `numpy`, `cv2`, `filelock`, etc.
+3. Complex nested Pydantic validation and serialization flows in tests (e.g. `test_profiles.py`) are virtually impossible to mock perfectly via `sys.modules`, as the actual Pydantic schema engines are missing.
+
+### Frontend Testing (Vitest)
+The Vitest tests were run correctly with `cd web && npm ci && npm run test src/`.
+All 138 tests across 13 test files passed successfully in isolation without matching `e2e` Playwright test files.
