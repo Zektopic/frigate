@@ -54,6 +54,11 @@ class MockPydanticValidationError(Exception):
 
 
 class MockPydantic:
+    BaseModel = MockBaseModel
+    AfterValidator = MagicMock()
+    ValidationInfo = MagicMock()
+    field_serializer = MagicMock()
+    TypeAdapter = MagicMock()
     @staticmethod
     def Field(*args, **kwargs):
         return None

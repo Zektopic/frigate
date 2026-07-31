@@ -1,6 +1,7 @@
 """Utilities for services."""
 
 import asyncio
+import itertools
 import json
 import logging
 import os
@@ -959,8 +960,6 @@ def classify_keyframe_gaps(
             "severity": "unknown",
             "thresholds": thresholds,
         }
-
-    import itertools
 
     gaps = [b - a for a, b in itertools.pairwise(keyframe_pts)]
     max_gap = max(gaps)
