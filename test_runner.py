@@ -54,12 +54,11 @@ class MockPydanticValidationError(Exception):
 
 
 class MockPydantic:
+    BaseModel = MockBaseModel
     AfterValidator = MagicMock()
     ValidationInfo = MagicMock()
     field_serializer = MagicMock()
     TypeAdapter = MagicMock()
-    BaseModel = MockBaseModel
-
     @staticmethod
     def Field(*args, **kwargs):
         return None
@@ -79,11 +78,6 @@ class MockPydantic:
     ValidationError = MockPydanticValidationError
 
     SkipJsonSchema = MagicMock()
-    BaseModel = MockBaseModel
-    AfterValidator = MagicMock()
-    ValidationInfo = MagicMock()
-    field_serializer = MagicMock()
-    TypeAdapter = MagicMock()
 
     def StrictStr(*args, **kwargs):
         return str
