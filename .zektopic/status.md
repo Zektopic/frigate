@@ -104,3 +104,10 @@ The `test_runner.py` mock approach has hit its limits for complex nested Pydanti
 - Tested backend using `python3 test_runner.py`. The backend tests continue to fail due to limitations with the mocked environment in `test_runner.py`. Specifically, missing dependencies and complex mock setups (such as `MockPydanticValidationError` not being raised correctly in `test_profiles.py` because the mock does not perfectly emulate Pydantic v2's `ValidationError`) lead to failures and errors out of 681 tests. Attempting to use Docker via `make run_tests` fails because of a BuildKit overlayfs issue.
 - Tested frontend using `cd web && npm ci && npm run test src/`. All 138 tests across 13 test files passed successfully in isolation.
 - Captured output has been recorded. Future optimizations should involve fixing the Docker engine mount limit, fixing `test_runner.py` mocks for Pydantic if native tests must be supported, and enforcing isolated Vitest commands.
+
+
+## Final Testing Run update
+- Tests have been run successfully. 138 Frontend tests passed with Vitest.
+- Backend unittests run with `test_runner.py`. While mock dependencies issues still block many tests (23 failures, 180 errors due to Pydantic models, Numpy, OpenCV missing modules etc), the test framework itself runs.
+- Mock dependency `ruamel` was attempted but hit similar limits to `Pydantic` and `peewee` mock complexity requiring `make run_tests` to truly validate YAML config schema loading.
+- Docker based build `make run_tests` continues to throw overlay invalid argument, preventing natively correct full test validations.

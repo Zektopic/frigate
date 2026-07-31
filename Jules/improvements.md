@@ -171,3 +171,9 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 ### Frontend Unit Testing Constraints
 - Vitest configuration explicitly requires isolation from Playwright integration tests. Executing test runners indiscriminately (e.g. `npm run test run`) triggers module collisions inside `@playwright/test`'s `test.describe()` definitions. To permanently resolve this, standard deployment rules should strictly restrict Vitest patterns (e.g. `npm run test src/`) or append ignoring boundaries directly inside the `web/vitest.config.ts` (e.g., `exclude: ['e2e/**']`).
 - When testing on different Node environments natively without containers, module resolution deprecations occur (e.g. `DEP0040 punycode module is deprecated`). Dependency trees for front-end parsing modules should be upgraded or audited for userland alternatives during future framework maintenance.
+
+
+## Future testing improvements
+- Fix `test_runner.py` mocks to perfectly replicate Pydantic ValidationError and missing dependencies (e.g. `ruamel`, `peewee`, `numpy`) or purely rely on native container execution (`make run_tests`).
+- Investigate overlay invalid argument error when doing `docker buildx build` during `make run_tests` which is blocking accurate local tests.
+- Fix frontend `punycode` module deprecations node warning during test execution.
