@@ -155,6 +155,10 @@ sys.modules["pydantic.networks"] = MockPydantic
 class MockModel:
     ValidationError = MockPydanticValidationError
 
+    @classmethod
+    def select(cls, *args, **kwargs):
+        return MagicMock()
+
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
@@ -220,7 +224,21 @@ sys.modules["requests.exceptions"] = ModuleMock()
 
 sys.modules["titlecase"] = ModuleMock()
 sys.modules["zmq"] = ModuleMock()
-sys.modules["psutil"] = ModuleMock()
+
+
+class MockProcess:
+    def memory_info(self):
+        m = MagicMock()
+        m.rss = 1024 * 1024 * 100
+        return m
+
+
+class MockPsutil(ModuleMock):
+    def Process(self, *args, **kwargs):
+        return MockProcess()
+
+
+sys.modules["psutil"] = MockPsutil()
 sys.modules["pandas"] = ModuleMock()
 sys.modules["py3nvml"] = ModuleMock()
 sys.modules["py3nvml.py3nvml"] = ModuleMock()
