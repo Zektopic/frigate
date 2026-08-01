@@ -177,3 +177,9 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - Fix `test_runner.py` mocks to perfectly replicate Pydantic ValidationError and missing dependencies (e.g. `ruamel`, `peewee`, `numpy`) or purely rely on native container execution (`make run_tests`).
 - Investigate overlay invalid argument error when doing `docker buildx build` during `make run_tests` which is blocking accurate local tests.
 - Fix frontend `punycode` module deprecations node warning during test execution.
+
+## Final Testing Environment Wrap-up (Update 4)
+- Ran frontend tests natively in isolation using `npm run test src/` inside the `web` folder. All 138 tests passed flawlessly (some punycode deprecation warnings exist).
+- Evaluated backend tests via `python3 test_runner.py` outside of the Docker container. Missing dependency Mocks (`ruamel.yaml`, `pydantic`, `peewee`, `numpy`, `openvino`) remain difficult to fully satisfy. We attempted mocking `ruamel.yaml` and refined Pydantic's `MockBaseModel`, yet tests failed downstream expecting accurate evaluation. There are currently ~23 failures and ~240 errors out of 682 tests.
+- We attempted to run the fully containerized `make run_tests`, but it fails on the host environment with an overlayfs invalid argument during the `docker buildx build` / `docker build` phase.
+- Conclusion: The frontend tests are perfectly green. The backend tests function as much as possible outside of the Docker container, but the full integration and schema assertions must be run inside Docker. Future optimizations should repair the Docker BuildKit configuration on the host environment.

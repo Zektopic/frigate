@@ -111,3 +111,9 @@ The `test_runner.py` mock approach has hit its limits for complex nested Pydanti
 - Backend unittests run with `test_runner.py`. While mock dependencies issues still block many tests (23 failures, 180 errors due to Pydantic models, Numpy, OpenCV missing modules etc), the test framework itself runs.
 - Mock dependency `ruamel` was attempted but hit similar limits to `Pydantic` and `peewee` mock complexity requiring `make run_tests` to truly validate YAML config schema loading.
 - Docker based build `make run_tests` continues to throw overlay invalid argument, preventing natively correct full test validations.
+
+## Final Testing Environment Wrap-up (Update 4)
+- Ran frontend tests natively in isolation using `npm run test src/` inside the `web` folder. All 138 tests passed flawlessly (some punycode deprecation warnings exist).
+- Evaluated backend tests via `python3 test_runner.py` outside of the Docker container. Missing dependency Mocks (`ruamel.yaml`, `pydantic`, `peewee`, `numpy`, `openvino`) remain difficult to fully satisfy. We attempted mocking `ruamel.yaml` and refined Pydantic's `MockBaseModel`, yet tests failed downstream expecting accurate evaluation. There are currently ~23 failures and ~240 errors out of 682 tests.
+- We attempted to run the fully containerized `make run_tests`, but it fails on the host environment with an overlayfs invalid argument during the `docker buildx build` / `docker build` phase.
+- Conclusion: The frontend tests are perfectly green. The backend tests function as much as possible outside of the Docker container, but the full integration and schema assertions must be run inside Docker. Future optimizations should repair the Docker BuildKit configuration on the host environment.
