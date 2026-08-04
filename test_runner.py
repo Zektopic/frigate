@@ -59,6 +59,7 @@ class MockPydantic:
     ValidationInfo = MagicMock()
     field_serializer = MagicMock()
     TypeAdapter = MagicMock()
+
     @staticmethod
     def Field(*args, **kwargs):
         return None
@@ -139,7 +140,7 @@ class ModuleMock(MagicMock):
         ):
             raise AttributeError(name)
         if name == "DEFAULT_VERSION":
-            return 2 # To fix regex KeyError
+            return 2  # To fix regex KeyError
         return super().__getattr__(name)
 
 
@@ -172,6 +173,7 @@ class MockModel:
 
     def __gt__(self, other):
         return True
+
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
