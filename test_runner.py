@@ -59,7 +59,6 @@ class MockPydantic:
     ValidationInfo = MagicMock()
     field_serializer = MagicMock()
     TypeAdapter = MagicMock()
-
     @staticmethod
     def Field(*args, **kwargs):
         return None
@@ -120,6 +119,12 @@ class MockPydantic:
 
 
 class ModuleMock(MagicMock):
+    def __lt__(self, other):
+        return False
+
+    def __gt__(self, other):
+        return True
+
     def __getattr__(self, name):
         if name in (
             "__path__",
@@ -157,11 +162,16 @@ sys.modules["pydantic.networks"] = MockPydantic
 
 class MockModel:
     ValidationError = MockPydanticValidationError
+
     @classmethod
     def select(cls):
         return MagicMock()
 
+    def __lt__(self, other):
+        return False
 
+    def __gt__(self, other):
+        return True
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
