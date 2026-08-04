@@ -177,3 +177,8 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - Fix `test_runner.py` mocks to perfectly replicate Pydantic ValidationError and missing dependencies (e.g. `ruamel`, `peewee`, `numpy`) or purely rely on native container execution (`make run_tests`).
 - Investigate overlay invalid argument error when doing `docker buildx build` during `make run_tests` which is blocking accurate local tests.
 - Fix frontend `punycode` module deprecations node warning during test execution.
+
+## Test Reliability and Code Optimization Improvements
+- **Frontend Node Deprecations**: The `punycode` module throws deprecation warnings during the Vitest run. We should update the dependencies (such as `tr46` or `whatwg-url` via major version bumps if possible, or migrating to userland `punycode` alternatives) to eliminate `DEP0040` console clutter in CI.
+- **Backend Test execution**: The brittle `test_runner.py` should be deprecated for running core API validation, as it is impossible to accurately mock nested Pydantic v2 validation cycles without importing the true module.
+- **Docker BuildKit**: The primary blocker for `make run_tests` locally is an `overlayfs` mount error. We should explore modifying the local Docker daemon to use the `vfs` storage driver or disable BuildKit entirely to allow native container test execution, enabling us to drop `test_runner.py` hacks.
