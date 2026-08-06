@@ -111,3 +111,10 @@ The `test_runner.py` mock approach has hit its limits for complex nested Pydanti
 - Backend unittests run with `test_runner.py`. While mock dependencies issues still block many tests (23 failures, 180 errors due to Pydantic models, Numpy, OpenCV missing modules etc), the test framework itself runs.
 - Mock dependency `ruamel` was attempted but hit similar limits to `Pydantic` and `peewee` mock complexity requiring `make run_tests` to truly validate YAML config schema loading.
 - Docker based build `make run_tests` continues to throw overlay invalid argument, preventing natively correct full test validations.
+
+## Testing Updates (Final Review)
+- Ran the test suite for frontend using Vitest inside `web/` via `npm run test src/` - 138 tests passed.
+- Attempted to run the backend test suite via `make run_tests`, however, a Docker Buildkit overlayfs error prevented native execution.
+- Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
+- As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
+- For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
