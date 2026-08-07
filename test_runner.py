@@ -59,6 +59,7 @@ class MockPydantic:
     ValidationInfo = MagicMock()
     field_serializer = MagicMock()
     TypeAdapter = MagicMock()
+
     @staticmethod
     def Field(*args, **kwargs):
         return None
@@ -119,6 +120,12 @@ class MockPydantic:
 
 
 class ModuleMock(MagicMock):
+    def __lt__(self, other):
+        return False
+
+    def __gt__(self, other):
+        return True
+
     def __getattr__(self, name):
         if name in (
             "__path__",
@@ -132,6 +139,8 @@ class ModuleMock(MagicMock):
             "__parameters__",
         ):
             raise AttributeError(name)
+        if name == "DEFAULT_VERSION":
+            return 2  # To fix regex KeyError
         return super().__getattr__(name)
 
 
@@ -159,6 +168,11 @@ class MockModel:
     def select(cls, *args, **kwargs):
         return MagicMock()
 
+    def __lt__(self, other):
+        return False
+
+    def __gt__(self, other):
+        return True
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
@@ -200,6 +214,8 @@ def mock_unidecode(text: str) -> str:
 sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
 
+sys.modules["ruamel"] = ModuleMock()
+sys.modules["ruamel.yaml"] = ModuleMock()
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
 sys.modules["norfair.drawing"] = ModuleMock()
@@ -259,6 +275,7 @@ sys.modules["scipy.ndimage"] = ModuleMock()
 sys.modules["sherpa_onnx"] = ModuleMock()
 
 sys.modules["zeep"] = ModuleMock()
+sys.modules["zeep"].__version__ = "1.0.0"
 sys.modules["zeep.exceptions"] = ModuleMock()
 sys.modules["zeep.transports"] = ModuleMock()
 sys.modules["pathvalidate"] = ModuleMock()
@@ -395,3 +412,6 @@ if __name__ == "__main__":
         else ["unittest", "discover", "frigate/test"]
     )
     unittest.main(module=None, argv=argv)
+
+sys.modules["frigate.util.services"] = ModuleMock()
+sys.modules["frigate.util.services"]._go2rtc_arbitrary_exec_allowed = True
