@@ -1,45 +1,37 @@
-# Test Environment Setup and Code Review Request
+# Test Results and Improvements
 
-All of the previous unit tests failures (except the network/requests errors related to go2rtc connection which shouldn't block the logic validation) have been resolved.
+## Backend Test Failure Summary
 
-- Fixed Pandas version incompatibility.
-- Fixed `AttributeError: 'NoneType' object has no attribute 'shape'` by properly checking if frame is `None` before referencing its `shape`.
-- Fixed start_time discrepancy bug by converting Pandas DatetimeIndex properly back into UNIX timestamps in `motion_activity()`.
-- Fixed the `test_gpu_arg_formatting` test failure by using `"preset-vaapi"` instead of `"hwaccel_vaapi"`.
+Currently, running tests via `test_runner.py` outside of the Docker container fails on numerous imports, missing dependencies, and incorrect mocks (e.g. OpenCV, OpenVINO, Ruamel YAML, PyTorch, RKNN, etc.). There are 23 failures and 240 errors.
 
-Ready to create the execution plan.
+A major reason is that Frigate's codebase relies on a heavily populated Linux environment (Docker image `frigate:latest`), which includes a vast number of AI/ML libraries, database dependencies (peewee), hardware acceleration interfaces, and video encoding (ffmpeg) binaries. Mocks exist in `test_runner.py` but they are incomplete or fail to properly mock newer versions of the libraries, especially Pydantic v2 and `ruamel.yaml`.
 
-## Test Environment Setup and Code Review Request (Update)
+## Suggested Improvements
 
-Tested backend functionality with unit tests using `python3 test_runner.py`. Identified multiple failures and errors primarily stemming from incomplete mocking in `test_runner.py`.
-- **Permission Errors**: Tests fail trying to create `/config/model_cache` due to lack of permissions. Setting `CONFIG_DIR` to a temporary writable location (e.g. `/tmp/config`) resolves some but not all hardcoded `/config` issues.
-- **Pydantic Validation Mocks**: Profile tests expecting `pydantic.ValidationError` fail because `MockPydanticValidationError` is not properly integrated into the `MockPydantic` validation logic.
-- **Missing Module Mocks**: `norfair.drawing.draw_boxes` is missing from `test_runner.py`, causing `frigate.video` import failures. Additionally, `peewee` is not fully mocked, leading to `ModuleNotFoundError` during `models.py` import when testing HTTP API endpoints.
-- **Mock Return Values**: Several tests fail because they expect specific return types (integers, strings) but receive `MagicMock` objects (e.g. `unidecode()`, `ndarray.shape`, `cv2.cvtColor().shape`).
-- **Logic Mismatches**: Mocked behavior deviates from expected execution in areas like shared memory management and go2rtc restricted source checks.
+1. **Improve the mock environment in `test_runner.py`**:
+   The current test runner lacks accurate mocks for:
+   - `ruamel.yaml`: Missing mock attributes like `indent` for YAML generation and saving, preventing config tests from running.
+   - `pydantic`: Missing proper serialization features and attributes on mocked classes. Tests relying heavily on validation often fail when validating nested structures.
+   - Pydantic models in `frigate/config/config.py` break easily if standard `typing` methods are mocked incorrectly.
+   - Database operations: The `peewee` mock fails when calling `Recordings.select`, breaking `frigate.record.export`.
 
-Tested frontend functionality using `npm run test` (Vitest).
-- Running tests from root `web/` causes collisions with Playwright `e2e/` tests due to conflicting `test.describe()`.
-- Successfully ran isolated tests with `npm run test src/` (115 passing tests across 10 suites).
+2. **Docker Build Issues**:
+   - `make run_tests` fails locally on BuildKit `overlayfs` mounts when run without specific Docker configurations. Ensuring Docker can cleanly build and cache layers in CI and local setups is critical for natively running tests.
 
-Documented the necessary fixes and testing mock improvements in `Jules/improvements.md` for future implementation.
+3. **Backend Optimization Opportunities**:
+   - Database bulk insert benchmarks are relatively fast (115,000 r/s with batch=100), but `frigate/record/export.py` currently relies on un-batched `select` queries on large `Recordings` datasets. Batch fetching could be optimized.
+   - GPU stats collection fails on platforms without DRM fdinfo. Add graceful fallback.
+   - Detection pre-processing has high max latency (11.3ms vs avg 0.5ms) due to cold starts. We can warm up inference engines or pre-allocate memory buffers.
 
 
-## Test Environment Setup and Code Review Request (Update)
+## Frontend Test Failure Summary
 
-Tested backend functionality with unit tests using `python3 test_runner.py`. Identified multiple failures and errors primarily stemming from incomplete mocking in `test_runner.py`.
-- **Pydantic Validation Mocks**: Fixed `test_runner.py` to properly raise `MockPydanticValidationError` inside `MockPydantic.v1.BaseModel`. However, there are still some `MockPydanticValidationError not raised` failures in test_profiles.py.
-- **Missing Module Mocks**: `norfair.drawing.draw_boxes` is missing from `test_runner.py`, causing `frigate.video` import failures.
-- **Mock Return Values**: Several tests fail because they expect specific return types (integers, strings) but receive `MagicMock` objects (e.g. `unidecode()`, `ndarray.shape`, `cv2.cvtColor().shape`).
-- **Logic Mismatches**: Mocked behavior deviates from expected execution in areas like shared memory management and go2rtc restricted source checks.
+When running Vitest, the E2E Playwright tests in `web/e2e/specs/` are being incorrectly swept up by the `vitest` runner. Since Vitest cannot execute Playwright suites, 20 test files fail immediately with:
+`Error: Playwright Test did not expect test.describe() to be called here.`
 
-Tested frontend functionality using `npm run test` (Vitest).
-- Running tests from root `web/` causes collisions with Playwright `e2e/` tests due to conflicting `test.describe()`.
-- Successfully ran isolated tests with `npm run test src/` (115 passing tests across 10 suites).
+## Suggested Improvements
 
-Documented the necessary fixes and testing mock improvements in `Jules/improvements.md` for future implementation.
-- Backend and frontend tests were attempted. Frontend passes on `src/`, backend needs test_runner.py fixes for missing mocks.
-
+1. **Scope Vitest execution**:
 ## Final Status Update
 - Improved `test_runner.py` by adding more robust mocking for `cv2.cvtColor`, specifically ensuring that `.shape` returns a tuple. This resolved several failures in `test_video.py` and other modules that depend on OpenCV shape assertions.
 - Verified frontend tests still run successfully (115 tests passed).
