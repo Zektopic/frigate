@@ -208,3 +208,10 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 **Frontend Testing Optimizations:**
 - Executing frontend tests in the root `web/` folder with standard `npm run test run` causes assertion and describe-block collisions. This occurs because Vitest encounters Playwright integration tests inside the `e2e/` folder, causing conflicts where Playwright explicitly rejects `test.describe()` from foreign executors.
 - *Optimization Suggestion*: Always explicitly scope unit tests to the source code folder using `cd web && npm run test src/`. Doing so results in all 138 test items resolving successfully within an isolated boundary, improving both the test reliability and preventing tool-chain cross-pollution.
+
+## Testing Updates (Final Review)
+- Ran the test suite for frontend using Vitest inside `web/` via `npm run test src/` - 138 tests passed.
+- Attempted to run the backend test suite via `make run_tests`, however, a Docker Buildkit overlayfs error prevented native execution.
+- Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
+- As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
+- For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
