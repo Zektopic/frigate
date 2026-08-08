@@ -108,3 +108,13 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
 - As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
+
+## Testing Status and Next Steps Update
+
+I have verified the test environment state per the request.
+
+1. **Frontend**: I navigated to the `web/` directory, ran `npm ci` to cleanly install dependencies, and ran the unit tests targeting the `src/` directory (`npx vitest run src/`). The tests ran successfully with 138 tests passing across 13 test files. Some Node deprecation warnings regarding the `punycode` module were observed in the output.
+2. **Backend Native via `make run_tests`**: Attempted to run the backend test suite via the standard `make run_tests` command. The command uses `docker buildx build` to create a test container, but it continues to fail locally due to a BuildKit `overlayfs` mount error (`err: invalid argument`). This prohibits native full-system testing.
+3. **Backend Fallback via `test_runner.py`**: I executed the backend unit tests using the custom local `python3 test_runner.py` script. The script successfully starts the test framework. However, a significant number of errors and failures (24 failures, 177 errors out of 621 tests) persist due to the immense complexity of perfectly mocking dependencies like `numpy`, `cv2`, `peewee`, and nested `Pydantic` v2 validations using `sys.modules`.
+
+The required tests have been evaluated and the outputs generated. The `status.md` and `improvements.md` have been fully audited and are ready for documentation updates to advise future work.
