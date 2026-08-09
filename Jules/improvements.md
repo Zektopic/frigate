@@ -108,3 +108,13 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
 - As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
+
+## Final Testing Environment Wrap-up (Update 5)
+### Backend Native Execution Dependencies & Code Mocks
+- The `make run_tests` Docker BuildKit failure (`overlayfs mount invalid argument`) remains the primary blocker for a healthy native testing environment on local setups. Resolving this via `DOCKER_BUILDKIT=0` or alternative storage drivers (like `vfs`) should be a top priority to execute reliable backend validations.
+- The `test_runner.py` custom script implements extremely brittle `sys.modules` patching for `pydantic`, `cv2`, `numpy`, `ruamel.yaml` and `openvino`. Building perfect mocks that trick Python's native runtime type checking and deep dictionary validation for Pydantic v2 schemas has proven unfeasible without the real libraries.
+- **Action Item**: Once the Docker engine mount issue is resolved, permanently deprecate `test_runner.py` reliance for API model testing and fallback solely to native container runs, as relying on `sys.modules` causes massive false-positive failures and missing validation coverage.
+
+### Frontend Quality of Life
+- The front-end unit test suite runs 138 tests entirely free of errors when scoped using `cd web && npm run test src/`.
+- **Action Item**: Node dependency warnings regarding `punycode` were observed during the Vitest execution sequence. A minor maintenance task should be opened to update packages or replace the deprecated `punycode` library with a community userland alternative to keep CI logs clean.
