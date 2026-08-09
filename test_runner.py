@@ -174,6 +174,7 @@ class MockModel:
     def __gt__(self, other):
         return True
 
+
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
 sys.modules["peewee"] = peewee_mock
