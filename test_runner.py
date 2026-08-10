@@ -121,10 +121,30 @@ class MockPydantic:
 
 class ModuleMock(MagicMock):
     def __lt__(self, other):
+        if isinstance(other, tuple):
+            return False
         return False
 
     def __gt__(self, other):
+        if isinstance(other, tuple):
+            return True
         return True
+
+    def __le__(self, other):
+        return False
+
+    def __ge__(self, other):
+        return True
+
+    def __int__(self):
+        return 0
+
+    def __and__(self, other):
+        return 0
+
+    def __or__(self, other):
+        return 0
+
 
     def __getattr__(self, name):
         if name in (
