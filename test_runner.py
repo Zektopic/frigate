@@ -126,6 +126,9 @@ class ModuleMock(MagicMock):
     def __gt__(self, other):
         return True
 
+    def __int__(self):
+        return 1
+
     def __getattr__(self, name):
         if name in (
             "__path__",
@@ -142,6 +145,20 @@ class ModuleMock(MagicMock):
         if name == "DEFAULT_VERSION":
             return 2  # To fix regex KeyError
         return super().__getattr__(name)
+
+import types
+ruamel = types.ModuleType("ruamel")
+ruamel.yaml = types.ModuleType("ruamel.yaml")
+ruamel.yaml.constructor = types.ModuleType("ruamel.yaml.constructor")
+class DuplicateKeyError(Exception): pass
+ruamel.yaml.constructor.DuplicateKeyError = DuplicateKeyError
+
+sys.modules["ruamel"] = ruamel
+sys.modules["ruamel.yaml"] = ruamel.yaml
+sys.modules["ruamel.yaml.constructor"] = ruamel.yaml.constructor
+
+
+
 
 
 sys.modules["pydantic"] = MockPydantic
@@ -173,6 +190,7 @@ class MockModel:
 
     def __gt__(self, other):
         return True
+
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
