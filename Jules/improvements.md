@@ -108,3 +108,10 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
 - As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
+
+## Test Reliability and Code Optimization Improvements (New Iteration)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test src/`. All 138 tests across 13 test files continue to pass perfectly without any failures.
+- **Node Punycode Warning**: The `[DEP0040] DeprecationWarning: The punycode module is deprecated` warning persists. A recommendation for future improvements is to update dependencies (e.g., `tr46`, `whatwg-url`) that rely on `punycode`, or completely switch to a userland alternative to maintain a clean CI output.
+- **Backend Tests (Native Environment)**: Executing backend tests via `python3 test_runner.py` continues to hit hard limits in the environment. Native Python mocks are insufficient to successfully replicate full `Pydantic v2` structures and C-extensions for `numpy`/`cv2`.
+- **Backend Tests (Docker Environment)**: `make run_tests` fails early because of Docker BuildKit `overlayfs` mount restrictions on the host sandbox.
+- **Recommendations for the Future**: The most robust solution is to fix the underlying issue with Docker BuildKit (potentially by altering the daemon to use the `vfs` storage driver or switching off BuildKit entirely in `make run_tests`). This will allow true test coverage without relying on brittle test mocks in `test_runner.py`.

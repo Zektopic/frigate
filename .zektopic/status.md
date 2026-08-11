@@ -116,3 +116,11 @@ The `test_runner.py` mock approach has hit its limits for complex nested Pydanti
 - Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
 - As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
+
+## Testing Status and Roadmap (New Iteration)
+- **Frontend Success**: Testing execution confirmed using `cd web && npm ci && npm run test src/`. All 138 frontend tests pass locally.
+- **Backend Limitations**: Local tests run using `test_runner.py` encounter hundreds of mock failures and errors due to incomplete representations of Pydantic v2 schemas and C-extensions (like NumPy and OpenCV).
+- **Docker Mount Issue**: Running testing natively using `make run_tests` continues to fail with a Docker BuildKit error related to `overlayfs` mounts (`mount source: "overlay"... err: invalid argument`).
+- **Roadmap**:
+  - To properly evaluate and improve backend stability, the local Docker execution (`make run_tests`) must be configured to work smoothly, enabling the removal of brittle mock scripts.
+  - The node `punycode` deprecation warnings should be mitigated by bumping internal JS parsing libraries to support userland `punycode` alternatives.
