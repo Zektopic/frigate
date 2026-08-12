@@ -140,7 +140,7 @@ class ModuleMock(MagicMock):
         ):
             raise AttributeError(name)
         if name == "DEFAULT_VERSION":
-            return 2  # To fix regex KeyError
+            return 0  # To fix regex KeyError
         return super().__getattr__(name)
 
 
@@ -184,7 +184,19 @@ sys.modules["playhouse"] = ModuleMock()
 sys.modules["playhouse.sqlite_ext"] = ModuleMock()
 sys.modules["playhouse.sqliteq"] = ModuleMock()
 sys.modules["playhouse.shortcuts"] = ModuleMock()
-sys.modules["peewee_migrate"] = ModuleMock()
+
+class PeeweeMigrateMock:
+    class Router:
+        def __init__(self, *args, **kwargs):
+            pass
+        def run(self, *args, **kwargs):
+            pass
+    def __getattr__(self, name):
+        if name == "Router": return self.Router
+        return MagicMock()
+
+sys.modules["peewee_migrate"] = PeeweeMigrateMock()
+sys.modules["peewee_migrate.router"] = PeeweeMigrateMock()
 
 sys.modules["unidecode"] = ModuleMock()
 
@@ -215,6 +227,7 @@ sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
 
 sys.modules["ruamel"] = ModuleMock()
+sys.modules["ruamel.yaml"] = ModuleMock()
 sys.modules["ruamel.yaml"] = ModuleMock()
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
