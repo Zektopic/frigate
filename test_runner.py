@@ -228,7 +228,15 @@ sys.modules["unidecode"].unidecode = mock_unidecode
 
 sys.modules["ruamel"] = ModuleMock()
 sys.modules["ruamel.yaml"] = ModuleMock()
-sys.modules["ruamel.yaml"] = ModuleMock()
+sys.modules["ruamel.yaml.main"] = ModuleMock()
+sys.modules["ruamel.yaml.error"] = ModuleMock()
+
+class RuamelCompatMock(ModuleMock):
+    def __getattr__(self, name):
+        if name == "version_tnf":
+            return lambda *args, **kwargs: True
+        return super().__getattr__(name)
+sys.modules["ruamel.yaml.compat"] = RuamelCompatMock()
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
 sys.modules["norfair.drawing"] = ModuleMock()
