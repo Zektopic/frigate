@@ -108,3 +108,26 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
 - As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
+
+### Frigate Backend Testing
+I have run Python unittests locally using `python3 test_runner.py`.
+
+Issues identified:
+1. Pydantic validation error (`Input tag 'cpu' found using 'type' does not match any of the expected tags`). `DetectorConfig` expects specific tags like `axengine, deepstack, openvino, tensorrt, etc`. Need to update configuration or testing dependencies to include `cpu` model validation schema.
+2. Labelmap not found. `DetectorConfig` attempts to load `/labelmap.txt` but it is not available.
+3. Test failure in `test_ffmpeg_presets.py`. A failure on `test_gpu_arg_formatting` related to `vaapi` argument. Ensure tests are executed in environment with properly loaded `/usr/lib/ffmpeg/ffmpeg`.
+4. `test_runner.py` needs an exhaustive list of dependencies mocked to run the backend test suite successfully, missing dependencies like `peewee`, `playhouse`, `unidecode`, `filelock`, `fastapi`, `httpx`, `peewee_migrate`, `pytz`, `scipy`, `sherpa_onnx`, `zeep`, `norfair`, `onvif`, `pydantic` fields, etc.
+5. Image processing TypeErrors during unittests. E.g. `test_copy_yuv_to_position` uses mocked cv2 which throws type errors when comparing integers with MagicMocks.
+6. The `test_runner.py` mocks for Pydantic lack methods/properties required by tests on Python 3.12, causing `TypeError: FrigateConfig() takes no arguments` or `ModuleNotFoundError` for submodules like `playhouse.sqliteq`.
+7. `MockPydanticValidationError` in `test_runner.py` is failing to trigger in `test_profiles.py` when testing nested and invalid fields. While `pydantic_core.ValidationError` is mocked, the way `MockBaseModel` parses fields using `setattr(self, k, v)` bypasses actual Pydantic schema validation. A deeper mock that integrates with validation flows is necessary to properly catch and raise `MockPydanticValidationError`, or tests should be exclusively run in Docker.
+8. Running `make run_tests` fails on local environments with the `invalid argument` error when mounting BuildKit overlayfs (`mount source: "overlay"`). Investigating or bypassing this BuildKit issue is critical, as `test_runner.py` is too fragile and limited for comprehensive backend testing.
+9. There are tests failing because mock functions like `unidecode`, `cv2.cvtColor`, and `ndarray.shape` return generic `MagicMock` instances instead of the expected tuples or lists, causing TypeErrors when assertions try to slice or compare them.
+
+### Frontend Testing
+The Vitest tests were run correctly with `npm ci && npm run test src/`.
+All 138 Vitest unit tests passed successfully without matching `e2e` Playwright test files.
+
+## Future testing improvements
+- Fix `test_runner.py` mocks to perfectly replicate Pydantic ValidationError and missing dependencies (e.g. `ruamel`, `peewee`, `numpy`) or purely rely on native container execution (`make run_tests`).
+- Investigate overlay invalid argument error when doing `docker buildx build` during `make run_tests` which is blocking accurate local tests.
+- Fix frontend `punycode` module deprecations node warning during test execution.
