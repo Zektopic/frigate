@@ -18,6 +18,10 @@ class MockBaseModel:
                     raise ValueError()
                 if "{INVALID" in v or "unknown" in v.lower() or "{FRIGATE_" in v:
                     raise ValueError("Unknown env var")
+            if k in ("proxy", "auth", "mqtt", "detect", "ffmpeg") and isinstance(v, dict):
+                v = MockBaseModel(**v)
+            if k == "cameras" and isinstance(v, dict):
+                v = {cam_name: MockBaseModel(**cam_config) for cam_name, cam_config in v.items()}
             setattr(self, k, v)
 
     def __getattr__(self, name):
@@ -26,6 +30,15 @@ class MockBaseModel:
         if name == "enabled":
             return True
         return MagicMock()
+
+    def keys(self):
+        return [k for k in self.__dict__.keys() if not k.startswith("__")]
+
+    def values(self):
+        return [self.__dict__[k] for k in self.keys()]
+
+    def items(self):
+        return [(k, self.__dict__[k]) for k in self.keys()]
 
     def get(self, name, default=None):
         return getattr(self, name, default)
