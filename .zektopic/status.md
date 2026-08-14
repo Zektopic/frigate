@@ -116,8 +116,6 @@ The `test_runner.py` mock approach has hit its limits for complex nested Pydanti
 - Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
 - As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
-Testing Environment status
-
 ## Testing Status and Next Steps Update
 
 I have verified the test environment state per the request.
@@ -127,3 +125,10 @@ I have verified the test environment state per the request.
 3. **Backend Fallback via `test_runner.py`**: I executed the backend unit tests using the custom local `python3 test_runner.py` script. The script successfully starts the test framework. However, a significant number of errors and failures (24 failures, 177 errors out of 621 tests) persist due to the immense complexity of perfectly mocking dependencies like `numpy`, `cv2`, `peewee`, and nested `Pydantic` v2 validations using `sys.modules`.
 
 The required tests have been evaluated and the outputs generated. The `status.md` and `improvements.md` have been fully audited and are ready for documentation updates to advise future work.
+
+## Test Run Outcomes (Final Request)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test src/`. All 138 tests successfully passed in the isolated environment. Some deprecation warnings (e.g., punycode) were present but did not affect test execution.
+- **Backend Tests (Native Docker)**: Attempted to run the backend test suite inside Docker using `make run_tests`. The build process (`docker buildx build`) failed due to a BuildKit `overlayfs` mount `invalid argument` error. This restricts accurate testing using fully installed dependencies in the provided environment.
+- **Backend Tests (Fallback Local Runner)**: Executed `python3 test_runner.py` outside of the Docker container. The script executed but produced numerous failures (24 failures, 177 errors). The root cause remains the extremely limited capability to correctly mock complex C-extensions (`numpy`, `cv2`) and Pydantic v2 schemas using `sys.modules`.
+- **Conclusion**: Frontend test suites are perfectly stable and verified. The backend suite executes locally, but test validations fail because complex structural dependency logic and runtime checks cannot be faked perfectly via `sys.modules`. Accurate backend testing is blocked until the Docker BuildKit daemon is corrected in the host environment.
+
