@@ -14,12 +14,19 @@ from frigate.track.stationary_classifier import (
 
 class TestStationaryThresholds(unittest.TestCase):
     def test_known_labels_return_expected_singletons(self) -> None:
-        self.assertIs(get_stationary_threshold("package"), STATIONARY_OBJECT_THRESHOLDS)
-        self.assertIs(get_stationary_threshold("car"), DYNAMIC_OBJECT_THRESHOLDS)
-        self.assertIs(
-            get_stationary_threshold("license_plate"),
-            NON_STATIONARY_OBJECT_THRESHOLDS,
-        )
+        for label in STATIONARY_OBJECT_THRESHOLDS.objects:
+            with self.subTest(label=label):
+                self.assertIs(get_stationary_threshold(label), STATIONARY_OBJECT_THRESHOLDS)
+
+        for label in DYNAMIC_OBJECT_THRESHOLDS.objects:
+            with self.subTest(label=label):
+                self.assertIs(get_stationary_threshold(label), DYNAMIC_OBJECT_THRESHOLDS)
+
+        for label in NON_STATIONARY_OBJECT_THRESHOLDS.objects:
+            with self.subTest(label=label):
+                self.assertIs(
+                    get_stationary_threshold(label), NON_STATIONARY_OBJECT_THRESHOLDS
+                )
 
     def test_unknown_label_returns_shared_default(self) -> None:
         # an unknown label must reuse the shared default instance, not allocate
