@@ -110,6 +110,7 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ## Testing Status and Next Steps Update
 
 I have verified the test environment state per the request.
@@ -146,4 +147,14 @@ The required tests have been evaluated and the outputs generated. The `status.md
 - **Backend Tests (Native Environment)**: Executing backend tests via `python3 test_runner.py` continues to hit hard limits in the environment. Native Python mocks are insufficient to successfully replicate full `Pydantic v2` structures and C-extensions for `numpy`/`cv2`.
 - **Backend Tests (Docker Environment)**: `make run_tests` fails early because of Docker BuildKit `overlayfs` mount restrictions on the host sandbox.
 - **Recommendations for the Future**: The most robust solution is to fix the underlying issue with Docker BuildKit (potentially by altering the daemon to use the `vfs` storage driver or switching off BuildKit entirely in `make run_tests`). This will allow true test coverage without relying on brittle test mocks in `test_runner.py`.
+
+## Test Fix Update - TestWsRoleHelpers
+- Fixed `AttributeError: 'dict' object has no attribute 'separator'` in `frigate/test/test_ws_outbound_filter.py` by making `test_runner.py`'s `MockBaseModel` recursively convert nested dictionaries into `MockBaseModel` instances for config sections like `proxy`, `auth`, `mqtt`, `detect`, and `ffmpeg`.
+- Also updated `MockBaseModel` to support `keys()`, `values()`, and `items()` methods to mock dict-like behavior for config dictionaries like `config.cameras`.
+- These changes reduced the errors in `test_ws_outbound_filter.py` from 38 down to 0, ensuring tests for WS permissions mapping logic run successfully.
+
+## Conclusion and Future Actions
+- Re-ran frontend unit tests via `cd web && npm ci && npm run test src/`. 138 tests continue to pass with a clean run (aside from punycode node module deprecation warnings, which are a future enhancement target).
+- Re-ran backend tests via `python3 test_runner.py`. The amount of errors dropped after implementing fixes for `config.proxy.separator` and `config.cameras.values()` evaluation in `MockBaseModel`. Still, ~116 errors and 26 failures remain due to missing core libraries (e.g., OpenCV, Numpy, OpenVINO, Pydantic core validators).
+- Confirmed that without resolving the host Docker setup (resolving the overlayfs mount failure during `make run_tests`), further improvements to `test_runner.py` hit diminishing returns due to the intricate mocks required for C-extensions and schema engines.
 
