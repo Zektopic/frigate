@@ -111,17 +111,18 @@ async def go2rtc_streams(request: Request):
     "/go2rtc/streams/{stream_name}",
     dependencies=[Depends(require_go2rtc_stream_access)],
 )
-def go2rtc_camera_stream(request: Request, stream_name: str):
-    r = requests.get(
-        "http://127.0.0.1:1984/api/streams",
-        params={
-            "src": stream_name,
-            "video": "all",
-            "audio": "all",
-            "microphone": "",
-        },
-    )
-    if not r.ok:
+async def go2rtc_camera_stream(request: Request, stream_name: str):
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            "http://127.0.0.1:1984/api/streams",
+            params={
+                "src": stream_name,
+                "video": "all",
+                "audio": "all",
+                "microphone": "",
+            },
+        )
+    if not r.is_success:
         camera_config = request.app.frigate_config.cameras.get(stream_name)
 
         if camera_config is None:
