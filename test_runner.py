@@ -247,7 +247,19 @@ sys.modules["playhouse"] = ModuleMock()
 sys.modules["playhouse.sqlite_ext"] = ModuleMock()
 sys.modules["playhouse.sqliteq"] = ModuleMock()
 sys.modules["playhouse.shortcuts"] = ModuleMock()
-sys.modules["peewee_migrate"] = ModuleMock()
+
+class PeeweeMigrateMock:
+    class Router:
+        def __init__(self, *args, **kwargs):
+            pass
+        def run(self, *args, **kwargs):
+            pass
+    def __getattr__(self, name):
+        if name == "Router": return self.Router
+        return MagicMock()
+
+sys.modules["peewee_migrate"] = PeeweeMigrateMock()
+sys.modules["peewee_migrate.router"] = PeeweeMigrateMock()
 
 sys.modules["unidecode"] = ModuleMock()
 
@@ -279,6 +291,15 @@ sys.modules["unidecode"].unidecode = mock_unidecode
 
 sys.modules["ruamel"] = ModuleMock()
 sys.modules["ruamel.yaml"] = ModuleMock()
+sys.modules["ruamel.yaml.main"] = ModuleMock()
+sys.modules["ruamel.yaml.error"] = ModuleMock()
+
+class RuamelCompatMock(ModuleMock):
+    def __getattr__(self, name):
+        if name == "version_tnf":
+            return lambda *args, **kwargs: True
+        return super().__getattr__(name)
+sys.modules["ruamel.yaml.compat"] = RuamelCompatMock()
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
 sys.modules["norfair.drawing"] = ModuleMock()
