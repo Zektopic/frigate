@@ -4,7 +4,47 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 # Mock dependencies before any imports
-from frigate.util.rknn_converter import ensure_rknn_toolkit, is_rknn_compatible
+from frigate.util.rknn_converter import (
+    ensure_rknn_toolkit,
+    get_rknn_model_type,
+    is_rknn_compatible,
+)
+
+
+class TestGetRknnModelType(unittest.TestCase):
+    def test_jina_clip_v1_vision(self):
+        # Exact match
+        self.assertEqual(
+            get_rknn_model_type("jina-clip-v1-vision.onnx"), "jina-clip-v1-vision"
+        )
+        # Components match
+        self.assertEqual(
+            get_rknn_model_type("/models/jina-clip-v1/vision.onnx"),
+            "jina-clip-v1-vision",
+        )
+        # Should not match if only one component is present
+        self.assertNotEqual(
+            get_rknn_model_type("jina-clip-v1-text.onnx"), "jina-clip-v1-vision"
+        )
+
+    def test_arcface(self):
+        self.assertEqual(get_rknn_model_type("arcface_r100.onnx"), "arcface-r100")
+        self.assertEqual(get_rknn_model_type("ArcFace_something.onnx"), "arcface-r100")
+        self.assertEqual(
+            get_rknn_model_type("/some/path/arcface.onnx"), "arcface-r100"
+        )
+
+    def test_yolo_variants(self):
+        self.assertEqual(get_rknn_model_type("yolov8n.onnx"), "yolov8n.onnx")
+        self.assertEqual(get_rknn_model_type("yolox_s.onnx"), "yolox_s.onnx")
+        self.assertEqual(get_rknn_model_type("yolonas_s.onnx"), "yolonas_s.onnx")
+        self.assertEqual(get_rknn_model_type("/path/to/YOLO_V4.ONNX"), "yolo_v4.onnx")
+
+    def test_unknown_models(self):
+        self.assertIsNone(get_rknn_model_type("resnet50.onnx"))
+        self.assertIsNone(get_rknn_model_type("mobilenet.onnx"))
+        self.assertIsNone(get_rknn_model_type("jina-clip-v1/text.onnx"))
+        self.assertIsNone(get_rknn_model_type("/path/to/unknown_model.onnx"))
 
 
 class TestEnsureRknnToolkit(unittest.TestCase):
