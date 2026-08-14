@@ -472,7 +472,9 @@ def process_frames(
                 cv2.COLOR_YUV2BGR_I420,
             )
             object_tracker.debug_draw(bgr_frame, frame_time)
-            cv2.imwrite(f"debug/frames/track-{frame_time:.6f}.jpg", bgr_frame)
+            cv2.imwrite(
+                f"debug/frames/track-{'{:.6f}'.format(frame_time)}.jpg", bgr_frame
+            )
         # debug
         if False:
             bgr_frame = cv2.cvtColor(
@@ -531,7 +533,7 @@ def process_frames(
                 )
 
             cv2.imwrite(
-                f"debug/frames/{camera_config.name}-{frame_time:.6f}.jpg",
+                f"debug/frames/{camera_config.name}-{'{:.6f}'.format(frame_time)}.jpg",
                 bgr_frame,
             )
         # add to the queue if not full

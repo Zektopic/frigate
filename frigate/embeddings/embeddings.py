@@ -1,6 +1,5 @@
 """SQLite-vec embeddings database."""
 
-import concurrent.futures
 import datetime
 import io
 import logging
@@ -9,7 +8,7 @@ import threading
 import time
 
 import numpy as np
-from peewee import IntegrityError
+from peewee import DoesNotExist, IntegrityError
 from PIL import Image
 from playhouse.shortcuts import model_to_dict
 
@@ -463,21 +462,6 @@ class Embeddings:
                     triggers_by_camera[trigger.camera] = {}
                 triggers_by_camera[trigger.camera][trigger.name] = trigger
 
-        # Pre-fetch events for thumbnail triggers
-        thumbnail_event_ids: list[str] = []
-        for camera in self.config.cameras.values():
-            for trigger_name, trigger in (
-                camera.semantic_search.triggers or {}
-            ).items():
-                if trigger.type == "thumbnail":
-                    thumbnail_event_ids.append(trigger.data)
-
-        events_by_id: dict[str, Event] = {}
-        if thumbnail_event_ids:
-            for chunk in chunked(list(set(thumbnail_event_ids)), 900):
-                for event in Event.select().where(Event.id << chunk):
-                    events_by_id[event.id] = event
-
         for camera in self.config.cameras.values():
             # Get all existing triggers for this camera
             existing_triggers = triggers_by_camera.get(camera.name, {})
@@ -499,8 +483,8 @@ class Embeddings:
                         thumbnail_path = os.path.join(
                             TRIGGER_DIR, camera.name, f"{trigger.data}.webp"
                         )
-                        event = events_by_id.get(trigger.data)
-                        if event:
+                        try:
+                            event = Event.get(Event.id == trigger.data)
                             if event.data.get("type") != "object":
                                 logger.warning(
                                     f"Event {trigger.data} is not a tracked object for {trigger.type} trigger"
@@ -522,7 +506,7 @@ class Embeddings:
                                     camera.name, trigger.data, thumbnail
                                 )
                                 thumbnail_missing = True
-                        else:
+                        except DoesNotExist:
                             logger.debug(
                                 f"Event ID {trigger.data} for trigger {trigger_name} does not exist."
                             )
@@ -558,8 +542,9 @@ class Embeddings:
                     try:
                         # For thumbnail triggers, validate the event exists
                         if trigger.type == "thumbnail":
-                            event = events_by_id.get(trigger.data)
-                            if not event:
+                            try:
+                                event: Event = Event.get(Event.id == trigger.data)
+                            except DoesNotExist:
                                 logger.warning(
                                     f"Event ID {trigger.data} for trigger {trigger_name} does not exist."
                                 )
@@ -612,22 +597,11 @@ class Embeddings:
                 Trigger.delete().where(
                     Trigger.camera == camera.name, Trigger.name.in_(triggers_to_remove)
                 ).execute()
-
-                thumbnails_to_remove = [
-                    existing_triggers[name].data
-                    for name in triggers_to_remove
-                    if existing_triggers[name].type == "thumbnail"
-                ]
-                if thumbnails_to_remove:
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        # Consume the generator to ensure any exceptions are raised
-                        list(
-                            executor.map(
-                                lambda event_id: self.remove_trigger_thumbnail(
-                                    camera.name, event_id
-                                ),
-                                thumbnails_to_remove,
-                            )
+                for trigger_name in triggers_to_remove:
+                    # Only remove thumbnail files for thumbnail triggers
+                    if existing_triggers[trigger_name].type == "thumbnail":
+                        self.remove_trigger_thumbnail(
+                            camera.name, existing_triggers[trigger_name].data
                         )
 
     def write_trigger_thumbnail(

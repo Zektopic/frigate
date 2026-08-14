@@ -662,7 +662,7 @@ async def _execute_set_camera_state(
     arguments: dict[str, Any],
 ) -> dict[str, Any]:
     role = request.headers.get("remote-role", "")
-    if "admin" not in (r.strip() for r in role.split(",")):
+    if "admin" not in [r.strip() for r in role.split(",")]:
         return {"error": "Admin privileges required to change camera settings."}
 
     camera = arguments.get("camera", "").strip()

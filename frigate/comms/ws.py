@@ -320,8 +320,6 @@ def _ws_role_header(ws: Any) -> str | None:
         return None
     value = environ.get("HTTP_REMOTE_ROLE")
     return value if isinstance(value, str) else None
-
-
 def _ws_valid_roles(ws: Any, config: FrigateConfig) -> list[str]:
     """Return the list of recognized roles for this connection."""
     header = _ws_role_header(ws)
@@ -329,8 +327,6 @@ def _ws_valid_roles(ws: Any, config: FrigateConfig) -> list[str]:
         return []
     roles = [r.strip() for r in header.split(config.proxy.separator) if r.strip()]
     return [r for r in roles if r == "admin" or r == "viewer" or r in config.auth.roles]
-
-
 def _ws_is_unrestricted(ws: Any, config: FrigateConfig) -> bool:
     """True when the connection has unrestricted camera access.
 

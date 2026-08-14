@@ -40,7 +40,7 @@ from frigate.config.camera.updater import CameraConfigUpdatePublisher
 from frigate.config.profile_manager import ProfileManager
 from frigate.debug_replay import DebugReplayManager, debug_replay_auto_stop_watchdog
 from frigate.embeddings import EmbeddingsContext
-from frigate.genai.manager import GenAIClientManager
+from frigate.genai import GenAIClientManager
 from frigate.ptz.onvif import OnvifController
 from frigate.stats.emitter import StatsEmitter
 from frigate.storage import StorageMaintainer

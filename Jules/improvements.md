@@ -1,110 +1,50 @@
-# Test Results and Improvements
+# Future Improvements
 
-## Backend Test Failure Summary
+Based on the test runs and codebase review, here are several suggested improvements to implement in the future:
 
-Currently, running tests via `test_runner.py` outside of the Docker container fails on numerous imports, missing dependencies, and incorrect mocks (e.g. OpenCV, OpenVINO, Ruamel YAML, PyTorch, RKNN, etc.). There are 23 failures and 240 errors.
+1. **Dependency Management**: Ensure consistent versions of libraries (`pandas`, `numpy`, `peewee`, etc.) are pinned in requirements or `pyproject.toml` to avoid the "ModuleNotFoundError" or "AttributeError" exceptions encountered during the test runs. The environment was missing multiple dependencies initially.
+2. **Robust Error Handling for Media API**: Add broader safety checks when accessing `frame.shape` in `frigate/api/media.py`. Returning an empty black frame rather than a 500 error when `frame is None` might be a safer approach for live feeds.
+3. **Pydantic Upgrades**: Several tests emitted warnings about `parse_obj_as` being deprecated in Pydantic v2.0 (`PydanticDeprecatedSince20`). Refactoring these to use `TypeAdapter.validate_python()` will future-proof the config loading system.
+4. **FastAPI Lifespan Events**: There are deprecation warnings for using `@app.on_event("startup")` in `frigate/api/fastapi_app.py`. Migrating to the newer `lifespan` event handlers will ensure compatibility with future FastAPI versions.
+5. **Data Downsampling Edge Cases**: In `frigate/api/review.py`, resampling Pandas `DatetimeIndex` structures back into UNIX timestamps manually required subtracting a specific epoch offset. Using a more native timestamp conversion method, or caching normalized timestamps could improve performance for larger summary queries.
+# Future Improvements and Features
+## Authentication and Security
+- Implement password strength validation for new passwords.
+- Consider adding rate limiting on login endpoints to prevent brute-force attacks.
 
-A major reason is that Frigate's codebase relies on a heavily populated Linux environment (Docker image `frigate:latest`), which includes a vast number of AI/ML libraries, database dependencies (peewee), hardware acceleration interfaces, and video encoding (ffmpeg) binaries. Mocks exist in `test_runner.py` but they are incomplete or fail to properly mock newer versions of the libraries, especially Pydantic v2 and `ruamel.yaml`.
+## Optimizations
+- Add incremental vacuuming configuration to SQLite instead of full to reduce wear on flash memory.
+- Reduce frequency of background processes on low-core APUs.
+- Investigate using zero-copy reading in the ffmpeg video ingestion loop.
 
-## Suggested Improvements
+## Frontend
+- Verify input validation across all config forms.
 
-1. **Improve the mock environment in `test_runner.py`**:
-   The current test runner lacks accurate mocks for:
-   - `ruamel.yaml`: Missing mock attributes like `indent` for YAML generation and saving, preventing config tests from running.
-   - `pydantic`: Missing proper serialization features and attributes on mocked classes. Tests relying heavily on validation often fail when validating nested structures.
-   - Pydantic models in `frigate/config/config.py` break easily if standard `typing` methods are mocked incorrectly.
-   - Database operations: The `peewee` mock fails when calling `Recordings.select`, breaking `frigate.record.export`.
+## Testing Improvements
+- Test suite fails to run because dependencies mock in `test_runner.py` is incomplete. Should mock additional modules such as `peewee`, `playhouse`, `unidecode`, `filelock`, `fastapi`, `httpx`, `peewee_migrate`, `pytz`, `scipy`, `sherpa_onnx`, `zeep`, `norfair.camera_motion`, `onvif`, and some missing `pydantic` fields to fix 65 failing tests.
+- Backend tests also face TypeErrors during image processing. For example, `test_crop_yuv` throws `< not supported between instances of int and MagicMock` because it's using mocked cv2 methods where mock isn't sufficient.
+- Python 3.12 compatibility issues inside `test_runner.py` mocks cause Pydantic to throw `TypeError: FrigateConfig() takes no arguments`.
+- Fix python unit test mock errors. Improve `test_runner.py` to fully mock `peewee`, `pydantic` (with `AfterValidator`, `ValidationInfo`), `unidecode`, and `filelock`.
+- Ensure frontend vitest tests use explicitly passed timezones when evaluating formatting, preventing timezone-dependent flakiness across platforms.
 
-2. **Docker Build Issues**:
-   - `make run_tests` fails locally on BuildKit `overlayfs` mounts when run without specific Docker configurations. Ensuring Docker can cleanly build and cache layers in CI and local setups is critical for natively running tests.
+## Backend Testing Mocks and Fixes
+- `test_runner.py` needs better Pydantic mock implementations to ensure that `ValidationError` is correctly raised and caught in `frigate.test.test_profiles`. Currently, test suite fails because `MockPydanticValidationError not raised`.
+- `os.makedirs` should be mocked or the `CONFIG_DIR` should point to a writable temporary directory in `frigate.test.test_profiles` to avoid `PermissionError: [Errno 13] Permission denied: '/config'`.
+- Add a mock for `norfair.drawing.draw_boxes` to fix the `ModuleNotFoundError` during `frigate.video` module import.
+- Improve mock for `cv2.cvtColor().shape` to return an actual tuple of integers instead of a `MagicMock` so that `test_video.py` and `test_yuv_region_2_rgb.py` do not fail when comparing shapes/regions.
+- Improve mock for `np.ndarray().shape` in `test_shared_memory_frame_manager.py` to return the expected dimensions.
+- Improve mock for `unidecode.unidecode` so it returns correct strings for assertions in `test_video.py`.
+- Improve the mock for `pydantic.ValidationError` in `test_runner.py` by making it correctly triggerable from within mocked Pydantic components.
+- In `test_shared_memory_frame_manager.py`, `UntrackedSharedMemory` mock is being called when tests expect it to not have been called.
+- In `test_proxy_auth.py`, `auth_secret` env variable substitution is not correctly mocked/functioning, leading to mismatched string assertions.
+- Peewee chunked queries might need mocked responses rather than generic MagicMocks.
+- Fix `peewee` mock in `test_runner.py` because currently `from peewee import *` or specific imports fail with `ModuleNotFoundError: No module named 'peewee'` which causes all `test_http_*.py` tests to error out due to import failure.
 
-3. **Backend Optimization Opportunities**:
-   - Database bulk insert benchmarks are relatively fast (115,000 r/s with batch=100), but `frigate/record/export.py` currently relies on un-batched `select` queries on large `Recordings` datasets. Batch fetching could be optimized.
-   - GPU stats collection fails on platforms without DRM fdinfo. Add graceful fallback.
-   - Detection pre-processing has high max latency (11.3ms vs avg 0.5ms) due to cold starts. We can warm up inference engines or pre-allocate memory buffers.
-
-
-## Frontend Test Failure Summary
-
-When running Vitest, the E2E Playwright tests in `web/e2e/specs/` are being incorrectly swept up by the `vitest` runner. Since Vitest cannot execute Playwright suites, 20 test files fail immediately with:
-`Error: Playwright Test did not expect test.describe() to be called here.`
-
-## Suggested Improvements
-
-1. **Scope Vitest execution**:
-## Backend Testing Mock Fixes (Resolved)
-- Mocked `pydantic_core.ValidationError` so it natively supports arguments and accurately triggers assertion checks for config validation failures in `test_profiles.py`.
-- Mocked `numpy.ndarray` slicing, `cv2.cvtColor().shape` tuples explicitly, and basic array math to prevent "TypeErrors" downstream.
-- Specifically added error handling classes to `sys.modules["peewee"]` mock to prevent HTTP test runner import issues.
-- Frontend tests pass consistently by running `npm run test src/`.
-- Documented that until native Docker compilation overlay works locally, these mock limits represent the maximum local backend validation achievable.
-
-## Code Testing Outcomes and Future Work
-1. **test_runner.py Conflicts**: We encountered git merge conflict markers () in  related to , , and  mocks. These were resolved by keeping the  blocks for  and , and removing the conflict markers. The local test runner now executes without .
-2. **Docker Build Failure**: Attempting to run echo 'VERSION = "0.18.0-d89cb17"' > frigate/version.py
-echo 'VITE_GIT_COMMIT_HASH=d89cb17' > web/.env
-docker buildx build --target=frigate --file docker/main/Dockerfile . \
-	--tag frigate:latest \
-	--load fails during the  container build due to an  mount error in BuildKit (). This necessitates running tests natively with , which is still severely limited by missing Pydantic v2 metadata mocks, complex numpy implementations, and OpenCV C-extensions.
-3. **Remaining Backend Failures**: A total of 187 errors/failures remain out of 681 tests when running . Notably,  still fails heavily on  assertions and deep dictionary serialization missing default values.
-4. **Frontend Success**: 115 Vitest tests run perfectly in isolation via `cd web && npm run test src/`.
-
-## Code Testing Outcomes and Future Work
-1. **test_runner.py Conflicts**: We encountered git merge conflict markers in `test_runner.py` related to `MockDnn`, `MockPydanticValidationError`, and `unidecode` mocks. These were resolved by keeping the `HEAD` blocks for `MockDnn` and `unidecode`, and removing the conflict markers. The local test runner now executes without `SyntaxError`.
-2. **Docker Build Failure**: Attempting to run `make run_tests` fails during the `frigate` container build due to an `overlayfs` mount error in BuildKit. This necessitates running tests natively with `test_runner.py`, which is still severely limited by missing Pydantic v2 metadata mocks, complex numpy implementations, and OpenCV C-extensions.
-3. **Remaining Backend Failures**: A total of 187 errors/failures remain out of 681 tests when running `test_runner.py`. Notably, `test_profiles.py` still fails heavily on `MockPydanticValidationError` assertions and deep dictionary serialization missing default values.
-4. **Frontend Success**: 115 Vitest tests run perfectly in isolation via `cd web && npm run test src/`.
-
-## Final Testing Environment Wrap-up
-- Fixed syntax errors inside `test_runner.py` allowing backend tests to at least execute natively.
-- Mocks for Pydantic v2 metadata, `numpy.ndarray.shape`, and OpenCV bounding box NMS continue to fail native tests. A permanent solution requires fixing the local Docker engine's overlay mount issues so that `make run_tests` can correctly build the `frigate:latest` container.
-- Frontend test suite is entirely passing when isolating the execution to `src/` inside the `web/` folder, effectively bypassing `vitest` and `playwright` conflicts.
-
-## Final Testing Environment Wrap-up (Update)
-- Note: There was a duplicate `def mock_unidecode` declaration remaining from previous git conflict resolution which was removed, but Pydantic Mock limitations still block 187/681 unit tests (failures=49, errors=138, skipped=4) via `test_runner.py`. Wait for Docker resolution to completely test backend.
-
-- Attempted to run tests using python3 test_runner.py, encountered numerous import errors and missing mock modules (peewee, http_api, pydantic.json_schema, openvino, cryptography, pandas). Updated test_runner.py to include mocks for these missing dependencies, however testing environment is fragile.
-
-## Test Runner Mocking Complexity
-Attempted to update the `test_runner.py` mocks to fully mimic pydantic functionality for `test_profiles.py`. We observed that building a perfect mock for Pydantic v2 in `sys.modules` is extraordinarily complex and brittle, because it breaks fundamental duck typing and attribute resolution assumptions in tests (like `.enabled` access throwing exceptions or `isinstance(dict)` returning unexpected true/false in downstream validation). Future work should prioritize native execution via `make run_tests` rather than over-investing in local Python mock runners for complex frameworks like pydantic or cv2.
-
-## Backend Testing Mocks and Fixes (Update 3)
-1. **Pydantic Validation**:
-   - `MockPydanticValidationError` in `test_runner.py` is failing to trigger in `test_profiles.py` when testing nested and invalid fields. While `pydantic_core.ValidationError` is mocked, the way `MockBaseModel` parses fields using `setattr(self, k, v)` bypasses actual Pydantic schema validation. A deeper mock that integrates with validation flows is necessary to properly catch and raise `MockPydanticValidationError`, or tests should be exclusively run in Docker.
-2. **Docker Testing Native Execution**:
-   - Running `make run_tests` fails on local environments with the `invalid argument` error when mounting BuildKit overlayfs (`mount source: "overlay"`). Investigating or bypassing this BuildKit issue is critical, as `test_runner.py` is too fragile and limited for comprehensive backend testing.
-3. **Missing OpenCV & Numpy Dependencies**:
-   - There are tests failing because mock functions like `unidecode`, `cv2.cvtColor`, and `ndarray.shape` return generic `MagicMock` instances instead of the expected tuples or lists, causing TypeErrors when assertions try to slice or compare them.
-
-## Final Testing Environment and Build Improvements
-### Backend Native Execution Dependencies
-- The `make run_tests` Docker BuildKit failure (`overlayfs mount invalid argument`) remains the primary blocker for a healthy native testing environment on local setups. Investigating alternative Docker storage drivers (like `vfs` or disabling BuildKit) will greatly resolve dependency headaches.
-- Once native Docker tests execute successfully, the custom local Python script `test_runner.py` (which implements incredibly brittle `sys.modules` overriding for complex C-extensions) should be deprecated or scaled back entirely, as replicating accurate testing conditions for `pydantic` schemas, `openvino`, `numpy` mathematical constraints, and `cv2` object logic without proper libraries leads to massive false positive assertions and mock typing collisions.
-
-### Frontend Unit Testing Constraints
-- Vitest configuration explicitly requires isolation from Playwright integration tests. Executing test runners indiscriminately (e.g. `npm run test run`) triggers module collisions inside `@playwright/test`'s `test.describe()` definitions. To permanently resolve this, standard deployment rules should strictly restrict Vitest patterns (e.g. `npm run test src/`) or append ignoring boundaries directly inside the `web/vitest.config.ts` (e.g., `exclude: ['e2e/**']`).
-- When testing on different Node environments natively without containers, module resolution deprecations occur (e.g. `DEP0040 punycode module is deprecated`). Dependency trees for front-end parsing modules should be upgraded or audited for userland alternatives during future framework maintenance.
+## Frontend Testing Fixes
+- Playwright E2E tests (`e2e/specs/**/*.spec.ts`) fail when run with Vitest (`vitest`) because they contain `test.describe()`, which conflicts with Vitest's `describe`. Need to ensure `vitest` only runs on `src/` directory and ignores `e2e/` folder.
 
 
-## Future testing improvements
-- Fix `test_runner.py` mocks to perfectly replicate Pydantic ValidationError and missing dependencies (e.g. `ruamel`, `peewee`, `numpy`) or purely rely on native container execution (`make run_tests`).
-- Investigate overlay invalid argument error when doing `docker buildx build` during `make run_tests` which is blocking accurate local tests.
-- Fix frontend `punycode` module deprecations node warning during test execution.
-
-## Final Testing Environment Wrap-up (Update 4)
-- Ran frontend tests natively in isolation using `npm run test src/` inside the `web` folder. All 138 tests passed flawlessly (some punycode deprecation warnings exist).
-- Evaluated backend tests via `python3 test_runner.py` outside of the Docker container. Missing dependency Mocks (`ruamel.yaml`, `pydantic`, `peewee`, `numpy`, `openvino`) remain difficult to fully satisfy. We attempted mocking `ruamel.yaml` and refined Pydantic's `MockBaseModel`, yet tests failed downstream expecting accurate evaluation. There are currently ~23 failures and ~240 errors out of 682 tests.
-- We attempted to run the fully containerized `make run_tests`, but it fails on the host environment with an overlayfs invalid argument during the `docker buildx build` / `docker build` phase.
-- Conclusion: The frontend tests are perfectly green. The backend tests function as much as possible outside of the Docker container, but the full integration and schema assertions must be run inside Docker. Future optimizations should repair the Docker BuildKit configuration on the host environment.
-
-## Test Reliability and Code Optimization Improvements
-- **Frontend Node Deprecations**: The `punycode` module throws deprecation warnings during the Vitest run. We should update the dependencies (such as `tr46` or `whatwg-url` via major version bumps if possible, or migrating to userland `punycode` alternatives) to eliminate `DEP0040` console clutter in CI.
-- **Backend Test execution**: The brittle `test_runner.py` should be deprecated for running core API validation, as it is impossible to accurately mock nested Pydantic v2 validation cycles without importing the true module.
-- **Docker BuildKit**: The primary blocker for `make run_tests` locally is an `overlayfs` mount error. We should explore modifying the local Docker daemon to use the `vfs` storage driver or disable BuildKit entirely to allow native container test execution, enabling us to drop `test_runner.py` hacks.
-
-## Testing Updates (Final Review)
-- Ran the test suite for frontend using Vitest inside `web/` via `npm run test src/` - 138 tests passed.
-- Attempted to run the backend test suite via `make run_tests`, however, a Docker Buildkit overlayfs error prevented native execution.
-- Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
-- As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
-- For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
+## Recent Test Run Results
+- Tests were run, and some mocks in `test_runner.py` were identified to be missing or returning incorrect values (e.g. MagicMock instead of tuple for `.shape`).
+- Backend tests were run (`python3 test_runner.py`), resulting in failures related to `MockPydanticValidationError`, `os.makedirs(MODEL_CACHE_DIR)` permission errors in `/config`, missing mock methods on `cv2`, `unidecode`, and more.
+- Frontend tests were successfully run isolated (`cd web && npm run test src/`) passing all 115 tests.

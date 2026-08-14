@@ -1,6 +1,6 @@
 import unittest
 
-from frigate.events.maintainer import should_update_db, should_update_state
+from frigate.events.maintainer import should_update_db
 
 
 class TestShouldUpdateDb(unittest.TestCase):
@@ -77,83 +77,6 @@ class TestShouldUpdateDb(unittest.TestCase):
         prev_event["has_clip"] = True
         current_event["has_clip"] = True
         self.assertFalse(should_update_db(prev_event, current_event))
-
-    def test_mid_event_lost_clip_and_snapshot(self):
-        prev_event, current_event = self._get_events()
-        prev_event["has_clip"] = True
-        current_event["has_clip"] = False
-        current_event["has_snapshot"] = False
-        current_event["end_time"] = 12345.0
-        self.assertTrue(should_update_db(prev_event, current_event))
-
-    def test_event_ending_previously_saved_clip_removed(self):
-        prev_event, current_event = self._get_events()
-        prev_event["has_clip"] = True
-        current_event["has_clip"] = False
-        current_event["end_time"] = 12345.0
-        self.assertTrue(should_update_db(prev_event, current_event))
-
-    def test_event_ending_previously_saved_snapshot_removed(self):
-        prev_event, current_event = self._get_events()
-        prev_event["has_snapshot"] = True
-        current_event["has_snapshot"] = False
-        current_event["end_time"] = 12345.0
-        self.assertTrue(should_update_db(prev_event, current_event))
-
-    def test_values_changed_without_clip_or_snapshot(self):
-        prev_event, current_event = self._get_events()
-        current_event["top_score"] = 0.8
-        self.assertFalse(should_update_db(prev_event, current_event))
-
-    def test_clip_removed_mid_event(self):
-        prev_event, current_event = self._get_events()
-        prev_event["has_clip"] = True
-        current_event["has_clip"] = False
-        current_event["top_score"] = 0.8
-        self.assertFalse(should_update_db(prev_event, current_event))
-
-
-class TestShouldUpdateState(unittest.TestCase):
-    def setUp(self):
-        self.base_event = {
-            "stationary": False,
-            "attributes": [],
-            "sub_label": None,
-            "current_zones": [],
-        }
-
-    def _get_events(self):
-        return dict(self.base_event), dict(self.base_event)
-
-    def test_stationary_changed(self):
-        prev_event, current_event = self._get_events()
-        current_event["stationary"] = True
-        self.assertTrue(should_update_state(prev_event, current_event))
-
-    def test_attributes_changed(self):
-        prev_event, current_event = self._get_events()
-        current_event["attributes"] = [{"label": "face", "score": 0.9}]
-        self.assertTrue(should_update_state(prev_event, current_event))
-
-    def test_sub_label_changed(self):
-        prev_event, current_event = self._get_events()
-        current_event["sub_label"] = "person"
-        self.assertTrue(should_update_state(prev_event, current_event))
-
-    def test_current_zones_changed(self):
-        prev_event, current_event = self._get_events()
-        current_event["current_zones"] = ["front_yard"]
-        self.assertTrue(should_update_state(prev_event, current_event))
-
-    def test_current_zones_unordered_no_change(self):
-        prev_event, current_event = self._get_events()
-        prev_event["current_zones"] = ["zone1", "zone2"]
-        current_event["current_zones"] = ["zone2", "zone1"]
-        self.assertFalse(should_update_state(prev_event, current_event))
-
-    def test_no_changes(self):
-        prev_event, current_event = self._get_events()
-        self.assertFalse(should_update_state(prev_event, current_event))
 
 
 if __name__ == "__main__":

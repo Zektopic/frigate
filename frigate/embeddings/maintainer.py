@@ -65,7 +65,7 @@ from frigate.events.types import (
     EventTypeEnum,
     RegenerateDescriptionEnum,
 )
-from frigate.genai.manager import GenAIClientManager
+from frigate.genai import GenAIClientManager
 from frigate.models import Event, Recordings, ReviewSegment, Trigger
 from frigate.types import TrackedObjectUpdateTypesEnum
 from frigate.util.builtin import serialize

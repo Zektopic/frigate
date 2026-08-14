@@ -50,7 +50,9 @@ class TestTrackDistanceRust(unittest.TestCase):
         if math.isinf(want):
             self.assertTrue(math.isinf(got), f"det={det} est={est}: got {got}")
         else:
-            self.assertAlmostEqual(got, want, places=9, msg=f"det={det} est={est}")
+            self.assertAlmostEqual(
+                got, want, places=9, msg=f"det={det} est={est}"
+            )
 
     def test_identical_boxes(self):
         box = np.array([[10.0, 20.0], [110.0, 220.0]])

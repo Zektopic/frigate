@@ -1,6 +1,8 @@
 import random
 import unittest
 
+import numpy as np
+
 from frigate.track.tracked_object import TrackedObjectAttribute
 from frigate.util.object import average_boxes
 

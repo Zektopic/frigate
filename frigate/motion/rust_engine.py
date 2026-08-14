@@ -168,17 +168,16 @@ def pixel_pipeline(
     total_area = ctypes.c_float(0.0)
 
     lib.motion_pixel_pipeline.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8),  # frame (mut, blurred in-place)
-        ctypes.POINTER(ctypes.c_float),  # avg_frame (read-only)
-        ctypes.POINTER(ctypes.c_uint8),  # mask
-        ctypes.c_uint32,
-        ctypes.c_uint32,  # w, h
-        ctypes.c_uint8,  # threshold
-        ctypes.c_uint32,  # min_area
-        ctypes.c_uint8,  # blur_enabled
-        ctypes.POINTER(MotionBox),  # out_boxes
-        ctypes.c_uint32,  # max_boxes
-        ctypes.POINTER(ctypes.c_float),  # out_total_area
+        ctypes.POINTER(ctypes.c_uint8),   # frame (mut, blurred in-place)
+        ctypes.POINTER(ctypes.c_float),   # avg_frame (read-only)
+        ctypes.POINTER(ctypes.c_uint8),   # mask
+        ctypes.c_uint32, ctypes.c_uint32, # w, h
+        ctypes.c_uint8,                    # threshold
+        ctypes.c_uint32,                   # min_area
+        ctypes.c_uint8,                    # blur_enabled
+        ctypes.POINTER(MotionBox),         # out_boxes
+        ctypes.c_uint32,                   # max_boxes
+        ctypes.POINTER(ctypes.c_float),    # out_total_area
     ]
     lib.motion_pixel_pipeline.restype = ctypes.c_uint32
 
@@ -186,11 +185,7 @@ def pixel_pipeline(
         frame.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
         avg_frame.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         mask.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
-        w,
-        h,
-        threshold,
-        min_area,
-        int(blur),
+        w, h, threshold, min_area, int(blur),
         ctypes.cast(boxes, ctypes.POINTER(MotionBox)),
         max_boxes,
         ctypes.byref(total_area),

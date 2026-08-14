@@ -14,17 +14,28 @@ outputs:
 runs:
   using: "composite"
   steps:
+    # Stop docker so we can mount more space at /var/lib/docker
+    - name: Stop docker
+      run: sudo systemctl stop docker
+      shell: bash
+
     # This creates a virtual volume at /var/lib/docker to maximize the size
     # As of 2/14/2024, this results in 97G for docker images
     # root-reserve-mb is set high enough to leave room for tool caches
     # (e.g. docker/setup-qemu-action caches binfmt images in /opt/hostedtoolcache)
-    - name: Cleanup runner space & initialize docker
-      if: runner.arch == 'X64'
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@master
+      with:
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
+        remove-codeql: 'true'
+        build-mount-path: '/var/lib/docker'
+        root-reserve-mb: '8192'
+
+    - name: Start docker
+      run: sudo systemctl start docker
       shell: bash
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell
-        sudo mkdir -p /var/lib/docker/tmp
-        sudo chmod 1777 /var/lib/docker/tmp
 
     - id: lowercaseRepo
       uses: ASzc/change-string-case-action@v5

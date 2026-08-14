@@ -421,9 +421,8 @@ def create_encoded_jwt(user, role, expiration, secret):
     )
 
 
-def set_jwt_cookie(
-    request: Request, response: Response, cookie_name, encoded_jwt, expiration, secure
-):
+def set_jwt_cookie(response: Response, cookie_name, encoded_jwt, expiration, secure):
+    # TODO: ideally this would set secure as well, but that requires TLS
     # SameSite is intentionally left unset (browsers default to Lax). Setting
     # SameSite=Lax/Strict would stop the cookie from being sent in cross-origin
     # iframes, breaking embedded views such as the Home Assistant Frigate card.
@@ -435,7 +434,7 @@ def set_jwt_cookie(
         value=encoded_jwt,
         httponly=True,
         expires=expiration,
-        secure=secure or request.url.scheme == "https",
+        secure=secure,
     )
 
 
@@ -766,7 +765,6 @@ def auth(request: Request):
                 user, role, new_expiration, request.app.jwt_token
             )
             set_jwt_cookie(
-                request,
                 success_response,
                 JWT_COOKIE_NAME,
                 new_encoded_jwt,
@@ -883,12 +881,7 @@ def login(request: Request, body: AppPostLoginBody):
         encoded_jwt = create_encoded_jwt(user, role, expiration, request.app.jwt_token)
         response = Response("", 200)
         set_jwt_cookie(
-            request,
-            response,
-            JWT_COOKIE_NAME,
-            encoded_jwt,
-            expiration,
-            JWT_COOKIE_SECURE,
+            response, JWT_COOKIE_NAME, encoded_jwt, expiration, JWT_COOKIE_SECURE
         )
         # Clear admin_first_time_login flag after successful admin login so the
         # UI stops showing the first-time login documentation link.
@@ -1050,12 +1043,7 @@ async def update_password(
         )
         # Set new JWT cookie on response
         set_jwt_cookie(
-            request,
-            response,
-            JWT_COOKIE_NAME,
-            encoded_jwt,
-            expiration,
-            JWT_COOKIE_SECURE,
+            response, JWT_COOKIE_NAME, encoded_jwt, expiration, JWT_COOKIE_SECURE
         )
 
     return response

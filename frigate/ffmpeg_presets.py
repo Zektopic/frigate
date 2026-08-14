@@ -277,9 +277,7 @@ def parse_preset_hardware_acceleration_encode(
         arg = "default"
 
     if arg == "preset-vaapi":
-        return arg_map[arg].format(
-            ffmpeg_path, input, output, _gpu_selector.get_gpu_arg(arg, 0)
-        )
+        return arg_map[arg].format(ffmpeg_path, input, output, _gpu_selector.get_gpu_arg(arg, 0))
 
     return arg_map.get(arg, arg_map["default"]).format(
         ffmpeg_path,

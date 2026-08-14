@@ -1,5 +1,6 @@
 """Parse TypeScript section config files for hidden/advanced field info."""
 
+import json
 import re
 from pathlib import Path
 from typing import Any

@@ -559,8 +559,7 @@ def delete_export_case(case_id: str, request: Request, delete_exports: bool = Fa
             Path(export.video_path).unlink(missing_ok=True)
             if export.thumb_path:
                 Path(export.thumb_path).unlink(missing_ok=True)
-
-        Export.delete().where(Export.export_case == case_id).execute()
+            export.delete_instance()
     else:
         # Unassign exports from this case but keep the exports themselves
         Export.update(export_case=None).where(Export.export_case == case_id).execute()
