@@ -132,3 +132,13 @@ The required tests have been evaluated and the outputs generated. The `status.md
 - **Backend Tests (Fallback Local Runner)**: Executed `python3 test_runner.py` outside of the Docker container. The script executed but produced numerous failures (24 failures, 177 errors). The root cause remains the extremely limited capability to correctly mock complex C-extensions (`numpy`, `cv2`) and Pydantic v2 schemas using `sys.modules`.
 - **Conclusion**: Frontend test suites are perfectly stable and verified. The backend suite executes locally, but test validations fail because complex structural dependency logic and runtime checks cannot be faked perfectly via `sys.modules`. Accurate backend testing is blocked until the Docker BuildKit daemon is corrected in the host environment.
 
+## Final Testing Run (Current State)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test src/`. All 138 unit tests across 13 test files passed successfully in isolation. We encountered some `DEP0040` deprecation warnings for the `punycode` module which should be addressed by updating Node dependencies.
+- **Backend Native Tests (Python)**: Executed `python3 test_runner.py`. Out of 681 tests, there are ~202 failures/errors. These are predominantly caused by limitations in the `test_runner.py` mock environment. For example, `MockPydanticValidationError` fails to accurately replicate Pydantic v2's schema validation, leading to false positives in `test_profiles.py`. Similarly, the `sys.modules` mocks for `cv2`, `numpy`, and `peewee` lack the depth required for complex mathematical assertions and database queries.
+- **Backend Docker Tests**: Attempted to run the fully containerized suite using `make run_tests`. The build fails on the host environment with an `overlayfs` invalid argument error during the `docker buildx build` phase.
+
+### Recommended Future Improvements
+1. **Docker Environment**: The primary blocker for testing the backend is the `overlayfs` mount error on the local Docker daemon. Resolving this (e.g., by changing the Docker storage driver to `vfs` or disabling BuildKit) will allow `make run_tests` to execute properly, providing a true native test environment and bypassing the fragile `test_runner.py` mocks.
+2. **Backend Mocking**: If native Python testing via `test_runner.py` is still desired, the `MockBaseModel` and `MockPydanticValidationError` classes must be heavily refactored to support deep nested dictionary validation and Pydantic v2 metadata requirements.
+3. **Frontend Dependencies**: Update frontend dependencies (e.g. `tr46`, `whatwg-url`) to replace the deprecated `punycode` module and clean up CI/CD test logs.
+

@@ -129,3 +129,13 @@ The required tests have been evaluated and the outputs generated. The `status.md
 - The front-end unit test suite runs 138 tests entirely free of errors when scoped using `cd web && npm run test src/`.
 - **Action Item**: Node dependency warnings regarding `punycode` were observed during the Vitest execution sequence. A minor maintenance task should be opened to update packages or replace the deprecated `punycode` library with a community userland alternative to keep CI logs clean.
 
+## Final Testing Run (Current State)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test src/`. All 138 unit tests across 13 test files passed successfully in isolation. We encountered some `DEP0040` deprecation warnings for the `punycode` module which should be addressed by updating Node dependencies.
+- **Backend Native Tests (Python)**: Executed `python3 test_runner.py`. Out of 681 tests, there are ~202 failures/errors. These are predominantly caused by limitations in the `test_runner.py` mock environment. For example, `MockPydanticValidationError` fails to accurately replicate Pydantic v2's schema validation, leading to false positives in `test_profiles.py`. Similarly, the `sys.modules` mocks for `cv2`, `numpy`, and `peewee` lack the depth required for complex mathematical assertions and database queries.
+- **Backend Docker Tests**: Attempted to run the fully containerized suite using `make run_tests`. The build fails on the host environment with an `overlayfs` invalid argument error during the `docker buildx build` phase.
+
+### Recommended Future Improvements
+1. **Docker Environment**: The primary blocker for testing the backend is the `overlayfs` mount error on the local Docker daemon. Resolving this (e.g., by changing the Docker storage driver to `vfs` or disabling BuildKit) will allow `make run_tests` to execute properly, providing a true native test environment and bypassing the fragile `test_runner.py` mocks.
+2. **Backend Mocking**: If native Python testing via `test_runner.py` is still desired, the `MockBaseModel` and `MockPydanticValidationError` classes must be heavily refactored to support deep nested dictionary validation and Pydantic v2 metadata requirements.
+3. **Frontend Dependencies**: Update frontend dependencies (e.g. `tr46`, `whatwg-url`) to replace the deprecated `punycode` module and clean up CI/CD test logs.
+
