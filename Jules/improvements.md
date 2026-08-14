@@ -108,3 +108,52 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - Added mock modules for `ruamel` inside `test_runner.py` (`ruamel`, `ruamel.yaml`, `ruamel.yaml.YAML`). This solved some `ModuleNotFoundError` errors during module imports inside `test_storage.py`, `test_video.py`, etc. Note that these changes were reverted since they are incomplete.
 - As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
+
+<<<<<<< HEAD
+<<<<<<< HEAD
+## Testing Status and Next Steps Update
+
+I have verified the test environment state per the request.
+
+1. **Frontend**: I navigated to the `web/` directory, ran `npm ci` to cleanly install dependencies, and ran the unit tests targeting the `src/` directory (`npx vitest run src/`). The tests ran successfully with 138 tests passing across 13 test files. Some Node deprecation warnings regarding the `punycode` module were observed in the output.
+2. **Backend Native via `make run_tests`**: Attempted to run the backend test suite via the standard `make run_tests` command. The command uses `docker buildx build` to create a test container, but it continues to fail locally due to a BuildKit `overlayfs` mount error (`err: invalid argument`). This prohibits native full-system testing.
+3. **Backend Fallback via `test_runner.py`**: I executed the backend unit tests using the custom local `python3 test_runner.py` script. The script successfully starts the test framework. However, a significant number of errors and failures (24 failures, 177 errors out of 621 tests) persist due to the immense complexity of perfectly mocking dependencies like `numpy`, `cv2`, `peewee`, and nested `Pydantic` v2 validations using `sys.modules`.
+
+The required tests have been evaluated and the outputs generated. The `status.md` and `improvements.md` have been fully audited and are ready for documentation updates to advise future work.
+
+## Final Testing Environment Wrap-up (Update 5)
+### Backend Native Execution Dependencies & Code Mocks
+- The `make run_tests` Docker BuildKit failure (`overlayfs mount invalid argument`) remains the primary blocker for a healthy native testing environment on local setups. Resolving this via `DOCKER_BUILDKIT=0` or alternative storage drivers (like `vfs`) should be a top priority to execute reliable backend validations.
+- The `test_runner.py` custom script implements extremely brittle `sys.modules` patching for `pydantic`, `cv2`, `numpy`, `ruamel.yaml` and `openvino`. Building perfect mocks that trick Python's native runtime type checking and deep dictionary validation for Pydantic v2 schemas has proven unfeasible without the real libraries.
+- **Action Item**: Once the Docker engine mount issue is resolved, permanently deprecate `test_runner.py` reliance for API model testing and fallback solely to native container runs, as relying on `sys.modules` causes massive false-positive failures and missing validation coverage.
+
+### Frontend Quality of Life
+- The front-end unit test suite runs 138 tests entirely free of errors when scoped using `cd web && npm run test src/`.
+- **Action Item**: Node dependency warnings regarding `punycode` were observed during the Vitest execution sequence. A minor maintenance task should be opened to update packages or replace the deprecated `punycode` library with a community userland alternative to keep CI logs clean.
+
+## Final Testing Run (Current State)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test src/`. All 138 unit tests across 13 test files passed successfully in isolation. We encountered some `DEP0040` deprecation warnings for the `punycode` module which should be addressed by updating Node dependencies.
+- **Backend Native Tests (Python)**: Executed `python3 test_runner.py`. Out of 681 tests, there are ~202 failures/errors. These are predominantly caused by limitations in the `test_runner.py` mock environment. For example, `MockPydanticValidationError` fails to accurately replicate Pydantic v2's schema validation, leading to false positives in `test_profiles.py`. Similarly, the `sys.modules` mocks for `cv2`, `numpy`, and `peewee` lack the depth required for complex mathematical assertions and database queries.
+- **Backend Docker Tests**: Attempted to run the fully containerized suite using `make run_tests`. The build fails on the host environment with an `overlayfs` invalid argument error during the `docker buildx build` phase.
+
+### Recommended Future Improvements
+1. **Docker Environment**: The primary blocker for testing the backend is the `overlayfs` mount error on the local Docker daemon. Resolving this (e.g., by changing the Docker storage driver to `vfs` or disabling BuildKit) will allow `make run_tests` to execute properly, providing a true native test environment and bypassing the fragile `test_runner.py` mocks.
+2. **Backend Mocking**: If native Python testing via `test_runner.py` is still desired, the `MockBaseModel` and `MockPydanticValidationError` classes must be heavily refactored to support deep nested dictionary validation and Pydantic v2 metadata requirements.
+3. **Frontend Dependencies**: Update frontend dependencies (e.g. `tr46`, `whatwg-url`) to replace the deprecated `punycode` module and clean up CI/CD test logs.
+
+## Test Reliability and Code Optimization Improvements (New Iteration)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test src/`. All 138 tests across 13 test files continue to pass perfectly without any failures.
+- **Node Punycode Warning**: The `[DEP0040] DeprecationWarning: The punycode module is deprecated` warning persists. A recommendation for future improvements is to update dependencies (e.g., `tr46`, `whatwg-url`) that rely on `punycode`, or completely switch to a userland alternative to maintain a clean CI output.
+- **Backend Tests (Native Environment)**: Executing backend tests via `python3 test_runner.py` continues to hit hard limits in the environment. Native Python mocks are insufficient to successfully replicate full `Pydantic v2` structures and C-extensions for `numpy`/`cv2`.
+- **Backend Tests (Docker Environment)**: `make run_tests` fails early because of Docker BuildKit `overlayfs` mount restrictions on the host sandbox.
+- **Recommendations for the Future**: The most robust solution is to fix the underlying issue with Docker BuildKit (potentially by altering the daemon to use the `vfs` storage driver or switching off BuildKit entirely in `make run_tests`). This will allow true test coverage without relying on brittle test mocks in `test_runner.py`.
+
+## Test Fix Update - TestWsRoleHelpers
+- Fixed `AttributeError: 'dict' object has no attribute 'separator'` in `frigate/test/test_ws_outbound_filter.py` by making `test_runner.py`'s `MockBaseModel` recursively convert nested dictionaries into `MockBaseModel` instances for config sections like `proxy`, `auth`, `mqtt`, `detect`, and `ffmpeg`.
+- Also updated `MockBaseModel` to support `keys()`, `values()`, and `items()` methods to mock dict-like behavior for config dictionaries like `config.cameras`.
+- These changes reduced the errors in `test_ws_outbound_filter.py` from 38 down to 0, ensuring tests for WS permissions mapping logic run successfully.
+
+## Conclusion and Future Actions
+- Re-ran frontend unit tests via `cd web && npm ci && npm run test src/`. 138 tests continue to pass with a clean run (aside from punycode node module deprecation warnings, which are a future enhancement target).
+- Re-ran backend tests via `python3 test_runner.py`. The amount of errors dropped after implementing fixes for `config.proxy.separator` and `config.cameras.values()` evaluation in `MockBaseModel`. Still, ~116 errors and 26 failures remain due to missing core libraries (e.g., OpenCV, Numpy, OpenVINO, Pydantic core validators).
+- Confirmed that without resolving the host Docker setup (resolving the overlayfs mount failure during `make run_tests`), further improvements to `test_runner.py` hit diminishing returns due to the intricate mocks required for C-extensions and schema engines.

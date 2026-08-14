@@ -111,17 +111,18 @@ async def go2rtc_streams(request: Request):
     "/go2rtc/streams/{stream_name}",
     dependencies=[Depends(require_go2rtc_stream_access)],
 )
-def go2rtc_camera_stream(request: Request, stream_name: str):
-    r = requests.get(
-        "http://127.0.0.1:1984/api/streams",
-        params={
-            "src": stream_name,
-            "video": "all",
-            "audio": "all",
-            "microphone": "",
-        },
-    )
-    if not r.ok:
+async def go2rtc_camera_stream(request: Request, stream_name: str):
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            "http://127.0.0.1:1984/api/streams",
+            params={
+                "src": stream_name,
+                "video": "all",
+                "audio": "all",
+                "microphone": "",
+            },
+        )
+    if not r.is_success:
         camera_config = request.app.frigate_config.cameras.get(stream_name)
 
         if camera_config is None:
@@ -457,7 +458,7 @@ def ffprobe_snapshot(request: Request, url: str = "", timeout: int = 10):
 
 
 @router.get("/reolink/detect", dependencies=[Depends(require_role(["admin"]))])
-def reolink_detect(host: str = "", username: str = "", password: str = ""):
+async def reolink_detect(host: str = "", username: str = "", password: str = ""):
     """
     Detect Reolink camera capabilities and recommend optimal protocol.
 
@@ -495,9 +496,10 @@ def reolink_detect(host: str = "", username: str = "", password: str = ""):
         encoded_password = quote_plus(password)
         api_url = f"http://{host}/api.cgi?cmd=GetEnc&user={encoded_user}&password={encoded_password}"
 
-        response = requests.get(api_url, timeout=5)
+        async with httpx.AsyncClient() as client:
+            response = await client.get(api_url, timeout=5.0)
 
-        if not response.ok:
+        if not response.is_success:
             return JSONResponse(
                 content={
                     "success": False,
@@ -551,7 +553,7 @@ def reolink_detect(host: str = "", username: str = "", password: str = ""):
             }
         )
 
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         return JSONResponse(
             content={
                 "success": False,
@@ -559,7 +561,7 @@ def reolink_detect(host: str = "", username: str = "", password: str = ""):
                 "message": "Connection timeout - camera did not respond",
             }
         )
-    except requests.exceptions.RequestException:
+    except httpx.RequestError:
         return JSONResponse(
             content={
                 "success": False,

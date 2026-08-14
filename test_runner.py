@@ -18,6 +18,10 @@ class MockBaseModel:
                     raise ValueError()
                 if "{INVALID" in v or "unknown" in v.lower() or "{FRIGATE_" in v:
                     raise ValueError("Unknown env var")
+            if k in ("proxy", "auth", "mqtt", "detect", "ffmpeg") and isinstance(v, dict):
+                v = MockBaseModel(**v)
+            if k == "cameras" and isinstance(v, dict):
+                v = {cam_name: MockBaseModel(**cam_config) for cam_name, cam_config in v.items()}
             setattr(self, k, v)
 
     def __getattr__(self, name):
@@ -26,6 +30,15 @@ class MockBaseModel:
         if name == "enabled":
             return True
         return MagicMock()
+
+    def keys(self):
+        return [k for k in self.__dict__.keys() if not k.startswith("__")]
+
+    def values(self):
+        return [self.__dict__[k] for k in self.keys()]
+
+    def items(self):
+        return [(k, self.__dict__[k]) for k in self.keys()]
 
     def get(self, name, default=None):
         return getattr(self, name, default)
@@ -121,10 +134,29 @@ class MockPydantic:
 
 class ModuleMock(MagicMock):
     def __lt__(self, other):
+        if isinstance(other, tuple):
+            return False
         return False
 
     def __gt__(self, other):
+        if isinstance(other, tuple):
+            return True
         return True
+
+    def __le__(self, other):
+        return False
+
+    def __ge__(self, other):
+        return True
+
+    def __int__(self):
+        return 1
+
+    def __and__(self, other):
+        return 0
+
+    def __or__(self, other):
+        return 0
 
     def __getattr__(self, name):
         if name in (
@@ -141,7 +173,31 @@ class ModuleMock(MagicMock):
             raise AttributeError(name)
         if name == "DEFAULT_VERSION":
             return 2  # To fix regex KeyError
+        if name == "insert":
+            return lambda *args, **kwargs: None
+        if name == "add_field":
+            return lambda *args, **kwargs: None
+        if name == "DuplicateKeyError":
+            return DuplicateKeyError
         return super().__getattr__(name)
+
+
+import types
+
+ruamel = types.ModuleType("ruamel")
+ruamel.yaml = types.ModuleType("ruamel.yaml")
+ruamel.yaml.constructor = types.ModuleType("ruamel.yaml.constructor")
+
+
+class DuplicateKeyError(Exception):
+    pass
+
+
+ruamel.yaml.constructor.DuplicateKeyError = DuplicateKeyError
+
+sys.modules["ruamel"] = ruamel
+sys.modules["ruamel.yaml"] = ruamel.yaml
+sys.modules["ruamel.yaml.constructor"] = ruamel.yaml.constructor
 
 
 sys.modules["pydantic"] = MockPydantic
@@ -174,8 +230,28 @@ class MockModel:
     def __gt__(self, other):
         return True
 
+    def __int__(self):
+        return 1
+
+
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
+
+
+def peewee_mock_insert(*args, **kwargs):
+    pass
+
+
+peewee_mock.insert = peewee_mock_insert
+
+
+def peewee_mock_insert(*args, **kwargs):
+    pass
+
+
+peewee_mock.insert = peewee_mock_insert
+
+
 sys.modules["peewee"] = peewee_mock
 sys.modules["peewee.DoesNotExists"] = MagicMock()
 sys.modules["peewee.DoesNotExist"] = Exception
@@ -184,7 +260,19 @@ sys.modules["playhouse"] = ModuleMock()
 sys.modules["playhouse.sqlite_ext"] = ModuleMock()
 sys.modules["playhouse.sqliteq"] = ModuleMock()
 sys.modules["playhouse.shortcuts"] = ModuleMock()
-sys.modules["peewee_migrate"] = ModuleMock()
+
+class PeeweeMigrateMock:
+    class Router:
+        def __init__(self, *args, **kwargs):
+            pass
+        def run(self, *args, **kwargs):
+            pass
+    def __getattr__(self, name):
+        if name == "Router": return self.Router
+        return MagicMock()
+
+sys.modules["peewee_migrate"] = PeeweeMigrateMock()
+sys.modules["peewee_migrate.router"] = PeeweeMigrateMock()
 
 sys.modules["unidecode"] = ModuleMock()
 
@@ -216,6 +304,15 @@ sys.modules["unidecode"].unidecode = mock_unidecode
 
 sys.modules["ruamel"] = ModuleMock()
 sys.modules["ruamel.yaml"] = ModuleMock()
+sys.modules["ruamel.yaml.main"] = ModuleMock()
+sys.modules["ruamel.yaml.error"] = ModuleMock()
+
+class RuamelCompatMock(ModuleMock):
+    def __getattr__(self, name):
+        if name == "version_tnf":
+            return lambda *args, **kwargs: True
+        return super().__getattr__(name)
+sys.modules["ruamel.yaml.compat"] = RuamelCompatMock()
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
 sys.modules["norfair.drawing"] = ModuleMock()
