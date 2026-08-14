@@ -457,7 +457,7 @@ def ffprobe_snapshot(request: Request, url: str = "", timeout: int = 10):
 
 
 @router.get("/reolink/detect", dependencies=[Depends(require_role(["admin"]))])
-def reolink_detect(host: str = "", username: str = "", password: str = ""):
+async def reolink_detect(host: str = "", username: str = "", password: str = ""):
     """
     Detect Reolink camera capabilities and recommend optimal protocol.
 
@@ -495,9 +495,10 @@ def reolink_detect(host: str = "", username: str = "", password: str = ""):
         encoded_password = quote_plus(password)
         api_url = f"http://{host}/api.cgi?cmd=GetEnc&user={encoded_user}&password={encoded_password}"
 
-        response = requests.get(api_url, timeout=5)
+        async with httpx.AsyncClient() as client:
+            response = await client.get(api_url, timeout=5.0)
 
-        if not response.ok:
+        if not response.is_success:
             return JSONResponse(
                 content={
                     "success": False,
@@ -551,7 +552,7 @@ def reolink_detect(host: str = "", username: str = "", password: str = ""):
             }
         )
 
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         return JSONResponse(
             content={
                 "success": False,
@@ -559,7 +560,7 @@ def reolink_detect(host: str = "", username: str = "", password: str = ""):
                 "message": "Connection timeout - camera did not respond",
             }
         )
-    except requests.exceptions.RequestException:
+    except httpx.RequestError:
         return JSONResponse(
             content={
                 "success": False,
