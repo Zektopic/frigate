@@ -72,6 +72,27 @@ class TestEnsureRknnToolkit(unittest.TestCase):
         self.assertEqual(self.import_attempts["rknn"], 2)
 
 
+class TestGetSocType(unittest.TestCase):
+    @patch("builtins.open", new_callable=unittest.mock.mock_open, read_data="rockchip,rk3588\x00")
+    def test_rockchip_device(self, mock_file):
+        from frigate.util.rknn_converter import get_soc_type
+
+        self.assertEqual(get_soc_type(), "rk3588")
+
+    @patch("builtins.open", new_callable=unittest.mock.mock_open, read_data="nvidia,tegra210\x00")
+    def test_nvidia_device(self, mock_file):
+        from frigate.util.rknn_converter import get_soc_type
+
+        self.assertIsNone(get_soc_type())
+
+    @patch("builtins.open")
+    def test_file_not_found(self, mock_file):
+        mock_file.side_effect = FileNotFoundError
+        from frigate.util.rknn_converter import get_soc_type
+
+        self.assertIsNone(get_soc_type())
+
+
 class TestIsRknnCompatible(unittest.TestCase):
     @patch("frigate.util.rknn_converter.get_soc_type")
     def test_no_soc(self, mock_get_soc_type):
