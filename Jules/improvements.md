@@ -109,6 +109,7 @@ Attempted to update the `test_runner.py` mocks to fully mimic pydantic functiona
 - As with other complex Python modules (like `numpy`, `peewee`, `pydantic`, and `cv2`), the fallback mock script `test_runner.py` has reached its limit due to lacking proper package installations locally.
 - For complete test confidence, testing must be performed on an environment where Docker and overlayfs function seamlessly or with all Python dependencies correctly pip-installed to test the system accurately.
 
+<<<<<<< HEAD
 ## Testing Status and Next Steps Update
 
 I have verified the test environment state per the request.
@@ -138,4 +139,11 @@ The required tests have been evaluated and the outputs generated. The `status.md
 1. **Docker Environment**: The primary blocker for testing the backend is the `overlayfs` mount error on the local Docker daemon. Resolving this (e.g., by changing the Docker storage driver to `vfs` or disabling BuildKit) will allow `make run_tests` to execute properly, providing a true native test environment and bypassing the fragile `test_runner.py` mocks.
 2. **Backend Mocking**: If native Python testing via `test_runner.py` is still desired, the `MockBaseModel` and `MockPydanticValidationError` classes must be heavily refactored to support deep nested dictionary validation and Pydantic v2 metadata requirements.
 3. **Frontend Dependencies**: Update frontend dependencies (e.g. `tr46`, `whatwg-url`) to replace the deprecated `punycode` module and clean up CI/CD test logs.
+
+## Test Reliability and Code Optimization Improvements (New Iteration)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test src/`. All 138 tests across 13 test files continue to pass perfectly without any failures.
+- **Node Punycode Warning**: The `[DEP0040] DeprecationWarning: The punycode module is deprecated` warning persists. A recommendation for future improvements is to update dependencies (e.g., `tr46`, `whatwg-url`) that rely on `punycode`, or completely switch to a userland alternative to maintain a clean CI output.
+- **Backend Tests (Native Environment)**: Executing backend tests via `python3 test_runner.py` continues to hit hard limits in the environment. Native Python mocks are insufficient to successfully replicate full `Pydantic v2` structures and C-extensions for `numpy`/`cv2`.
+- **Backend Tests (Docker Environment)**: `make run_tests` fails early because of Docker BuildKit `overlayfs` mount restrictions on the host sandbox.
+- **Recommendations for the Future**: The most robust solution is to fix the underlying issue with Docker BuildKit (potentially by altering the daemon to use the `vfs` storage driver or switching off BuildKit entirely in `make run_tests`). This will allow true test coverage without relying on brittle test mocks in `test_runner.py`.
 

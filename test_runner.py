@@ -137,14 +137,13 @@ class ModuleMock(MagicMock):
         return True
 
     def __int__(self):
-        return 0
+        return 1
 
     def __and__(self, other):
         return 0
 
     def __or__(self, other):
         return 0
-
 
     def __getattr__(self, name):
         if name in (
@@ -161,7 +160,31 @@ class ModuleMock(MagicMock):
             raise AttributeError(name)
         if name == "DEFAULT_VERSION":
             return 2  # To fix regex KeyError
+        if name == "insert":
+            return lambda *args, **kwargs: None
+        if name == "add_field":
+            return lambda *args, **kwargs: None
+        if name == "DuplicateKeyError":
+            return DuplicateKeyError
         return super().__getattr__(name)
+
+
+import types
+
+ruamel = types.ModuleType("ruamel")
+ruamel.yaml = types.ModuleType("ruamel.yaml")
+ruamel.yaml.constructor = types.ModuleType("ruamel.yaml.constructor")
+
+
+class DuplicateKeyError(Exception):
+    pass
+
+
+ruamel.yaml.constructor.DuplicateKeyError = DuplicateKeyError
+
+sys.modules["ruamel"] = ruamel
+sys.modules["ruamel.yaml"] = ruamel.yaml
+sys.modules["ruamel.yaml.constructor"] = ruamel.yaml.constructor
 
 
 sys.modules["pydantic"] = MockPydantic
@@ -194,8 +217,28 @@ class MockModel:
     def __gt__(self, other):
         return True
 
+    def __int__(self):
+        return 1
+
+
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
+
+
+def peewee_mock_insert(*args, **kwargs):
+    pass
+
+
+peewee_mock.insert = peewee_mock_insert
+
+
+def peewee_mock_insert(*args, **kwargs):
+    pass
+
+
+peewee_mock.insert = peewee_mock_insert
+
+
 sys.modules["peewee"] = peewee_mock
 sys.modules["peewee.DoesNotExists"] = MagicMock()
 sys.modules["peewee.DoesNotExist"] = Exception
