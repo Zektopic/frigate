@@ -158,3 +158,25 @@ The required tests have been evaluated and the outputs generated. The `status.md
 - Re-ran backend tests via `python3 test_runner.py`. The amount of errors dropped after implementing fixes for `config.proxy.separator` and `config.cameras.values()` evaluation in `MockBaseModel`. Still, ~116 errors and 26 failures remain due to missing core libraries (e.g., OpenCV, Numpy, OpenVINO, Pydantic core validators).
 - Confirmed that without resolving the host Docker setup (resolving the overlayfs mount failure during `make run_tests`), further improvements to `test_runner.py` hit diminishing returns due to the intricate mocks required for C-extensions and schema engines.
 
+## Final Testing Status Summary
+Ran python3 test_runner.py locally. Failed 26 tests, 177 errors. Running docker make run_tests fails due to overlayfs Buildkit error.
+Ran npm ci && npm run test src/ in web directory. 138 frontend tests pass locally without matching E2E files.
+
+### Future Implementations and Improvements Roadmap
+Based on the full-codebase testing evaluation, here are specific features and optimizations that should be implemented in future iterations:
+
+#### 1. Backend & Mock Architecture
+- **Pydantic V2 Migration Completion**: Refactor the custom mock testing scripts (e.g., `MockPydanticValidationError` and `MockBaseModel`) to correctly parse deeply nested dictionaries and correctly match Pydantic V2 core structures.
+- **Mock Library Installation**: Add requirements files or virtual environment bootstrapping for local test dependencies (like `requests`, `ruamel.yaml`, `peewee`, and `numpy`) so that unit tests can natively exercise logic rather than relying on brittle `sys.modules` overriding.
+- **Fallback Execution Engines**: Since `overlayfs` fails in some host setups, create a Docker `vfs` based test compose target or introduce a `DOCKER_BUILDKIT=0` pipeline to allow true native tests for developers experiencing mount source limitations.
+
+#### 2. Frontend Modernization
+- **Dependency Upgrades**: The Vitest runner is emitting Node deprecation warnings (e.g., `DEP0040` for the `punycode` module). The underlying dependencies (like `whatwg-url` or `tr46`) should be bumped to newer major versions, or userland alternatives should be integrated to clean up the test logs.
+- **E2E Isolation**: While `npx vitest run src/` scopes unit tests, appending explicit exclusion paths (e.g. `exclude: ['e2e/**']`) to `web/vitest.config.ts` will permanently resolve Playwright matching conflicts when users generically execute `npm test`.
+
+#### 3. Database & Optimization
+- **Database Bulk Updates**: The SQLite benchmark demonstrates 90k+ r/s using `batch_size=100`. Features relying on looping un-batched `select` queries (such as `frigate.record.export`) should be optimized to use `peewee` batch chunking to leverage those IO gains.
+- **Model Quantization Engine**: CPU tests showed missing tags. Implementing dynamic loading for INT8/quantized models could reduce the ONNX and Yolo translation overhead (e.g. `np.transpose` contiguous copy bottlenecks) specifically on AMD APUs or constrained environments.
+
+#### 4. UI/UX Enhancements
+- **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
