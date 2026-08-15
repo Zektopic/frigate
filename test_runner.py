@@ -1,4 +1,5 @@
 import sys
+import types
 import unittest
 from unittest.mock import MagicMock
 
@@ -18,10 +19,15 @@ class MockBaseModel:
                     raise ValueError()
                 if "{INVALID" in v or "unknown" in v.lower() or "{FRIGATE_" in v:
                     raise ValueError("Unknown env var")
-            if k in ("proxy", "auth", "mqtt", "detect", "ffmpeg") and isinstance(v, dict):
+            if k in ("proxy", "auth", "mqtt", "detect", "ffmpeg") and isinstance(
+                v, dict
+            ):
                 v = MockBaseModel(**v)
             if k == "cameras" and isinstance(v, dict):
-                v = {cam_name: MockBaseModel(**cam_config) for cam_name, cam_config in v.items()}
+                v = {
+                    cam_name: MockBaseModel(**cam_config)
+                    for cam_name, cam_config in v.items()
+                }
             setattr(self, k, v)
 
     def __getattr__(self, name):
@@ -182,7 +188,6 @@ class ModuleMock(MagicMock):
         return super().__getattr__(name)
 
 
-import types
 
 ruamel = types.ModuleType("ruamel")
 ruamel.yaml = types.ModuleType("ruamel.yaml")
@@ -261,15 +266,26 @@ sys.modules["playhouse.sqlite_ext"] = ModuleMock()
 sys.modules["playhouse.sqliteq"] = ModuleMock()
 sys.modules["playhouse.shortcuts"] = ModuleMock()
 
+
 class PeeweeMigrateMock:
     class Router:
         def __init__(self, *args, **kwargs):
             pass
+
         def run(self, *args, **kwargs):
             pass
+
     def __getattr__(self, name):
-        if name == "Router": return self.Router
+        if name == "Router":
+            return self.Router
         return MagicMock()
+
+    def __lt__(self, other):
+        return True
+
+    def __gt__(self, other):
+        return False
+
 
 sys.modules["peewee_migrate"] = PeeweeMigrateMock()
 sys.modules["peewee_migrate.router"] = PeeweeMigrateMock()
@@ -307,11 +323,14 @@ sys.modules["ruamel.yaml"] = ModuleMock()
 sys.modules["ruamel.yaml.main"] = ModuleMock()
 sys.modules["ruamel.yaml.error"] = ModuleMock()
 
+
 class RuamelCompatMock(ModuleMock):
     def __getattr__(self, name):
         if name == "version_tnf":
             return lambda *args, **kwargs: True
         return super().__getattr__(name)
+
+
 sys.modules["ruamel.yaml.compat"] = RuamelCompatMock()
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
