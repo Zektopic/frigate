@@ -6,6 +6,13 @@ from unittest.mock import MagicMock
 
 class MockBaseModel:
     __pydantic_core_schema__ = MagicMock()
+
+    def __lt__(self, other):
+        return True
+
+    def __gt__(self, other):
+        return False
+
     __pydantic_validator__ = MagicMock()
 
     def __init__(self, **kwargs):
@@ -188,7 +195,6 @@ class ModuleMock(MagicMock):
         return super().__getattr__(name)
 
 
-
 ruamel = types.ModuleType("ruamel")
 ruamel.yaml = types.ModuleType("ruamel.yaml")
 ruamel.yaml.constructor = types.ModuleType("ruamel.yaml.constructor")
@@ -330,6 +336,12 @@ class RuamelCompatMock(ModuleMock):
             return lambda *args, **kwargs: True
         return super().__getattr__(name)
 
+    def __lt__(self, other):
+        return True
+
+    def __gt__(self, other):
+        return False
+
 
 sys.modules["ruamel.yaml.compat"] = RuamelCompatMock()
 sys.modules["filelock"] = ModuleMock()
@@ -368,6 +380,18 @@ class MockProcess:
 class MockPsutil(ModuleMock):
     def Process(self, *args, **kwargs):
         return MockProcess()
+
+    def disk_partitions(self, *args, **kwargs):
+        class PartitionMock:
+            def __init__(self, mountpoint, fstype):
+                self.mountpoint = mountpoint
+                self.fstype = fstype
+
+        return [
+            PartitionMock("/", "ext4"),
+            PartitionMock("/mnt/data", "tmpfs"),
+            PartitionMock("/home/user", "ext4"),
+        ]
 
 
 sys.modules["psutil"] = MockPsutil()
