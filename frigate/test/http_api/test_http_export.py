@@ -111,6 +111,38 @@ class TestHttpExport(BaseTestHttp):
         assert case.created_at.timestamp() == 1234.5
         assert case.updated_at.timestamp() == 1234.5
 
+    def test_get_export_cases_empty(self):
+        with AuthTestClient(self.app) as client:
+            response = client.get("/cases")
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_get_export_cases_ordered_by_created_at_desc(self):
+        case1 = ExportCase.create(
+            id="case1",
+            name="Older",
+            description="",
+            created_at=100,
+            updated_at=100,
+        )
+        case2 = ExportCase.create(
+            id="case2",
+            name="Newer",
+            description="",
+            created_at=200,
+            updated_at=200,
+        )
+
+        with AuthTestClient(self.app) as client:
+            response = client.get("/cases")
+
+        assert response.status_code == 200
+        response_json = response.json()
+        assert len(response_json) == 2
+        assert response_json[0]["id"] == "case2"
+        assert response_json[1]["id"] == "case1"
+
     def test_update_export_case_refreshes_updated_at(self):
         case = ExportCase.create(
             id="case123",
