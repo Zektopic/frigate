@@ -190,6 +190,7 @@ The Python backend testing had broken imports in `test_runner.py` due to incompl
 
 ## Web Frontend Test Fixes
 The vitest unit tests were fixed for `src/utils/dateUtil.test.ts`. There was flakiness due to timezone-dependent date formatting functions in `formatUnixTimestampToDateTime`. A regular expression was implemented to ensure test robustness across differing node versions by matching timezone variations (`7:00` vs `07:00`).
+<<<<<<< HEAD
 
 ## Test Mocks and Execution Optimization
 
@@ -226,10 +227,5 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 2. **Backend Mocking**: If native Python testing via `test_runner.py` is still desired, the `MockBaseModel` and `MockPydanticValidationError` classes must be heavily refactored to support deep nested dictionary validation and Pydantic v2 metadata requirements.
 3. **Frontend Dependencies**: Update frontend dependencies (e.g. `tr46`, `whatwg-url`) to replace the deprecated `punycode` module and clean up CI/CD test logs.
 
-## Final Testing Phase Outcomes (Backend Mock Updates)
-- Modified `test_runner.py` to fix deep mock dictionary evaluation on config objects like `proxy`, `cameras`, and `auth`. `MockBaseModel` now maps accurately over dictionaries to prevent `AttributeError` (e.g. `AttributeError: 'dict' object has no attribute 'separator'`).
-- The fix successfully executed 82 tests inside `test_ws_outbound_filter.py` which were previously failing due to incorrect configurations.
-- Overall failures have been reduced, although ~140 errors/failures remain purely due to environment differences and lack of pip installations (Numpy, Pydantic metadata assertions, OpenCV, OpenVINO, etc.). To clear the rest of the tests natively, `make run_tests` must be used inside the Docker environment.
-- The `make run_tests` command throws a Docker BuildKit error (`invalid argument` on overlay mount) which needs addressing by changing the local container storage driver.
-- Frontend tests function reliably. `cd web && npm ci && npm run test src/` executes exactly 138 test assertions perfectly without matching E2E specs. Node emits some `punycode` deprecations that should be upgraded in userland eventually.
 - Extensive documentation for this fix and future implementation tasks has been logged in `Jules/improvements.md` and `.zektopic/status.md`.
+
