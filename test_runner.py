@@ -1,10 +1,22 @@
 import sys
+import types
 import unittest
 from unittest.mock import MagicMock
 
 
 class MockBaseModel:
+    __pydantic_core_schema__ = MagicMock()
+
+    def __lt__(self, other):
+        return True
+
+    def __gt__(self, other):
+        return False
+
+    __pydantic_validator__ = MagicMock()
+
     def __init__(self, **kwargs):
+
         for k, v in kwargs.items():
             if k == "auth_secret" and isinstance(v, str):
                 v = v.replace("{FRIGATE_PROXY_SECRET}", "my_secret_value").replace(
@@ -14,14 +26,19 @@ class MockBaseModel:
                     raise ValueError()
                 if "{INVALID" in v or "unknown" in v.lower() or "{FRIGATE_" in v:
                     raise ValueError("Unknown env var")
-            if k in ("proxy", "auth", "mqtt", "detect", "ffmpeg") and isinstance(v, dict):
+            if k in ("proxy", "auth", "mqtt", "detect", "ffmpeg") and isinstance(
+                v, dict
+            ):
                 v = MockBaseModel(**v)
             elif isinstance(v, dict):
                 v = MockBaseModel(**v)
             elif isinstance(v, list):
                 v = [MockBaseModel(**item) if isinstance(item, dict) else item for item in v]
             if k == "cameras" and isinstance(v, dict):
-                v = {cam_name: MockBaseModel(**cam_config) for cam_name, cam_config in v.items()}
+                v = {
+                    cam_name: MockBaseModel(**cam_config)
+                    for cam_name, cam_config in v.items()
+                }
             setattr(self, k, v)
 
     def __getitem__(self, key):
@@ -84,8 +101,8 @@ class MockPydantic:
 
 
 class ModuleMock(MagicMock):
-<<<<<<< HEAD
     def __lt__(self, other):
+
         if isinstance(other, tuple):
             return False
         return False
@@ -123,8 +140,6 @@ class ModuleMock(MagicMock):
             return DuplicateKeyError
         return super().__getattr__(name)
 
-
-import types
 
 ruamel = types.ModuleType("ruamel")
 ruamel.yaml = types.ModuleType("ruamel.yaml")
@@ -179,15 +194,26 @@ sys.modules["playhouse.sqlite_ext"] = ModuleMock()
 sys.modules["playhouse.sqliteq"] = ModuleMock()
 sys.modules["playhouse.shortcuts"] = ModuleMock()
 
+
 class PeeweeMigrateMock:
     class Router:
         def __init__(self, *args, **kwargs):
             pass
+
         def run(self, *args, **kwargs):
             pass
+
     def __getattr__(self, name):
-        if name == "Router": return self.Router
+        if name == "Router":
+            return self.Router
         return MagicMock()
+
+    def __lt__(self, other):
+        return True
+
+    def __gt__(self, other):
+        return False
+
 
 sys.modules["peewee_migrate"] = PeeweeMigrateMock()
 sys.modules["peewee_migrate.router"] = PeeweeMigrateMock()
@@ -203,11 +229,20 @@ sys.modules["ruamel.yaml"] = ModuleMock()
 sys.modules["ruamel.yaml.main"] = ModuleMock()
 sys.modules["ruamel.yaml.error"] = ModuleMock()
 
+
 class RuamelCompatMock(ModuleMock):
     def __getattr__(self, name):
         if name == "version_tnf":
             return lambda *args, **kwargs: True
         return super().__getattr__(name)
+
+    def __lt__(self, other):
+        return True
+
+    def __gt__(self, other):
+        return False
+
+
 sys.modules["ruamel.yaml.compat"] = RuamelCompatMock()
 sys.modules["filelock"] = ModuleMock()
 sys.modules["norfair"] = ModuleMock()
@@ -236,8 +271,36 @@ sys.modules["zmq"] = ModuleMock()
 sys.modules["ruamel"] = ModuleMock()
 sys.modules["ruamel.yaml"] = ModuleMock()
 sys.modules["ruamel.yaml.constructor"] = ModuleMock()
-sys.modules["psutil"] = ModuleMock()
+
+
+class MockProcess:
+    def memory_info(self):
+        m = MagicMock()
+        m.rss = 1024 * 1024 * 100
+        return m
+
+
+class MockPsutil(ModuleMock):
+    def Process(self, *args, **kwargs):
+        return MockProcess()
+
+    def disk_partitions(self, *args, **kwargs):
+        class PartitionMock:
+            def __init__(self, mountpoint, fstype):
+                self.mountpoint = mountpoint
+                self.fstype = fstype
+
+        return [
+            PartitionMock("/", "ext4"),
+            PartitionMock("/mnt/data", "tmpfs"),
+            PartitionMock("/home/user", "ext4"),
+        ]
+
+
+sys.modules["psutil"] = MockPsutil()
+sys.modules["pandas"] = ModuleMock()
 sys.modules["py3nvml"] = ModuleMock()
+
 sys.modules["py3nvml.py3nvml"] = ModuleMock()
 sys.modules["frigate.version"] = ModuleMock()
 

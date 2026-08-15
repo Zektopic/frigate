@@ -190,9 +190,9 @@ The Python backend testing had broken imports in `test_runner.py` due to incompl
 
 ## Web Frontend Test Fixes
 The vitest unit tests were fixed for `src/utils/dateUtil.test.ts`. There was flakiness due to timezone-dependent date formatting functions in `formatUnixTimestampToDateTime`. A regular expression was implemented to ensure test robustness across differing node versions by matching timezone variations (`7:00` vs `07:00`).
-<<<<<<< HEAD
 
 ## Test Mocks and Execution Optimization
+
 
 The backend test runner (`test_runner.py`) uses a large number of mocked imports. There are still many optimization and test coverage issues regarding missing modules in the mock environment:
 - Modules like `requests`, `cv2`, `numpy`, and `filelock` are mock dependencies required to successfully import backend module code. Currently, tests fail early because the required Python libraries are not installed and not mocked completely.

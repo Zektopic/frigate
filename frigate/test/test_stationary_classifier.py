@@ -16,11 +16,15 @@ class TestStationaryThresholds(unittest.TestCase):
     def test_known_labels_return_expected_singletons(self) -> None:
         for label in STATIONARY_OBJECT_THRESHOLDS.objects:
             with self.subTest(label=label):
-                self.assertIs(get_stationary_threshold(label), STATIONARY_OBJECT_THRESHOLDS)
+                self.assertIs(
+                    get_stationary_threshold(label), STATIONARY_OBJECT_THRESHOLDS
+                )
 
         for label in DYNAMIC_OBJECT_THRESHOLDS.objects:
             with self.subTest(label=label):
-                self.assertIs(get_stationary_threshold(label), DYNAMIC_OBJECT_THRESHOLDS)
+                self.assertIs(
+                    get_stationary_threshold(label), DYNAMIC_OBJECT_THRESHOLDS
+                )
 
         for label in NON_STATIONARY_OBJECT_THRESHOLDS.objects:
             with self.subTest(label=label):

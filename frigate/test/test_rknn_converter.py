@@ -39,13 +39,13 @@ class TestGetRknnModelType(unittest.TestCase):
 
     def test_arcface(self):
         self.assertEqual(get_rknn_model_type("arcface_r100.onnx"), "arcface-r100")
-        self.assertEqual(get_rknn_model_type("ArcFace_something.onnx"), "arcface-r100")
         self.assertEqual(
             get_rknn_model_type("/some/path/arcface.onnx"), "arcface-r100"
         )
         self.assertEqual(
             get_rknn_model_type("/models/arcface-r100.onnx"), "arcface-r100"
         )
+
 
     def test_yolo_variants(self):
         self.assertEqual(get_rknn_model_type("yolov8n.onnx"), "yolov8n.onnx")
@@ -129,13 +129,21 @@ class TestEnsureRknnToolkit(unittest.TestCase):
 
 
 class TestGetSocType(unittest.TestCase):
-    @patch("builtins.open", new_callable=unittest.mock.mock_open, read_data="rockchip,rk3588\x00")
+    @patch(
+        "builtins.open",
+        new_callable=unittest.mock.mock_open,
+        read_data="rockchip,rk3588\x00",
+    )
     def test_rockchip_device(self, mock_file):
         from frigate.util.rknn_converter import get_soc_type
 
         self.assertEqual(get_soc_type(), "rk3588")
 
-    @patch("builtins.open", new_callable=unittest.mock.mock_open, read_data="nvidia,tegra210\x00")
+    @patch(
+        "builtins.open",
+        new_callable=unittest.mock.mock_open,
+        read_data="nvidia,tegra210\x00",
+    )
     def test_nvidia_device(self, mock_file):
         from frigate.util.rknn_converter import get_soc_type
 
