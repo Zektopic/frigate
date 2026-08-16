@@ -204,3 +204,18 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Code Quality and Optimization Roadmap (Iteration 7 Update)
+
+### 1. Fully Containerized Backend Testing
+Relying on Python's `sys.modules` overriding in `test_runner.py` is unsustainable given the heavy reliance on Pydantic v2 core schemas and deep nested C-extensions like OpenCV and Numpy.
+- **Action**: Fix the local Docker daemon configuration to bypass `overlayfs` mount restrictions, ensuring that developers can natively run `make run_tests`. Once fixed, `test_runner.py`'s brittle mocks should be strictly deprecated or removed.
+
+### 2. Frontend Dependency Modernization
+- **Action**: Address the `[DEP0040] DeprecationWarning` for the `punycode` module. The project needs to either switch to a userland `punycode` NPM module or update nested testing frameworks (like Vitest / whatwg-url) that are causing the warnings, maintaining clean CI logs and future-proofing node compatibility.
+
+### 3. Pydantic Mock Upgrades (If Local Testing Must Persist)
+- **Action**: If executing tests via `test_runner.py` remains necessary, the `MockBaseModel` and `MockPydanticValidationError` classes must be extensively refactored. They need explicit recursive tree traversal logic to parse fields accurately, and proper metadata hooks mimicking `pydantic_core` exceptions to unblock router and config logic testing.
+
+### 4. Database Benchmarking Integrations
+- **Action**: Following the SQLite bulk insert benchmark (100 batched inserts yielding 90,000+ r/s), review codebase loops that execute synchronous individual `.save()` calls or `select()` logic, replacing them with Peewee batch chunking functions (`insert_many`, `update_many`) to heavily minimize I/O overhead.
