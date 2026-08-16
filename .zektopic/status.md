@@ -181,10 +181,3 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
-
-## Iteration 7: Testing Results and Code Status Update
-- **Frontend tests pass**: Ran `cd web && npm ci && npm run test -- --run src/`. All 138 tests passed. No regressions were observed.
-- **Node Punycode deprecation**: Observed warnings for the `punycode` module being deprecated. This remains an item for future maintenance (via updating upstream packages).
-- **Backend tests via mock script**: Executed `python3 test_runner.py`. The suite continues to emit 28 failures and 198 errors. The errors are structurally bounded by the `sys.modules` patching method—Pydantic V2 schemas and numerical logic requiring `numpy`/`cv2` C-extensions cannot be accurately fully mocked using duck typing.
-- **Backend tests natively via Docker**: Building a native container using `make run_tests` remains blocked by a host Docker BuildKit overlayfs configuration issue (`mount source: "overlay"... err: invalid argument`).
-- **Conclusion**: Local frontend development and testing are stable. Backend mock testing should be fully retired in favor of native Docker tests once the host's build daemon is fixed (e.g. configuring the daemon with `DOCKER_BUILDKIT=0` or the `vfs` storage driver, which failed previously due to nested mount limitations in this sandbox).

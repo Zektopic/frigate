@@ -229,25 +229,3 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 
 - Extensive documentation for this fix and future implementation tasks has been logged in `Jules/improvements.md` and `.zektopic/status.md`.
 
-
-## Test Performance and Codebase Evaluation (Iteration 7 Update)
-
-### Testing Bottlenecks Evaluated
-1. **Frontend Isolation vs E2E Contexts**:
-   - The frontend Vitest suite runs at high efficiency (138 tests in ~5 seconds) when isolating the runner to `src/` to prevent Playwright conflicts.
-   - **Optimization**: A permanent vitest configuration exclusion block targeting `e2e` matchers will eliminate the need for CLI targeting (`--run src/`) and prevent developer friction.
-
-2. **Backend Mocks and Validation Drift**:
-   - Out of the 681 tests available to `test_runner.py`, almost a third fail because the environment falls back on naive mock objects.
-   - For example, Pydantic validations rely on `MockBaseModel`, which blindly overrides attributes but fails deeply nested structural validation. OpenCV's numpy bindings return MagicMocks instead of proper multidimensional array shapes, breaking calculations inside `test_video.py` and `test_shared_memory_frame_manager.py`.
-
-3. **Database Insertion Efficiency (SQLite Benchmark)**
-   - The test environment benchmarker evaluated unbatched vs batched SQLite I/O.
-   - Single item commits process at roughly ~13.5k records/second.
-   - A batch magnitude of 100 boosts processing to ~72.5k records/second.
-   - **Recommendation**: Audit the active record handlers (e.g. `frigate/record/export.py` or timeline DB ingestors). Introducing Peewee's native batch processing strategies will massively drop I/O wait times and resolve disk stutter under high load environments.
-
-4. **Docker Daemon and Virtual Filesystems**
-   - Attempting to bypass Python's missing dependencies via `make run_tests` hits an `overlayfs` failure.
-   - Standard workarounds (such as disabling BuildKit with `DOCKER_BUILDKIT=0` combined with `--load`) also fail against virtualized sandboxes.
-   - **Long-term Solution**: A standalone fallback CI docker-compose YAML that dynamically maps the working directory to an independent python-alpine test suite could bypass complicated container-within-container snapshotting errors.

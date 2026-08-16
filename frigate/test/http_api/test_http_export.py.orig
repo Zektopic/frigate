@@ -119,14 +119,14 @@ class TestHttpExport(BaseTestHttp):
         assert response.json() == []
 
     def test_get_export_cases_ordered_by_created_at_desc(self):
-        ExportCase.create(
+        case1 = ExportCase.create(
             id="case1",
             name="Older",
             description="",
             created_at=100,
             updated_at=100,
         )
-        ExportCase.create(
+        case2 = ExportCase.create(
             id="case2",
             name="Newer",
             description="",
