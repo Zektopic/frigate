@@ -39,13 +39,10 @@ class TestGetRknnModelType(unittest.TestCase):
 
     def test_arcface(self):
         self.assertEqual(get_rknn_model_type("arcface_r100.onnx"), "arcface-r100")
-        self.assertEqual(
-            get_rknn_model_type("/some/path/arcface.onnx"), "arcface-r100"
-        )
+        self.assertEqual(get_rknn_model_type("/some/path/arcface.onnx"), "arcface-r100")
         self.assertEqual(
             get_rknn_model_type("/models/arcface-r100.onnx"), "arcface-r100"
         )
-
 
     def test_yolo_variants(self):
         self.assertEqual(get_rknn_model_type("yolov8n.onnx"), "yolov8n.onnx")
@@ -60,7 +57,6 @@ class TestGetRknnModelType(unittest.TestCase):
         self.assertIsNone(get_rknn_model_type("mobilenet.onnx"))
         self.assertIsNone(get_rknn_model_type("jina-clip-v1/text.onnx"))
         self.assertIsNone(get_rknn_model_type("/path/to/unknown_model.onnx"))
-
 
 
 class TestEnsureRknnToolkit(unittest.TestCase):

@@ -33,7 +33,10 @@ class MockBaseModel:
             elif isinstance(v, dict):
                 v = MockBaseModel(**v)
             elif isinstance(v, list):
-                v = [MockBaseModel(**item) if isinstance(item, dict) else item for item in v]
+                v = [
+                    MockBaseModel(**item) if isinstance(item, dict) else item
+                    for item in v
+                ]
             if k == "cameras" and isinstance(v, dict):
                 v = {
                     cam_name: MockBaseModel(**cam_config)
@@ -63,14 +66,15 @@ class MockBaseModel:
         return [(k, self.__dict__[k]) for k in self.keys()]
 
 
-
 class MockPydantic:
     BaseModel = MockBaseModel
 
     def Field(*args, **kwargs):
         return None
+
     def StrictStr(*args, **kwargs):
         return str
+
     def StrictInt(*args, **kwargs):
         return int
 
@@ -128,7 +132,17 @@ class ModuleMock(MagicMock):
         return 0
 
     def __getattr__(self, name):
-        if name in ('__path__', '__file__', '__loader__', '__spec__', '__name__', '__mro_entries__', '__origin__', '__args__', '__parameters__'):
+        if name in (
+            "__path__",
+            "__file__",
+            "__loader__",
+            "__spec__",
+            "__name__",
+            "__mro_entries__",
+            "__origin__",
+            "__args__",
+            "__parameters__",
+        ):
             raise AttributeError(name)
         if name == "DEFAULT_VERSION":
             return 2  # To fix regex KeyError
@@ -159,6 +173,7 @@ sys.modules["ruamel.yaml.constructor"] = ruamel.yaml.constructor
 
 sys.modules["pydantic"] = MockPydantic
 sys.modules["pydantic.fields"] = MockPydantic
+
 
 class MockModel:
     pass
@@ -219,8 +234,21 @@ sys.modules["peewee_migrate"] = PeeweeMigrateMock()
 sys.modules["peewee_migrate.router"] = PeeweeMigrateMock()
 
 sys.modules["unidecode"] = ModuleMock()
+
+
 def mock_unidecode(text: str) -> str:
-    return text.replace("é", "e").replace("è", "e").replace("ê", "e").replace("á", "a").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
+    return (
+        text.replace("é", "e")
+        .replace("è", "e")
+        .replace("ê", "e")
+        .replace("á", "a")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+        .replace("ñ", "n")
+    )
+
+
 sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
 
@@ -368,12 +396,19 @@ sys.modules["tflite_runtime"] = ModuleMock()
 sys.modules["cv2"] = MagicMock()
 sys.modules["numpy"] = MagicMock()
 
+
 class MockPydanticValidationError(Exception):
     pass
+
 
 MockPydantic.ValidationError = MockPydanticValidationError
 
 if __name__ == "__main__":
     import sys
-    argv = ["unittest"] + sys.argv[1:] if len(sys.argv) > 1 else ["unittest", "discover", "frigate/test"]
+
+    argv = (
+        ["unittest"] + sys.argv[1:]
+        if len(sys.argv) > 1
+        else ["unittest", "discover", "frigate/test"]
+    )
     unittest.main(module=None, argv=argv)
