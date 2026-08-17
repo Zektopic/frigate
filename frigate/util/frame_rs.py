@@ -106,3 +106,56 @@ def track_distance_rust(detection, estimate) -> float:
     est = (ctypes.c_double * 4)(*estimate)
 
     return float(lib.track_distance(det, est))
+
+
+def point_in_polygon_rust(px: float, py: float, poly_points: list[float]) -> bool:
+    """Ray-casting point in polygon test in Rust."""
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    num_points = len(poly_points) // 2
+    arr = (ctypes.c_float * len(poly_points))(*poly_points)
+
+    lib.point_in_polygon.argtypes = [
+        ctypes.c_float,
+        ctypes.c_float,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+    ]
+    lib.point_in_polygon.restype = ctypes.c_int32
+
+    return bool(lib.point_in_polygon(ctypes.c_float(px), ctypes.c_float(py), arr, num_points))
+
+
+def polygon_box_overlap_rust(
+    box: list[float],
+    poly_points: list[float],
+    grid_samples: int = 4,
+) -> float:
+    """Computes bounding box polygon overlap fraction (0.0 to 1.0) in Rust."""
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    num_points = len(poly_points) // 2
+    box_arr = (ctypes.c_float * 4)(*box)
+    poly_arr = (ctypes.c_float * len(poly_points))(*poly_points)
+
+    lib.polygon_box_overlap.argtypes = [
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+    ]
+    lib.polygon_box_overlap.restype = ctypes.c_float
+
+    return float(
+        lib.polygon_box_overlap(
+            box_arr,
+            poly_arr,
+            ctypes.c_uint32(num_points),
+            ctypes.c_uint32(grid_samples),
+        )
+    )
+

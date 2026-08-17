@@ -514,6 +514,83 @@ pub unsafe extern "C" fn track_distance(det: *const f64, est: *const f64) -> f64
     (dx * dx + dy * dy + wr * wr + hr * hr).sqrt()
 }
 
+/// Ray-casting Point-in-Polygon test (crossing number algorithm).
+///
+/// `poly_points` contains `num_points * 2` floats in [x0, y0, x1, y1, ...] order.
+/// Returns 1 if point (px, py) is inside or on the boundary of the polygon, 0 otherwise.
+#[no_mangle]
+pub unsafe extern "C" fn point_in_polygon(
+    px: f32,
+    py: f32,
+    poly_points: *const f32,
+    num_points: u32,
+) -> i32 {
+    if poly_points.is_null() || num_points < 3 {
+        return 0;
+    }
+    let pts = std::slice::from_raw_parts(poly_points, (num_points * 2) as usize);
+    let mut inside = false;
+    let n = num_points as usize;
+
+    let mut j = n - 1;
+    for i in 0..n {
+        let xi = pts[i * 2];
+        let yi = pts[i * 2 + 1];
+        let xj = pts[j * 2];
+        let yj = pts[j * 2 + 1];
+
+        // Check if horizontal ray from (px, py) crosses line segment (xi, yi)-(xj, yj)
+        let intersect = ((yi > py) != (yj > py))
+            && (px < (xj - xi) * (py - yi) / (yj - yi + 1e-12) + xi);
+        if intersect {
+            inside = !inside;
+        }
+        j = i;
+    }
+
+    if inside { 1 } else { 0 }
+}
+
+/// Computes the fraction (0.0 to 1.0) of a bounding box [x1, y1, x2, y2] that
+/// lies within a polygonal zone using a uniform grid point approximation.
+#[no_mangle]
+pub unsafe extern "C" fn polygon_box_overlap(
+    bbox: *const f32,
+    poly_points: *const f32,
+    num_points: u32,
+    grid_samples: u32,
+) -> f32 {
+    if bbox.is_null() || poly_points.is_null() || num_points < 3 || grid_samples == 0 {
+        return 0.0;
+    }
+    let b = std::slice::from_raw_parts(bbox, 4);
+    let x1 = b[0];
+    let y1 = b[1];
+    let x2 = b[2];
+    let y2 = b[3];
+
+    if x2 <= x1 || y2 <= y1 {
+        return 0.0;
+    }
+
+    let mut inside_count = 0u32;
+    let total_samples = grid_samples * grid_samples;
+    let dx = (x2 - x1) / (grid_samples as f32);
+    let dy = (y2 - y1) / (grid_samples as f32);
+
+    for gy in 0..grid_samples {
+        let py = y1 + (gy as f32 + 0.5) * dy;
+        for gx in 0..grid_samples {
+            let px = x1 + (gx as f32 + 0.5) * dx;
+            if point_in_polygon(px, py, poly_points, num_points) == 1 {
+                inside_count += 1;
+            }
+        }
+    }
+
+    (inside_count as f32) / (total_samples as f32)
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -664,6 +741,37 @@ mod tests {
             assert!(track_distance(zero_w.as_ptr(), a.as_ptr()).is_infinite());
             assert!(track_distance(a.as_ptr(), zero_w.as_ptr()).is_infinite());
             assert!(track_distance(nan_box.as_ptr(), a.as_ptr()).is_infinite());
+        }
+    }
+
+    #[test]
+    fn test_point_in_polygon() {
+        // Triangle: (0,0), (10,0), (5,10)
+        let tri = [0.0f32, 0.0, 10.0, 0.0, 5.0, 10.0];
+        unsafe {
+            // Inside point
+            assert_eq!(point_in_polygon(5.0, 3.0, tri.as_ptr(), 3), 1);
+            // Outside points
+            assert_eq!(point_in_polygon(0.0, 10.0, tri.as_ptr(), 3), 0);
+            assert_eq!(point_in_polygon(12.0, 2.0, tri.as_ptr(), 3), 0);
+            assert_eq!(point_in_polygon(5.0, -2.0, tri.as_ptr(), 3), 0);
+        }
+    }
+
+    #[test]
+    fn test_polygon_box_overlap() {
+        // Square polygon from (0,0) to (10,10)
+        let poly = [0.0f32, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0];
+        unsafe {
+            // Fully inside bounding box (2,2, 8,8)
+            let inside_box = [2.0f32, 2.0, 8.0, 8.0];
+            let overlap = polygon_box_overlap(inside_box.as_ptr(), poly.as_ptr(), 4, 4);
+            assert_eq!(overlap, 1.0);
+
+            // Fully outside bounding box (20,20, 30,30)
+            let outside_box = [20.0f32, 20.0, 30.0, 30.0];
+            let overlap_out = polygon_box_overlap(outside_box.as_ptr(), poly.as_ptr(), 4, 4);
+            assert_eq!(overlap_out, 0.0);
         }
     }
 }
