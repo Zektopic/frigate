@@ -227,7 +227,6 @@ def __post_process_nms_yolo(predictions: np.ndarray, width, height) -> np.ndarra
 
 
 def post_process_yolo(output: list[np.ndarray], width: int, height: int) -> np.ndarray:
-    """Post-process YOLO model output tensors with Rust SIMD acceleration."""
     try:
         from frigate.detectors.rust_yolo import yolo_available, yolo_post_process
 
