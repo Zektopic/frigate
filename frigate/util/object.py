@@ -99,8 +99,8 @@ def get_camera_regions_grid(
         x = box[0] + (box[2] / 2)
         y = box[1] + (box[3] / 2)
 
-        x_pos = int(x * GRID_SIZE)
-        y_pos = int(y * GRID_SIZE)
+        x_pos = min(GRID_SIZE - 1, max(0, int(x * GRID_SIZE)))
+        y_pos = min(GRID_SIZE - 1, max(0, int(y * GRID_SIZE)))
 
         calculated_region = calculate_region(
             (height, width),
@@ -178,8 +178,8 @@ def get_region_from_grid(
         box[0] + (min(frame_shape[1], box[2]) - box[0]) / 2,
         box[1] + (min(frame_shape[0], box[3]) - box[1]) / 2,
     )
-    grid_x = int(centroid[0] / frame_shape[1] * GRID_SIZE)
-    grid_y = int(centroid[1] / frame_shape[0] * GRID_SIZE)
+    grid_x = min(GRID_SIZE - 1, max(0, int(centroid[0] / frame_shape[1] * GRID_SIZE)))
+    grid_y = min(GRID_SIZE - 1, max(0, int(centroid[1] / frame_shape[0] * GRID_SIZE)))
 
     cell = region_grid[grid_x][grid_y]
 
@@ -337,7 +337,7 @@ def reduce_boxes(boxes, iou_threshold=0.0):
     return [tuple(c) for c in clusters]
 
 
-def average_boxes(boxes: list[list[int, int, int, int]]) -> list[int, int, int, int]:
+def average_boxes(boxes: list[list[int] | tuple[int, ...]]) -> list[float]:
     """Return a box that is the average of a list of boxes."""
     n = len(boxes)
     return [
@@ -348,7 +348,7 @@ def average_boxes(boxes: list[list[int, int, int, int]]) -> list[int, int, int, 
     ]
 
 
-def median_of_boxes(boxes: list[list[int, int, int, int]]) -> list[int, int, int, int]:
+def median_of_boxes(boxes: list[list[int] | tuple[int, ...]]) -> list[int] | tuple[int, ...]:
     """Return a box that is the median of a list of boxes."""
     sorted_boxes = sorted(boxes, key=lambda x: area(x))
     return sorted_boxes[int(len(sorted_boxes) / 2.0)]

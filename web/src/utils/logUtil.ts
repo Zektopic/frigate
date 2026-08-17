@@ -63,6 +63,13 @@ export function parseLogLines(logService: LogType, logs: string[]) {
           return null;
         }
 
+        const afterMatch = line.substring(match.index + match[0].length);
+        const colonIdx = afterMatch.indexOf(":");
+        const contentStr =
+          colonIdx !== -1
+            ? afterMatch.substring(colonIdx + 1).trim()
+            : afterMatch.trim();
+
         return {
           dateStamp: match.toString().slice(1, -1),
           severity: pythonSeverity
@@ -71,10 +78,7 @@ export function parseLogLines(logService: LogType, logs: string[]) {
             ?.toString()
             ?.toLowerCase() as LogSeverity,
           section: sectionMatch.toString(),
-          content: line
-            .substring(line.indexOf(":", match.index + match[0].length) + 2)
-            .trim()
-            .replace(/\u200b/g, "\n"),
+          content: contentStr.replace(/\u200b/g, "\n"),
         };
       })
       .filter((value) => value != null) as LogLine[];

@@ -46,7 +46,7 @@ def post_process_dfine(
     return detections
 
 
-def post_process_rfdetr(tensor_output: list[np.ndarray, np.ndarray]) -> np.ndarray:
+def post_process_rfdetr(tensor_output: list[np.ndarray] | tuple[np.ndarray, ...]) -> np.ndarray:
     boxes = tensor_output[0]
     raw_scores = tensor_output[1]
 
