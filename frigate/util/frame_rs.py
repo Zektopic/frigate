@@ -106,3 +106,46 @@ def track_distance_rust(detection, estimate) -> float:
     est = (ctypes.c_double * 4)(*estimate)
 
     return float(lib.track_distance(det, est))
+
+
+def preprocess_detect_input_rust(
+    src_bytes: bytes,
+    src_w: int,
+    src_h: int,
+    dst_w: int,
+    dst_h: int,
+    channels: int = 3,
+) -> ctypes.Array:
+    """Zero-copy SIMD preprocess detection input (bilinear resize + normalize + NHWC->NCHW)."""
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    out_size = channels * dst_w * dst_h
+    out_buf = (ctypes.c_float * out_size)()
+
+    lib.preprocess_detect_input.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+    ]
+    lib.preprocess_detect_input.restype = None
+
+    src_arr = (ctypes.c_uint8 * len(src_bytes)).from_buffer_copy(src_bytes)
+
+    lib.preprocess_detect_input(
+        src_arr,
+        out_buf,
+        src_w,
+        src_h,
+        dst_w,
+        dst_h,
+        channels,
+    )
+    return out_buf
+
+
