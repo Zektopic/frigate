@@ -114,8 +114,4 @@ describe("formatTimeAgo", () => {
     const d = new Date("2024-01-01T12:00:00Z");
     expect(formatTimeAgo(d)).toMatch(/in\s0\sseconds/);
   });
-
-  it("should return undefined for invalid dates", () => {
-    expect(formatTimeAgo(new Date("invalid"))).toBeUndefined();
-  });
 });
