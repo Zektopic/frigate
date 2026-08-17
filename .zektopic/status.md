@@ -181,3 +181,25 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+---
+
+## Codebase Health, Security & Multi-Tier Testing Audit (Current Branch: `audit/full-codebase-health-and-security`)
+
+### 1. Multi-Tier Automated Test Harness
+- Implemented and executed three isolated test suites:
+  1. `frigate/test/test_fuzzing.py` (4 tests: C-ABI pointers, random lengths, NaN/Inf boxes, bowtie polygons, noisy YOLO tensors).
+  2. `frigate/test/test_stress_concurrency.py` (3 tests: 30-thread concurrent SQLite WAL transactions, 100x100 Norfair tracker distance matrix, 500-iteration SIMD zero-copy streaming >5.0 GB/s).
+  3. `frigate/test/test_smoke_physical.py` (2 tests: AMD Radeon Vega 8 Vulkan GPU compute validation, isolated FastAPI TestClient smoke harness).
+- **Result**: `Ran 9 tests in 8.948s - OK (100% Passing)`.
+- **Zero Production Disruption**: Tests ran strictly in ephemeral namespaces on non-conflicting ports without touching production port 5000.
+
+### 2. Rust Crate Enhancements
+- Guarded all C-ABI pointers against NULL dereferencing.
+- Removed dead debug code in `frigate-motion-rs` (`not_a_test_debug_step_by_step`).
+- Removed dead constants in `frigate-yolo-rs` (`AF_STRIDES`, `make_grid_points`).
+- Added AVX2 runtime CPU detection and scalar fallbacks.
+
+### 3. CI Diagnostics & OpenAPI Spec Regeneration
+- Fixed CI failure in `python3 generate_api_auth_spec.py --check` by regenerating `docs/static/frigate-api.yaml` (245 KB, 8,800+ lines). Verified `--check` exits cleanly.
+- Master audit report written to `.zektopic/FULL_CODEBASE_AUDIT_REPORT.md`.
+

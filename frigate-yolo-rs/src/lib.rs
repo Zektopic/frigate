@@ -396,19 +396,6 @@ mod tests {
 // Replaces the numpy _process() function in the ONNX plugin worker.
 
 const DFL_BINS: [f32; 16] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
-const AF_STRIDES: [u32; 3] = [8, 16, 32];
-
-/// Pre-compute grid points for one scale: (grid*grid, 2) with (x+0.5)*stride
-fn make_grid_points(grid: usize, stride: f32) -> Vec<(f32, f32)> {
-    let n = grid * grid;
-    let mut pts = Vec::with_capacity(n);
-    for y in 0..grid {
-        for x in 0..grid {
-            pts.push(((x as f32 + 0.5) * stride, (y as f32 + 0.5) * stride));
-        }
-    }
-    pts
-}
 
 /// YOLOv8/YOLO11 anchor-free post-process: sigmoid + DFL + grid decode + NMS.
 /// `raw` has shape (N, 144) where 144 = 64(reg) + 80(cls).

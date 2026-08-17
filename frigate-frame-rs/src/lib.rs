@@ -514,6 +514,134 @@ pub unsafe extern "C" fn track_distance(det: *const f64, est: *const f64) -> f64
     (dx * dx + dy * dy + wr * wr + hr * hr).sqrt()
 }
 
+/// Point-in-polygon ray-casting test.
+/// Returns 1 if point (px, py) is inside polygon vertices, 0 otherwise.
+#[no_mangle]
+pub unsafe extern "C" fn point_in_polygon(
+    px: f64,
+    py: f64,
+    pts: *const f64,
+    num_pts: usize,
+) -> i32 {
+    if pts.is_null() || num_pts < 3 {
+        return 0;
+    }
+    let slice = std::slice::from_raw_parts(pts, num_pts * 2);
+    let mut inside = false;
+    let mut j = num_pts - 1;
+
+    for i in 0..num_pts {
+        let xi = slice[i * 2];
+        let yi = slice[i * 2 + 1];
+        let xj = slice[j * 2];
+        let yj = slice[j * 2 + 1];
+
+        let intersect = ((yi > py) != (yj > py))
+            && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        if intersect {
+            inside = !inside;
+        }
+        j = i;
+    }
+
+    if inside { 1 } else { 0 }
+}
+
+/// Check whether a bounding box [x1, y1, x2, y2] overlaps with a polygon.
+#[no_mangle]
+pub unsafe extern "C" fn polygon_box_overlap(
+    poly_pts: *const f64,
+    num_pts: usize,
+    box_coords: *const f64,
+) -> i32 {
+    if poly_pts.is_null() || box_coords.is_null() || num_pts < 3 {
+        return 0;
+    }
+    let b = std::slice::from_raw_parts(box_coords, 4);
+    let bx1 = b[0];
+    let by1 = b[1];
+    let bx2 = b[2];
+    let by2 = b[3];
+
+    // Check if any polygon vertex is inside the box
+    let slice = std::slice::from_raw_parts(poly_pts, num_pts * 2);
+    for i in 0..num_pts {
+        let x = slice[i * 2];
+        let y = slice[i * 2 + 1];
+        if x >= bx1 && x <= bx2 && y >= by1 && y <= by2 {
+            return 1;
+        }
+    }
+
+    // Check box corners inside polygon
+    let corners = [(bx1, by1), (bx2, by1), (bx2, by2), (bx1, by2), ((bx1 + bx2) * 0.5, (by1 + by2) * 0.5)];
+    for &(cx, cy) in &corners {
+        if point_in_polygon(cx, cy, poly_pts, num_pts) == 1 {
+            return 1;
+        }
+    }
+
+    0
+}
+
+/// Vectorized NxM pairwise tracker distance matrix.
+#[no_mangle]
+pub unsafe extern "C" fn batch_track_distance_matrix(
+    dets: *const f64,
+    n_dets: usize,
+    ests: *const f64,
+    n_ests: usize,
+    out_matrix: *mut f64,
+) {
+    if dets.is_null() || ests.is_null() || out_matrix.is_null() || n_dets == 0 || n_ests == 0 {
+        return;
+    }
+    for i in 0..n_dets {
+        let det_ptr = dets.add(i * 4);
+        for j in 0..n_ests {
+            let est_ptr = ests.add(j * 4);
+            let dist = track_distance(det_ptr, est_ptr);
+            *out_matrix.add(i * n_ests + j) = dist;
+        }
+    }
+}
+
+/// Non-temporal SIMD memory copy for shared memory frame transfers.
+#[no_mangle]
+pub unsafe extern "C" fn fast_shm_copy(
+    dst: *mut u8,
+    src: *const u8,
+    len: usize,
+) {
+    if dst.is_null() || src.is_null() || len == 0 {
+        return;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            let chunks = len / 32;
+            let src_ptr = src as *const __m256i;
+            let dst_ptr = dst as *mut __m256i;
+
+            for i in 0..chunks {
+                let val = _mm256_loadu_si256(src_ptr.add(i));
+                _mm256_storeu_si256(dst_ptr.add(i), val);
+            }
+
+            let remainder_start = chunks * 32;
+            let rem_src = std::slice::from_raw_parts(src.add(remainder_start), len - remainder_start);
+            let rem_dst = std::slice::from_raw_parts_mut(dst.add(remainder_start), len - remainder_start);
+            rem_dst.copy_from_slice(rem_src);
+            return;
+        }
+    }
+
+    let src_slice = std::slice::from_raw_parts(src, len);
+    let dst_slice = std::slice::from_raw_parts_mut(dst, len);
+    dst_slice.copy_from_slice(src_slice);
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]

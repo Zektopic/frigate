@@ -106,3 +106,106 @@ def track_distance_rust(detection, estimate) -> float:
     est = (ctypes.c_double * 4)(*estimate)
 
     return float(lib.track_distance(det, est))
+
+
+def point_in_polygon_rust(px: float, py: float, pts: list[tuple[float, float]]) -> bool:
+    """Ray-casting point in polygon test in Rust."""
+    if len(pts) < 3:
+        return False
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    lib.point_in_polygon.argtypes = [
+        ctypes.c_double,
+        ctypes.c_double,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_size_t,
+    ]
+    lib.point_in_polygon.restype = ctypes.c_int32
+
+    flat_pts = []
+    for x, y in pts:
+        flat_pts.extend([float(x), float(y)])
+    arr = (ctypes.c_double * len(flat_pts))(*flat_pts)
+    return bool(lib.point_in_polygon(px, py, arr, len(pts)))
+
+
+def polygon_box_overlap_rust(pts: list[tuple[float, float]], box: tuple[float, float, float, float]) -> bool:
+    """Check if bounding box [x1, y1, x2, y2] overlaps with polygon in Rust."""
+    if len(pts) < 3:
+        return False
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    lib.polygon_box_overlap.argtypes = [
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_double),
+    ]
+    lib.polygon_box_overlap.restype = ctypes.c_int32
+
+    flat_pts = []
+    for x, y in pts:
+        flat_pts.extend([float(x), float(y)])
+    arr_pts = (ctypes.c_double * len(flat_pts))(*flat_pts)
+    arr_box = (ctypes.c_double * 4)(*box)
+    return bool(lib.polygon_box_overlap(arr_pts, len(pts), arr_box))
+
+
+def batch_track_distance_matrix_rust(detections: list, estimates: list):
+    """Vectorized NxM pairwise tracker distance matrix in Rust."""
+    import numpy as np
+    n_dets = len(detections)
+    n_ests = len(estimates)
+    if n_dets == 0 or n_ests == 0:
+        return np.zeros((n_dets, n_ests), dtype=np.float64)
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    lib.batch_track_distance_matrix.argtypes = [
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_size_t,
+        ctypes.POINTER(ctypes.c_double),
+    ]
+    lib.batch_track_distance_matrix.restype = None
+
+    flat_dets = [float(v) for b in detections for v in b]
+    flat_ests = [float(v) for b in estimates for v in b]
+
+    c_dets = (ctypes.c_double * len(flat_dets))(*flat_dets)
+    c_ests = (ctypes.c_double * len(flat_ests))(*flat_ests)
+    out = np.zeros((n_dets, n_ests), dtype=np.float64)
+
+    lib.batch_track_distance_matrix(
+        c_dets,
+        ctypes.c_size_t(n_dets),
+        c_ests,
+        ctypes.c_size_t(n_ests),
+        out.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+    )
+    return out
+
+
+def fast_shm_copy_rust(dst_buf, src_buf, length: int) -> None:
+    """Zero-copy SIMD memory copy for shared memory frame transfers."""
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    lib.fast_shm_copy.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+    ]
+    lib.fast_shm_copy.restype = None
+
+    dst_ptr = ctypes.addressof(ctypes.c_char.from_buffer(dst_buf))
+    src_ptr = ctypes.addressof(ctypes.c_char.from_buffer(src_buf))
+
+    lib.fast_shm_copy(dst_ptr, src_ptr, ctypes.c_size_t(length))
