@@ -36,15 +36,28 @@ class NCNNDetector(DetectionApi):
 
         self.ncnn = ncnn
 
-        # Find the ncnn model files (.param and .bin) next to the ONNX model
-        model_dir = os.path.dirname(detector_config.model.path)
-        param_path = os.path.join(model_dir, "yolov5s.ncnn.param")
-        bin_path = os.path.join(model_dir, "yolov5s.ncnn.bin")
+        # Find the ncnn model files (.param and .bin)
+        model_path = detector_config.model.path or ""
+        if model_path.endswith(".param"):
+            param_path = model_path
+            bin_path = model_path[:-6] + ".bin"
+        elif model_path.endswith(".bin"):
+            bin_path = model_path
+            param_path = model_path[:-4] + ".param"
+        else:
+            model_dir = os.path.dirname(model_path)
+            candidate_param = os.path.join(model_dir, "yolo11n.ncnn.param")
+            candidate_bin = os.path.join(model_dir, "yolo11n.ncnn.bin")
+            if os.path.exists(candidate_param) and os.path.exists(candidate_bin):
+                param_path = candidate_param
+                bin_path = candidate_bin
+            else:
+                param_path = os.path.join(model_dir, "yolov5s.ncnn.param")
+                bin_path = os.path.join(model_dir, "yolov5s.ncnn.bin")
 
         if not os.path.exists(param_path) or not os.path.exists(bin_path):
             raise FileNotFoundError(
-                f"ncnn model not found: {param_path} / {bin_path}. "
-                f"Download from https://github.com/nihui/ncnn-assets"
+                f"ncnn model not found: {param_path} / {bin_path}."
             )
 
         logger.info(f"NCNN: loading model from {param_path}")
