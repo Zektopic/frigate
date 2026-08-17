@@ -106,3 +106,45 @@ def track_distance_rust(detection, estimate) -> float:
     est = (ctypes.c_double * 4)(*estimate)
 
     return float(lib.track_distance(det, est))
+
+
+def batch_track_distance_matrix_rust(
+    detections: list[list[float]],
+    estimates: list[list[float]],
+) -> list[list[float]]:
+    """Pairwise Norfair association distance matrix between N detections and M estimates in Rust."""
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    n = len(detections)
+    m = len(estimates)
+    if n == 0 or m == 0:
+        return []
+
+    flat_dets = [x for d in detections for x in d]
+    flat_ests = [x for e in estimates for x in e]
+
+    dets_arr = (ctypes.c_double * len(flat_dets))(*flat_dets)
+    ests_arr = (ctypes.c_double * len(flat_ests))(*flat_ests)
+    out_arr = (ctypes.c_double * (n * m))()
+
+    lib.batch_track_distance_matrix.argtypes = [
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_double),
+    ]
+    lib.batch_track_distance_matrix.restype = None
+
+    lib.batch_track_distance_matrix(
+        dets_arr,
+        ctypes.c_uint32(n),
+        ests_arr,
+        ctypes.c_uint32(m),
+        out_arr,
+    )
+
+    return [[out_arr[i * m + j] for j in range(m)] for i in range(n)]
+
