@@ -645,6 +645,61 @@ pub unsafe extern "C" fn motion_init_average(
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn motion_accumulate_weighted(
+    src: *const u8,
+    avg: *mut f32,
+    alpha: f32,
+    len: u32,
+) {
+    if src.is_null() || avg.is_null() || len == 0 {
+        return;
+    }
+    let src_slice = std::slice::from_raw_parts(src, len as usize);
+    let avg_slice = std::slice::from_raw_parts_mut(avg, len as usize);
+    let one_minus_alpha = 1.0 - alpha;
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            let mut i = 0usize;
+            let chunks = (len as usize) / 8;
+            let alpha_vec = _mm256_set1_ps(alpha);
+            let one_minus_alpha_vec = _mm256_set1_ps(one_minus_alpha);
+
+            for _ in 0..chunks {
+                let bytes = *(src_slice.as_ptr().add(i) as *const [u8; 8]);
+                let u32_vals = [
+                    bytes[0] as u32,
+                    bytes[1] as u32,
+                    bytes[2] as u32,
+                    bytes[3] as u32,
+                    bytes[4] as u32,
+                    bytes[5] as u32,
+                    bytes[6] as u32,
+                    bytes[7] as u32,
+                ];
+                let src_i32 = _mm256_loadu_si256(u32_vals.as_ptr() as *const __m256i);
+                let src_f32 = _mm256_cvtepi32_ps(src_i32);
+
+                let avg_f32 = _mm256_loadu_ps(avg_slice.as_ptr().add(i));
+                let res = _mm256_fmadd_ps(alpha_vec, src_f32, _mm256_mul_ps(one_minus_alpha_vec, avg_f32));
+                _mm256_storeu_ps(avg_slice.as_mut_ptr().add(i), res);
+                i += 8;
+            }
+
+            for j in i..(len as usize) {
+                avg_slice[j] = one_minus_alpha * avg_slice[j] + alpha * (src_slice[j] as f32);
+            }
+            return;
+        }
+    }
+
+    for i in 0..(len as usize) {
+        avg_slice[i] = one_minus_alpha * avg_slice[i] + alpha * (src_slice[i] as f32);
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  Tests
 // ═══════════════════════════════════════════════════════════════════
@@ -903,5 +958,26 @@ mod pixel_pipeline_tests {
             )
         };
         assert_eq!(n, 0, "masked pixels must not produce motion");
+    }
+
+    #[test]
+    fn test_accumulate_weighted() {
+        let len = 64usize;
+        let src: Vec<u8> = (0..len).map(|i| (i * 3 % 256) as u8).collect();
+        let mut avg = vec![50.0f32; len];
+        let alpha = 0.05f32;
+
+        let expected: Vec<f32> = (0..len)
+            .map(|i| (1.0 - alpha) * 50.0 + alpha * (src[i] as f32))
+            .collect();
+
+        unsafe {
+            motion_accumulate_weighted(src.as_ptr(), avg.as_mut_ptr(), alpha, len as u32);
+        }
+
+        for i in 0..len {
+            let diff = (avg[i] - expected[i]).abs();
+            assert!(diff < 1e-4, "at index {}: avg={} expected={}", i, avg[i], expected[i]);
+        }
     }
 }
