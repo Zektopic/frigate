@@ -68,6 +68,16 @@ def capture_frames(
     _last_metrics_update = 0.0
 
     try:
+        from frigate.util.frame_rs import (
+            frame_rs_available,
+            read_ffmpeg_frame_to_ptr,
+        )
+        import ctypes
+        _use_rust_reader = frame_rs_available()
+    except Exception:
+        _use_rust_reader = False
+
+    try:
         while not stop_event.is_set():
             if not get_enabled_state():
                 logger.debug(f"Stopping capture thread for disabled {config.name}")
@@ -85,14 +95,7 @@ def capture_frames(
                 if frame_buffer is None:
                     raise ValueError("frame_buffer is None")
 
-                from frigate.util.frame_rs import (
-                    frame_rs_available,
-                    read_ffmpeg_frame_to_ptr,
-                )
-
-                if frame_rs_available():
-                    import ctypes
-
+                if _use_rust_reader:
                     addr = ctypes.addressof(ctypes.c_char.from_buffer(frame_buffer))
                     fd = ffmpeg_process.stdout.fileno()
                     rc = read_ffmpeg_frame_to_ptr(fd, addr, frame_size)
