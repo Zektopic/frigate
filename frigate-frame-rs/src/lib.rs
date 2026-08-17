@@ -514,6 +514,45 @@ pub unsafe extern "C" fn track_distance(det: *const f64, est: *const f64) -> f64
     (dx * dx + dy * dy + wr * wr + hr * hr).sqrt()
 }
 
+/// High-performance SIMD memory copy for zero-copy shared memory frame writes.
+///
+/// Moves frame pixel bytes in 32-byte SIMD blocks to minimize CPU instruction overhead
+/// across high-framerate camera ingestion pipelines.
+#[no_mangle]
+pub unsafe extern "C" fn fast_shm_copy(
+    dst: *mut u8,
+    src: *const u8,
+    len: usize,
+) {
+    if dst.is_null() || src.is_null() || len == 0 {
+        return;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            let chunks = len / 32;
+            let src_ptr = src as *const __m256i;
+            let dst_ptr = dst as *mut __m256i;
+
+            for i in 0..chunks {
+                let val = _mm256_loadu_si256(src_ptr.add(i));
+                _mm256_storeu_si256(dst_ptr.add(i), val);
+            }
+
+            let remainder_start = chunks * 32;
+            let rem_src = std::slice::from_raw_parts(src.add(remainder_start), len - remainder_start);
+            let rem_dst = std::slice::from_raw_parts_mut(dst.add(remainder_start), len - remainder_start);
+            rem_dst.copy_from_slice(rem_src);
+            return;
+        }
+    }
+
+    let src_slice = std::slice::from_raw_parts(src, len);
+    let dst_slice = std::slice::from_raw_parts_mut(dst, len);
+    dst_slice.copy_from_slice(src_slice);
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -665,6 +704,19 @@ mod tests {
             assert!(track_distance(a.as_ptr(), zero_w.as_ptr()).is_infinite());
             assert!(track_distance(nan_box.as_ptr(), a.as_ptr()).is_infinite());
         }
+    }
+
+    #[test]
+    fn test_fast_shm_copy() {
+        let len = 1024usize;
+        let src: Vec<u8> = (0..len).map(|i| (i % 256) as u8).collect();
+        let mut dst = vec![0u8; len];
+
+        unsafe {
+            fast_shm_copy(dst.as_mut_ptr(), src.as_ptr(), len);
+        }
+
+        assert_eq!(src, dst);
     }
 }
 

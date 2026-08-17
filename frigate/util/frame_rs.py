@@ -106,3 +106,23 @@ def track_distance_rust(detection, estimate) -> float:
     est = (ctypes.c_double * 4)(*estimate)
 
     return float(lib.track_distance(det, est))
+
+
+def fast_shm_copy_rust(dst_buf, src_buf, length: int) -> None:
+    """Zero-copy SIMD memory copy for shared memory frame transfers."""
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    lib.fast_shm_copy.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+    ]
+    lib.fast_shm_copy.restype = None
+
+    dst_ptr = ctypes.addressof(ctypes.c_char.from_buffer(dst_buf))
+    src_ptr = ctypes.addressof(ctypes.c_char.from_buffer(src_buf))
+
+    lib.fast_shm_copy(dst_ptr, src_ptr, ctypes.c_size_t(length))
+
