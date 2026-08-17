@@ -229,3 +229,14 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 
 - Extensive documentation for this fix and future implementation tasks has been logged in `Jules/improvements.md` and `.zektopic/status.md`.
 
+
+## Backend Testing Mocks Failures
+Executed the test suite natively with `python3 test_runner.py` to identify limitations in the fallback testing environment. Found:
+1. **Pydantic Validation**: `MockPydanticValidationError` fails to trigger for model validation in nested configurations, causing all `test_profiles.py` assertions referencing this error to fail.
+2. **Missing `numpy.prod`**: Shape handling in `test_shared_memory_frame_manager.py` fails because the `numpy` mock returns a `MagicMock` for `prod`, which breaks shape math logic.
+3. **Missing `cv2.dnn.NMSBoxes`**: Object reduction logic in `test_video.py` fails because OpenCV's NMS isn't mocked to return indices based on confidence.
+4. **Shared memory caching**: Logic mismatches in `UntrackedSharedMemory` mock cause tests like `test_get_reopens_when_cached_segment_is_smaller_than_shape` to fail because it expects `arr` to not be None.
+
+## Vitest Frontend Tests
+Successfully executed isolated frontend tests running `npm --prefix web test -- --run src/`.
+All 13 suites containing 138 tests passed. Execution avoids `Symbol($$jest-matchers-object)` conflicts with Playwright.
