@@ -95,27 +95,36 @@ class NCNNDetector(DetectionApi):
 
         with self.net.create_extractor() as ex:
             ex.input("in0", mat_in)
-            ret1, out0_raw = ex.extract("out0")
-            ret2, out1_raw = ex.extract("out1")
-            ret3, out2_raw = ex.extract("out2")
+            ret0, out0_raw = ex.extract("out0")
+            if ret0 != 0:
+                return np.zeros((0, 6), np.float32)
 
-        if ret1 != 0:
-            return np.zeros((0, 6), np.float32)
+            arr0 = np.array(out0_raw)
+            # Check if this is a single-output YOLO26/11 tensor (e.g. 84x8400 or 8400x84)
+            if arr0.ndim == 2 and (arr0.shape[0] == 84 or arr0.shape[1] == 84):
+                if arr0.shape[1] == 84 and arr0.shape[0] != 84:
+                    arr0 = arr0.T
+                from frigate.detectors.rust_yolo import yolo26_post_process, yolo_available
+                if yolo_available():
+                    return yolo26_post_process(arr0, self.model_input_size, 1.0, 1.0)
+                else:
+                    from frigate.util.model import post_process_yolo
+                    return post_process_yolo([np.expand_dims(arr0, 0)], self.model_input_size, self.model_input_size)
 
-        # Convert ncnn outputs: apply sigmoid, keep in (1, 255, grid, grid) format
-        # which is what Frigate's postprocessor expects
+            ret1, out1_raw = ex.extract("out1")
+            ret2, out2_raw = ex.extract("out2")
+            if ret1 != 0 or ret2 != 0:
+                return np.zeros((0, 6), np.float32)
+
+        # Convert multipart YOLOv5s outputs: apply sigmoid
         outputs = []
         for ncnn_mat in [out0_raw, out1_raw, out2_raw]:
             arr = np.array(ncnn_mat)
-            # Apply sigmoid (ncnn outputs raw logits, ONNX models have sigmoid baked in)
             arr = 1.0 / (1.0 + np.exp(-arr))
-            # Frigate expects (1, 255, grid, grid)
             arr = np.expand_dims(arr, 0)
             outputs.append(arr)
 
-        # Use Frigate's own YOLO postprocessing
         from frigate.util.model import post_process_yolo
-
         return post_process_yolo(outputs, self.model_input_size, self.model_input_size)
 
     @staticmethod
