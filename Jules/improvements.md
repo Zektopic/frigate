@@ -204,3 +204,12 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Testing Status Update (New Execution)
+- Ran `python3 test_runner.py` locally. The backend test suite continues to hit limits with mock dependencies. As noted previously, 28 failures and 198 errors occurred across 710 tests. Attempting to use Docker via `make run_tests` fails early due to an `overlayfs` BuildKit error specific to this local environment.
+- Ran `cd web && npm ci && npm run test -- --run src/`. All 138 frontend tests pass locally.
+
+### Action Items for Future Implementations
+- **Backend Mock Infrastructure**: In order to make local backend tests robust without Docker, `test_runner.py`'s mocks for `numpy`, `cv2`, `peewee`, and `pydantic` must be thoroughly refactored or actual dependencies installed locally. Specifically, `MockPydanticValidationError` fails to mimic Pydantic v2's strict validation logic.
+- **Docker Fixes**: Fix the BuildKit `overlayfs` mount error on the local daemon, for example by running tests with `DOCKER_BUILDKIT=0` or a different storage driver (e.g., `vfs`), to allow `make run_tests` to execute native unit tests correctly.
+- **Frontend Deprecations**: Fix the Node deprecation warnings related to the `punycode` module emitted during vitest test execution by updating frontend packages or utilizing userland alternatives.
