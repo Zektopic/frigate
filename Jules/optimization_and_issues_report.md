@@ -56,3 +56,13 @@ I have run Python unittests locally using `python3 test_runner.py` and identifie
 The mocks for `BaseModel` and `unidecode` were incomplete.
 - We fixed the `BaseModel` mock to include an `__init__` constructor that accepts `**kwargs`.
 - We fixed the `unidecode` mock to map accented characters to non-accented ones.
+
+### Final Testing Run Report
+**Backend Tests:**
+- Running `python3 test_runner.py` yields 28 failures and 198 errors out of 710 tests.
+- Mocks like `UntrackedSharedMemory`, `MockPydanticValidationError`, and `cv2` lack necessary depth causing widespread failures (e.g., shape tests and bounding box NMS).
+- The `make run_tests` Docker environment is still blocked by an `overlayfs` invalid argument during BuildKit execution. It is highly recommended to prioritize fixing the Docker environment to avoid these brittle python mocks in the future.
+
+**Frontend Tests:**
+- Scoped frontend tests (`cd web && npm ci && npx vitest run src/`) passed flawlessly with 138 passing tests.
+- Punycode deprecation warnings still exist and should be addressed in future dependencies updates.
