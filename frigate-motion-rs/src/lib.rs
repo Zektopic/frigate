@@ -3,6 +3,7 @@
 /// Replaces the CPU-heavy OpenCV+scipy path with architecture-aware
 /// SIMD routines.  Exposes a flat C ABI so Python can call via `ctypes`.
 
+#[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
 // ── C ABI types ────────────────────────────────────────────────────
@@ -19,6 +20,7 @@ pub struct MotionBox {
 // ── Helpers ────────────────────────────────────────────────────────
 
 #[inline]
+#[cfg(target_arch = "x86_64")]
 const fn align_up(value: usize, align: usize) -> usize {
     (value + align - 1) & !(align - 1)
 }
@@ -85,7 +87,8 @@ fn percentile_u8(data: &[u8], p: f32) -> u8 {
 /// Apply contrast stretch: clip to [min_val, max_val], then scale to [0, 255].
 /// Processes 32 pixels per SIMD iteration.
 #[cfg(target_arch = "x86_64")]
-unsafe fn contrast_stretch_simd(buf: &mut [u8], min_val: u8, max_val: u8, len: usize) {
+#[target_feature(enable = "avx2", enable = "sse4.1")]
+unsafe fn contrast_stretch_avx2_impl(buf: &mut [u8], min_val: u8, max_val: u8, len: usize) {
     if min_val >= max_val {
         return;
     }
@@ -130,64 +133,8 @@ unsafe fn contrast_stretch_simd(buf: &mut [u8], min_val: u8, max_val: u8, len: u
         let v = ((v - min_v) * scale).clamp(0.0, 255.0);
         buf[j] = v as u8;
     }
-
-    fn not_a_test_debug_step_by_step() {
-        let w = 64usize;
-        let h = 64usize;
-        let len = w * h;
-        
-        let mut avg = vec![100.0f32; len];
-        let mut frame = vec![100u8; len];
-        for y in 20..40 {
-            for x in 20..40 {
-                frame[y * w + x] = 200;
-            }
-        }
-        let mask = vec![0u8; len];
-        
-        let mut buf: Vec<u8> = frame.clone();
-        
-        // Step 1: mask
-        for i in 0..len {
-            if mask[i] != 0 { buf[i] = 0; }
-        }
-        println!("After mask: buf[22*64+22]={} (should be 200)", buf[22*64+22]);
-        
-        // Step 4-5: absdiff
-        let mut avg_u8 = vec![0u8; len];
-        for i in 0..len { avg_u8[i] = avg[i].clamp(0.0, 255.0) as u8; }
-        println!("avg_u8[22*64+22]={} (should be 100)", avg_u8[22*64+22]);
-        
-        let mut diff = vec![0u8; len];
-        unsafe { absdiff_avx2(&buf, &avg_u8, &mut diff, len); }
-        println!("After absdiff: diff[22*64+22]={} (should be 100)", diff[22*64+22]);
-        println!("diff non-zero count: {}", diff.iter().filter(|&&v| v > 0).count());
-        println!("diff max: {}", diff.iter().max().unwrap());
-        
-        // Step 5: threshold + mask
-        let thresh: u8 = 15;
-        unsafe { threshold_mask_avx2(&mut diff, &mask, thresh, len); }
-        let white = diff.iter().filter(|&&v| v == 255).count();
-        println!("After threshold({thresh}): {} white pixels (should be 400 for 20x20 rect)", white);
-        println!("diff[22*64+22]={} (should be 255)", diff[22*64+22]);
-        
-        // Step 6: dilate
-        let mut dilated = vec![0u8; len];
-        unsafe { dilate_3x3(&mut diff, &mut dilated, w, h); }
-        let white2 = diff.iter().filter(|&&v| v == 255).count();
-        println!("After dilate: {} white pixels", white2);
-        
-        // Step 7: contours
-        let boxes = find_contours_bounding_boxes(&diff, w, h, 10);
-        println!("Contours found: {}", boxes.len());
-        for (i, b) in boxes.iter().enumerate() {
-            println!("  box {i}: ({}, {}, {}, {})", b.0, b.1, b.2, b.3);
-        }
-        assert!(boxes.len() > 0, "Should find at least 1 contour");
-    }
 }
 
-#[cfg(not(target_arch = "x86_64"))]
 unsafe fn contrast_stretch_scalar(buf: &mut [u8], min_val: u8, max_val: u8, len: usize) {
     if min_val >= max_val {
         return;
@@ -202,10 +149,92 @@ unsafe fn contrast_stretch_scalar(buf: &mut [u8], min_val: u8, max_val: u8, len:
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  Scalar kernels — always compiled.
+//
+//  These are the reference implementations.  On x86_64 the AVX2
+//  variants above are selected at *runtime* via the dispatchers below;
+//  everywhere else (and on x86_64 CPUs without AVX2, e.g. pre-Haswell
+//  Intel and the Celeron/Atom/N-series boxes Frigate is commonly
+//  deployed on) these run instead.  Gating SIMD on `cfg(target_arch)`
+//  alone is a compile-time check and does not prevent SIGILL.
+// ═══════════════════════════════════════════════════════════════════
+
+fn absdiff_scalar(a: &[u8], b: &[u8], dst: &mut [u8], len: usize) {
+    for j in 0..len {
+        let da = a[j] as i16;
+        let db = b[j] as i16;
+        dst[j] = (da - db).unsigned_abs() as u8;
+    }
+}
+
+fn threshold_mask_scalar(buf: &mut [u8], mask: &[u8], thresh: u8, len: usize) {
+    for j in 0..len {
+        buf[j] = if buf[j] >= thresh && mask[j] == 0 { 255 } else { 0 };
+    }
+}
+
+fn update_average_scalar(avg: &mut [f32], frame: &[u8], mask: &[u8], len: usize) {
+    for j in 0..len {
+        if mask[j] == 0 {
+            avg[j] = avg[j] * 0.99 + frame[j] as f32 * 0.01;
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Runtime dispatchers.  Call sites keep their original names, so the
+//  selection is transparent.  `is_x86_feature_detected!` caches its
+//  result in a static after the first call, so the per-frame cost is
+//  a single relaxed atomic load.
+// ═══════════════════════════════════════════════════════════════════
+
+unsafe fn contrast_stretch_simd(buf: &mut [u8], min_val: u8, max_val: u8, len: usize) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("sse4.1") {
+            return contrast_stretch_avx2_impl(buf, min_val, max_val, len);
+        }
+    }
+    contrast_stretch_scalar(buf, min_val, max_val, len)
+}
+
+unsafe fn absdiff_avx2(a: &[u8], b: &[u8], dst: &mut [u8], len: usize) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return absdiff_avx2_impl(a, b, dst, len);
+        }
+    }
+    absdiff_scalar(a, b, dst, len)
+}
+
+unsafe fn threshold_mask_avx2(buf: &mut [u8], mask: &[u8], thresh: u8, len: usize) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return threshold_mask_avx2_impl(buf, mask, thresh, len);
+        }
+    }
+    threshold_mask_scalar(buf, mask, thresh, len)
+}
+
+unsafe fn update_average_avx2(avg: &mut [f32], frame: &[u8], mask: &[u8], len: usize) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return update_average_avx2_impl(avg, frame, mask, len);
+        }
+    }
+    update_average_scalar(avg, frame, mask, len)
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  Core pixel kernels (from original)
 // ═══════════════════════════════════════════════════════════════════
 
-unsafe fn absdiff_avx2(a: &[u8], b: &[u8], dst: &mut [u8], len: usize) {
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn absdiff_avx2_impl(a: &[u8], b: &[u8], dst: &mut [u8], len: usize) {
     let mut i = 0usize;
     let simd_end = align_up(len.saturating_sub(31), 32) & !31;
     while i < simd_end {
@@ -224,18 +253,25 @@ unsafe fn absdiff_avx2(a: &[u8], b: &[u8], dst: &mut [u8], len: usize) {
     }
 }
 
-unsafe fn threshold_mask_avx2(buf: &mut [u8], mask: &[u8], thresh: u8, len: usize) {
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn threshold_mask_avx2_impl(buf: &mut [u8], mask: &[u8], thresh: u8, len: usize) {
     let thresh_vec = _mm256_set1_epi8(thresh as i8);
     let zero = _mm256_setzero_si256();
-    let ff = _mm256_set1_epi8(-1i8);
     let mut i = 0usize;
     let simd_end = align_up(len.saturating_sub(31), 32) & !31;
     while i < simd_end {
         let v = _mm256_loadu_si256(buf.as_ptr().add(i) as *const __m256i);
         let m = _mm256_loadu_si256(mask.as_ptr().add(i) as *const __m256i);
-        // val >= thresh ?
-        let ge = _mm256_cmpgt_epi8(thresh_vec, v);   // thresh > val
-        let ge = _mm256_xor_si256(ge, ff);            // val >= thresh
+        // val >= thresh, UNSIGNED.
+        //
+        // This must not use _mm256_cmpgt_epi8: that is a *signed* byte
+        // compare, so every pixel >= 128 reads as negative and was
+        // classified as below-threshold — i.e. the AVX2 path silently
+        // discarded the strongest motion signals while the scalar tail
+        // handled them correctly.  max_epu8(v, t) == v is the unsigned
+        // equivalent of v >= t.
+        let ge = _mm256_cmpeq_epi8(_mm256_max_epu8(v, thresh_vec), v);
         // mask == 0 ? (mask=0 means UNMASKED = process this pixel)
         let unmasked = _mm256_cmpeq_epi8(m, zero);    // m == 0 (unmasked)
         // combine: (val >= thresh) AND (unmasked)
@@ -328,7 +364,9 @@ fn find_contours_bounding_boxes(
     boxes
 }
 
-unsafe fn update_average_avx2(
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn update_average_avx2_impl(
     avg: &mut [f32], frame: &[u8], mask: &[u8], len: usize,
 ) {
     let mut i = 0usize;
@@ -396,6 +434,15 @@ pub unsafe extern "C" fn motion_detect_full(
     let h = h as usize;
     let len = w * h;
 
+    // Guard the FFI boundary: from_raw_parts on a null pointer is UB
+    // even at zero length, and a zero-sized frame underflows the
+    // neighbourhood index arithmetic in the blur/dilate kernels.
+    if frame.is_null() || avg_frame.is_null() || mask.is_null() || out_boxes.is_null()
+        || w == 0 || h == 0 || max_boxes == 0
+    {
+        return 0;
+    }
+
     let frame = std::slice::from_raw_parts(frame, len);
     let avg_frame = std::slice::from_raw_parts_mut(avg_frame, len);
     let mask = std::slice::from_raw_parts(mask, len);
@@ -410,10 +457,8 @@ pub unsafe extern "C" fn motion_detect_full(
         let p4 = percentile_u8(&buf, 4.0);
         let p96 = percentile_u8(&buf, 96.0);
         if p4 < p96 {
-            #[cfg(target_arch = "x86_64")]
+            // contrast_stretch_simd dispatches to AVX2 or scalar at runtime
             unsafe { contrast_stretch_simd(&mut buf, p4, p96, len); }
-            #[cfg(not(target_arch = "x86_64"))]
-            unsafe { contrast_stretch_scalar(&mut buf, p4, p96, len); }
         }
     }
 
@@ -590,6 +635,18 @@ pub unsafe extern "C" fn motion_pixel_pipeline(
     let h = h as usize;
     let len = w * h;
 
+    // Guard the FFI boundary: from_raw_parts on a null pointer is UB
+    // even at zero length, and a zero-sized frame underflows the
+    // neighbourhood index arithmetic in the blur/dilate kernels.
+    if frame.is_null() || avg_frame.is_null() || mask.is_null() || out_boxes.is_null()
+        || w == 0 || h == 0 || max_boxes == 0
+    {
+        if !out_total_area.is_null() {
+            *out_total_area = 0.0;
+        }
+        return 0;
+    }
+
     let frame = std::slice::from_raw_parts_mut(frame, len);
     let avg_frame = std::slice::from_raw_parts(avg_frame, len);
     let mask = std::slice::from_raw_parts(mask, len);
@@ -638,6 +695,9 @@ pub unsafe extern "C" fn motion_init_average(
     avg_frame: *mut f32,
     len: u32,
 ) {
+    if frame.is_null() || avg_frame.is_null() || len == 0 {
+        return;
+    }
     let frame = std::slice::from_raw_parts(frame, len as usize);
     let avg = std::slice::from_raw_parts_mut(avg_frame, len as usize);
     for i in 0..(len as usize) {
@@ -750,7 +810,7 @@ mod tests {
         let w = 64usize;
         let h = 64usize;
         let len = w * h;
-        let mut avg = vec![100.0f32; len];
+        let avg = vec![100.0f32; len];
         let mut frame = vec![100u8; len];
         for y in 20..40 { for x in 20..40 { frame[y * w + x] = 200; } }
         let mask = vec![0u8; len];
@@ -903,5 +963,185 @@ mod pixel_pipeline_tests {
             )
         };
         assert_eq!(n, 0, "masked pixels must not produce motion");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  AVX2 ↔ scalar parity
+//
+//  The scalar kernels are the fallback taken on aarch64 and on x86_64
+//  CPUs without AVX2.  Before runtime dispatch existed they were dead
+//  code on x86 and never executed, so nothing proved they agreed with
+//  the SIMD path.  These tests do.
+// ═══════════════════════════════════════════════════════════════════
+#[cfg(all(test, target_arch = "x86_64"))]
+mod simd_parity_tests {
+    use super::*;
+
+    /// Deterministic pseudo-random bytes — avoids a dev-dependency.
+    fn pseudo_random(n: usize, seed: u64) -> Vec<u8> {
+        let mut state = seed;
+        (0..n)
+            .map(|_| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                (state >> 33) as u8
+            })
+            .collect()
+    }
+
+    /// Lengths straddling the 32-byte SIMD stride so both the vector
+    /// body and the scalar tail are covered.
+    const LENS: [usize; 7] = [0, 1, 31, 32, 33, 64, 1000];
+
+    #[test]
+    fn absdiff_scalar_matches_avx2() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+        for &len in &LENS {
+            let a = pseudo_random(len, 0x1234);
+            let b = pseudo_random(len, 0x9876);
+            let mut simd = vec![0u8; len];
+            let mut scalar = vec![0u8; len];
+            unsafe { absdiff_avx2_impl(&a, &b, &mut simd, len) };
+            absdiff_scalar(&a, &b, &mut scalar, len);
+            assert_eq!(simd, scalar, "absdiff mismatch at len={len}");
+        }
+    }
+
+    #[test]
+    fn threshold_mask_scalar_matches_avx2() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+        for &len in &LENS {
+            for &thresh in &[0u8, 1, 15, 128, 254, 255] {
+                let base = pseudo_random(len, 0xABCD);
+                // Mask a scattered third of the pixels.
+                let mask: Vec<u8> = (0..len).map(|i| if i % 3 == 0 { 1 } else { 0 }).collect();
+                let mut simd = base.clone();
+                let mut scalar = base.clone();
+                unsafe { threshold_mask_avx2_impl(&mut simd, &mask, thresh, len) };
+                threshold_mask_scalar(&mut scalar, &mask, thresh, len);
+                assert_eq!(simd, scalar, "threshold mismatch at len={len} thresh={thresh}");
+            }
+        }
+    }
+
+    #[test]
+    fn update_average_scalar_matches_avx2() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+        for &len in &LENS {
+            let frame = pseudo_random(len, 0x5555);
+            let mask: Vec<u8> = (0..len).map(|i| if i % 4 == 0 { 1 } else { 0 }).collect();
+            let avg0: Vec<f32> = (0..len).map(|i| (i % 256) as f32).collect();
+            let mut simd = avg0.clone();
+            let mut scalar = avg0.clone();
+            unsafe { update_average_avx2_impl(&mut simd, &frame, &mask, len) };
+            update_average_scalar(&mut scalar, &frame, &mask, len);
+            for i in 0..len {
+                assert!(
+                    (simd[i] - scalar[i]).abs() < 1e-4,
+                    "avg mismatch at len={len} i={i}: {} vs {}",
+                    simd[i],
+                    scalar[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn contrast_stretch_scalar_matches_avx2() {
+        if !(is_x86_feature_detected!("avx2") && is_x86_feature_detected!("sse4.1")) {
+            return;
+        }
+        for &len in &LENS {
+            for &(lo, hi) in &[(0u8, 255u8), (16, 48), (100, 101), (60, 200)] {
+                let base = pseudo_random(len, 0x7777);
+                let mut simd = base.clone();
+                let mut scalar = base.clone();
+                unsafe { contrast_stretch_avx2_impl(&mut simd, lo, hi, len) };
+                unsafe { contrast_stretch_scalar(&mut scalar, lo, hi, len) };
+                // f32→u8 truncation can differ by 1 ULP between the
+                // vectorized and scalar rounding paths.
+                for i in 0..len {
+                    let d = (simd[i] as i16 - scalar[i] as i16).abs();
+                    assert!(d <= 1, "contrast mismatch len={len} ({lo},{hi}) i={i}: {} vs {}", simd[i], scalar[i]);
+                }
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  FFI boundary guards.
+//
+//  These crates are cdylibs built with panic = "abort", so anything
+//  that panics or reads out of bounds takes the whole Frigate process
+//  down rather than failing one frame.  Every C-ABI entry point must
+//  therefore reject null pointers and degenerate sizes instead of
+//  forming a slice from them.
+// ═══════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod ffi_guard_tests {
+    use super::*;
+
+    #[test]
+    fn pixel_pipeline_rejects_null_pointers() {
+        let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 4];
+        let mut area = -1.0f32;
+        let n = unsafe {
+            motion_pixel_pipeline(
+                std::ptr::null_mut(), std::ptr::null(), std::ptr::null(),
+                64, 64, 30, 10, 1, boxes.as_mut_ptr(), 4, &mut area,
+            )
+        };
+        assert_eq!(n, 0);
+        assert_eq!(area, 0.0, "out_total_area must be initialized on the guard path");
+    }
+
+    #[test]
+    fn pixel_pipeline_rejects_zero_dimensions() {
+        let mut frame = vec![0u8; 16];
+        let avg = vec![0f32; 16];
+        let mask = vec![0u8; 16];
+        let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 4];
+        for (w, h) in [(0u32, 8u32), (8, 0), (0, 0)] {
+            let n = unsafe {
+                motion_pixel_pipeline(
+                    frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
+                    w, h, 30, 10, 1, boxes.as_mut_ptr(), 4, std::ptr::null_mut(),
+                )
+            };
+            assert_eq!(n, 0, "expected no boxes for {w}x{h}");
+        }
+    }
+
+    #[test]
+    fn pixel_pipeline_rejects_null_output_buffer() {
+        let mut frame = vec![0u8; 64];
+        let avg = vec![0f32; 64];
+        let mask = vec![0u8; 64];
+        let n = unsafe {
+            motion_pixel_pipeline(
+                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
+                8, 8, 30, 10, 1, std::ptr::null_mut(), 4, std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn init_average_rejects_null_and_zero_len() {
+        // Must not fault.
+        unsafe { motion_init_average(std::ptr::null(), std::ptr::null_mut(), 0) };
+        let frame = vec![7u8; 4];
+        let mut avg = vec![0f32; 4];
+        unsafe { motion_init_average(frame.as_ptr(), avg.as_mut_ptr(), 0) };
+        assert_eq!(avg, vec![0.0; 4], "zero len must be a no-op");
+        unsafe { motion_init_average(frame.as_ptr(), avg.as_mut_ptr(), 4) };
+        assert_eq!(avg, vec![7.0; 4], "the normal path still works");
     }
 }

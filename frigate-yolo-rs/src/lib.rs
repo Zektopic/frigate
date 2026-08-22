@@ -5,6 +5,12 @@
 
 // ── C ABI types ────────────────────────────────────────────────────
 
+/// Maximum detections either post-processor will report. The caller's
+/// `out_dets` buffer is exactly `MAX_DETECTIONS * 6` f32 wide, so this
+/// is a hard bound on the write, not a tuning knob.
+pub const MAX_DETECTIONS: usize = 20;
+const DETECTION_STRIDE: usize = 6;
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Detection {
@@ -172,6 +178,10 @@ pub unsafe extern "C" fn yolo_post_process(
     out_dets: *mut Detection,
     max_dets: u32,
 ) -> u32 {
+    if outputs.is_null() || ny_nx.is_null() || out_dets.is_null() || max_dets == 0 {
+        return 0;
+    }
+
     let dims = std::slice::from_raw_parts(ny_nx, 6);
     let mut all_boxes: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(4096);
     let mut all_scores: Vec<f32> = Vec::with_capacity(4096);
@@ -181,7 +191,13 @@ pub unsafe extern "C" fn yolo_post_process(
         let ny = dims[scale * 2] as usize;
         let nx = dims[scale * 2 + 1] as usize;
         let len = ny * nx * 3 * 85;
-        let output = std::slice::from_raw_parts(*outputs.add(scale), len);
+        let scale_ptr = *outputs.add(scale);
+        // A zero-sized or absent scale is skipped rather than turned
+        // into a zero-length slice from a possibly-null pointer.
+        if scale_ptr.is_null() || len == 0 {
+            continue;
+        }
+        let output = std::slice::from_raw_parts(scale_ptr, len);
 
         let (boxes, scores, class_ids) = decode_yolo_scale(
             output, ny, nx, STRIDES[scale], &ANCHORS[scale],
@@ -219,17 +235,32 @@ pub unsafe extern "C" fn nms_boxes(
     max_indices: u32,
 ) -> u32 {
     let n = n as usize;
+    let max_indices = max_indices as usize;
+
+    // Reject the degenerate cases before forming any slice: a null
+    // pointer or a zero length would otherwise be handed straight to
+    // from_raw_parts, which is UB.
+    if boxes.is_null() || scores.is_null() || out_indices.is_null() || n == 0 || max_indices == 0 {
+        return 0;
+    }
+
     let b = std::slice::from_raw_parts(boxes, n * 4);
     let s = std::slice::from_raw_parts(scores, n);
     let boxes_vec: Vec<(f32, f32, f32, f32)> = (0..n)
         .map(|i| (b[i*4], b[i*4+1], b[i*4+2], b[i*4+3]))
         .collect();
-    let keep = greedy_nms(&boxes_vec, s, iou_threshold, max_indices as usize);
-    let out = std::slice::from_raw_parts_mut(out_indices, keep.len());
-    for (i, &idx) in keep.iter().enumerate() {
+    let keep = greedy_nms(&boxes_vec, s, iou_threshold, max_indices);
+    // Clamp to the caller's buffer rather than trusting greedy_nms to
+    // have honoured max_indices — the write must be bounded by the
+    // capacity we were actually given.
+    let written = keep.len().min(max_indices);
+    let out = std::slice::from_raw_parts_mut(out_indices, written);
+    for (i, &idx) in keep.iter().take(written).enumerate() {
         out[i] = idx as u32;
     }
-    keep.len() as u32
+    // Report what was written, not what was kept — the caller reads
+    // this many entries out of the buffer.
+    written as u32
 }
 
 
@@ -250,13 +281,24 @@ pub unsafe extern "C" fn yolo26_post_process(
     out_dets: *mut f32,  // (20, 6) pre-allocated
 ) {
     let n = n as usize;
-    let raw = std::slice::from_raw_parts(raw, n * 84);
-    let out = std::slice::from_raw_parts_mut(out_dets, 20 * 6);
 
-    // Zero output
+    // Nothing can be reported without an output buffer.
+    if out_dets.is_null() {
+        return;
+    }
+    let out = std::slice::from_raw_parts_mut(out_dets, MAX_DETECTIONS * DETECTION_STRIDE);
+
+    // Zero output first, so every early return below leaves the caller
+    // with a well-defined "no detections" result.
     for v in out.iter_mut() { *v = 0.0; }
 
-    if n == 0 { return; }
+    // Form the input slice only once we know it is non-null and
+    // non-empty — from_raw_parts on a null pointer is UB even for a
+    // zero length.
+    if raw.is_null() || n == 0 {
+        return;
+    }
+    let raw = std::slice::from_raw_parts(raw, n * 84);
 
     // Step 1: Convert cx,cy,w,h → x1,y1,x2,y2 + find best class
     let mut boxes: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(n);
@@ -324,9 +366,9 @@ pub unsafe extern "C" fn yolo26_post_process(
         }
     }
 
-    for (k, &idx) in keep.iter().enumerate() {
+    for (k, &idx) in keep.iter().take(MAX_DETECTIONS).enumerate() {
         let (x1, y1, x2, y2) = boxes[idx];
-        let o = k * 6;
+        let o = k * DETECTION_STRIDE;
         out[o] = class_ids[idx] as f32;
         out[o + 1] = best_scores[idx];
         out[o + 2] = y1 * sy;
@@ -339,6 +381,7 @@ pub unsafe extern "C" fn yolo26_post_process(
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::erasing_op)] // index math documents tensor layout
 mod tests {
     use super::*;
 
@@ -426,12 +469,20 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
     out_dets: *mut f32,      // (20, 6)
 ) -> u32 {
     let n = n_total as usize;
-    let raw = std::slice::from_raw_parts(raw, n * 144);
-    let pts = std::slice::from_raw_parts(all_pts, n * 2);
-    let out = std::slice::from_raw_parts_mut(out_dets, 120);
+
+    if out_dets.is_null() {
+        return 0;
+    }
+    let out = std::slice::from_raw_parts_mut(out_dets, MAX_DETECTIONS * DETECTION_STRIDE);
     for v in out.iter_mut() { *v = 0.0; }
 
-    if n == 0 { return 0; }
+    // Guard before slicing: from_raw_parts on a null pointer is UB
+    // even at zero length.
+    if raw.is_null() || all_pts.is_null() || n == 0 {
+        return 0;
+    }
+    let raw = std::slice::from_raw_parts(raw, n * 144);
+    let pts = std::slice::from_raw_parts(all_pts, n * 2);
 
     // Step 1: sigmoid on class logits + argmax
     let mut candidates: Vec<usize> = Vec::with_capacity(512);
@@ -527,13 +578,93 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
         if !sup { keep.push(i); }
     }
 
-    for (k, &idx) in keep.iter().enumerate() {
+    let written = keep.len().min(MAX_DETECTIONS);
+    for (k, &idx) in keep.iter().take(written).enumerate() {
         let (x1, y1, x2, y2) = boxes[idx];
-        let o = k * 6;
+        let o = k * DETECTION_STRIDE;
         out[o] = final_classes[idx] as f32;
         out[o+1] = final_scores[idx];
         out[o+2] = y1 * sy; out[o+3] = x1 * sx;
         out[o+4] = y2 * sy; out[o+5] = x2 * sx;
     }
-    keep.len() as u32
+    // Report what was written, not what was kept.
+    written as u32
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  FFI boundary guards — see the note in frigate-motion-rs.
+// ═══════════════════════════════════════════════════════════════════
+#[cfg(test)]
+#[allow(clippy::erasing_op)] // index math documents tensor layout
+mod ffi_guard_tests {
+    use super::*;
+
+    #[test]
+    fn yolo26_rejects_null_input_and_still_zeroes_output() {
+        let mut out = vec![9.9f32; 20 * 6];
+        unsafe {
+            yolo26_post_process(std::ptr::null(), 100, 640.0, 1.0, 1.0, 0.4, 0.5, out.as_mut_ptr())
+        };
+        assert!(out.iter().all(|&v| v == 0.0), "guard path must zero the output");
+    }
+
+    #[test]
+    fn yolo26_rejects_null_output() {
+        let raw = vec![0f32; 84];
+        // Must not fault.
+        unsafe {
+            yolo26_post_process(raw.as_ptr(), 1, 640.0, 1.0, 1.0, 0.4, 0.5, std::ptr::null_mut())
+        };
+    }
+
+    #[test]
+    fn yolo26_zero_detections_zeroes_output() {
+        let raw = vec![0f32; 84];
+        let mut out = vec![9.9f32; 20 * 6];
+        unsafe {
+            yolo26_post_process(raw.as_ptr(), 0, 640.0, 1.0, 1.0, 0.4, 0.5, out.as_mut_ptr())
+        };
+        assert!(out.iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn nms_boxes_rejects_null_and_zero() {
+        let mut out = vec![0u32; 8];
+        assert_eq!(
+            unsafe { nms_boxes(std::ptr::null(), std::ptr::null(), 4, 0.5, out.as_mut_ptr(), 8) },
+            0
+        );
+        let boxes = vec![0f32; 16];
+        let scores = vec![0.9f32; 4];
+        assert_eq!(
+            unsafe { nms_boxes(boxes.as_ptr(), scores.as_ptr(), 0, 0.5, out.as_mut_ptr(), 8) },
+            0
+        );
+        assert_eq!(
+            unsafe { nms_boxes(boxes.as_ptr(), scores.as_ptr(), 4, 0.5, std::ptr::null_mut(), 8) },
+            0
+        );
+    }
+
+    /// The write must be bounded by the caller's capacity, and the
+    /// returned count must match what was actually written.
+    #[test]
+    fn nms_boxes_never_writes_past_max_indices() {
+        // Four boxes far apart, so NMS keeps all of them...
+        let boxes: Vec<f32> = vec![
+            0.0, 0.0, 10.0, 10.0,
+            100.0, 100.0, 110.0, 110.0,
+            200.0, 200.0, 210.0, 210.0,
+            300.0, 300.0, 310.0, 310.0,
+        ];
+        let scores = vec![0.9f32, 0.8, 0.7, 0.6];
+        // ...but the caller only offers room for two.
+        const CAP: usize = 2;
+        let mut out = vec![u32::MAX; CAP + 4];
+        let n = unsafe { nms_boxes(boxes.as_ptr(), scores.as_ptr(), 4, 0.5, out.as_mut_ptr(), CAP as u32) };
+        assert!(n as usize <= CAP, "returned {n}, capacity was {CAP}");
+        for (i, &v) in out.iter().enumerate().skip(CAP) {
+            assert_eq!(v, u32::MAX, "wrote past the caller's buffer at index {i}");
+        }
+    }
 }
