@@ -495,6 +495,24 @@ class WebSocketClient(Communicator):
 
                 topic = json_message["topic"]
 
+                # Liveness probe. Answered inline on this socket and
+                # never forwarded to the dispatcher: it carries no data,
+                # needs no privilege, and must not depend on the
+                # dispatcher thread being healthy — detecting that it is
+                # not is the whole point.
+                #
+                # Browsers cannot see protocol-level ping/pong frames
+                # from JS, so an application-level round trip is the
+                # only way a client can tell a silently half-open
+                # connection (NAT/conntrack expiry, Wi-Fi roam, VPN
+                # re-key) from an idle one.
+                if topic == "ping":
+                    try:
+                        self.send(json.dumps({"topic": "pong", "payload": ""}))
+                    except (ConnectionResetError, BrokenPipeError, ValueError):
+                        pass
+                    return
+
                 # Authorization check (skip when environ is None — direct internal connection)
                 role_header = (
                     self.environ.get("HTTP_REMOTE_ROLE") if self.environ else None
