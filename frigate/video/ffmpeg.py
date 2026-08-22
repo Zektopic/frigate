@@ -73,6 +73,7 @@ def capture_frames(
             read_ffmpeg_frame_to_ptr,
         )
         import ctypes
+
         _use_rust_reader = frame_rs_available()
     except Exception:
         _use_rust_reader = False
