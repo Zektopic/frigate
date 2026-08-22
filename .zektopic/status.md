@@ -181,3 +181,16 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Test Environment Setup and Code Review Request (Update 3)
+Re-ran frontend tests cleanly via `npm ci` and `npm run test -- --run src/`.
+- 138 frontend unit tests passed perfectly across 13 suites.
+- Node warnings regarding `punycode` continue to appear but are non-blocking.
+
+Backend tests using local `test_runner.py` reported:
+- 28 failures, 198 errors, 4 skipped.
+- Many errors stem from `sys.modules` patching inadequacies, particularly:
+  - `pydantic.ValidationError` vs `pydantic_core.ValidationError` structures for configuration tests (like `test_profiles.py`).
+  - Native `numpy` indexing requirements that `MagicMock` cannot emulate (e.g. for tensor manipulations).
+  - Missing deeper mocks for external resources like `peewee`, `requests`, and `norfair.drawing`.
+- Running `make run_tests` to execute tests natively via Docker fails immediately due to a BuildKit cache overlayfs mount error (`err: invalid argument`).
