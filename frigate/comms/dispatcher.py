@@ -369,7 +369,18 @@ class Dispatcher:
                     )
                 elif len(parts) == 2 and topic.endswith("set"):
                     command = parts[-2]
-                    self._global_settings_handlers[command](payload)
+                    handler = self._global_settings_handlers.get(command)
+
+                    if handler is None:
+                        # An unrecognized "<something>/set" topic used to
+                        # raise KeyError here. Only IndexError is caught
+                        # below, so it escaped into the IPC reader thread
+                        # and killed it.
+                        logger.warning(
+                            "Received unknown global setting command: %s", command
+                        )
+                    else:
+                        handler(payload)
                 elif len(parts) == 2 and topic.endswith("ptz"):
                     # example /cam_name/ptz payload=MOVE_UP|MOVE_DOWN|STOP...
                     camera_name = parts[-2]

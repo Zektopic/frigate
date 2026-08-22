@@ -260,11 +260,24 @@ class OutputProcess(FrigateProcess):
             )
             preview_write_times[camera] = frame_time
 
+            # Snapshot the websocket list under the manager lock before
+            # iterating it. ws4py mutates manager.websockets from its own
+            # poller thread on every client connect/disconnect, so
+            # iterating the live manager raises "dictionary changed size
+            # during iteration" and kills this process. Compare the
+            # locked pattern in frigate/comms/ws.py.
+            with websocket_server.manager.lock:
+                connected_websockets = [
+                    ws
+                    for ws in websocket_server.manager.websockets.values()
+                    if not getattr(ws, "terminated", False)
+                ]
+
             # send camera frame to ffmpeg process if websockets are connected
             if any(
-                ws.environ["PATH_INFO"].endswith(camera)
+                ws.environ.get("PATH_INFO", "").endswith(camera)
                 and ws_has_camera_access(ws, camera, self.config)
-                for ws in websocket_server.manager
+                for ws in connected_websockets
             ):
                 # write to the converter for the camera if clients are listening to the specific camera
                 jsmpeg_cameras[camera].write_frame(frame.tobytes())
@@ -276,9 +289,9 @@ class OutputProcess(FrigateProcess):
                 and (
                     self.config.birdseye.restream
                     or any(
-                        ws.environ["PATH_INFO"].endswith("birdseye")
+                        ws.environ.get("PATH_INFO", "").endswith("birdseye")
                         and ws_has_camera_access(ws, "birdseye", self.config)
-                        for ws in websocket_server.manager
+                        for ws in connected_websockets
                     )
                 )
             ):
