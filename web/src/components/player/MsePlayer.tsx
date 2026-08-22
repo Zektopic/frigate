@@ -66,7 +66,11 @@ function MSEPlayer({
   const bufferTimes = useRef<number[]>([]);
   const bufferIndex = useRef(0);
 
-  const [wsState, setWsState] = useState<number>(WebSocket.CLOSED);
+  // Only the setter is used: the socket state drives re-renders, but
+  // nothing reads it. onClose used to gate on it, which was a stale
+  // closure — onCloseRef pins the callback at attach time, so a
+  // socket attached while this read CLOSED never reconnected.
+  const [, setWsState] = useState<number>(WebSocket.CLOSED);
   const [connectTS, setConnectTS] = useState<number>(0);
   const [bufferTimeout, setBufferTimeout] = useState<NodeJS.Timeout>();
   const [errorCount, setErrorCount] = useState<number>(0);
@@ -156,11 +160,15 @@ function MSEPlayer({
   }, []);
 
   const onConnect = useCallback(() => {
+    // Cleared before the early return: bailing out here (detached
+    // <video>, no URL, socket already live) must not leave the flag
+    // latched, or every subsequent reconnect is suppressed forever.
+    intentionalDisconnectRef.current = false;
+
     if (!videoRef.current?.isConnected || !wsURL || wsRef.current) {
       return false;
     }
 
-    intentionalDisconnectRef.current = false;
     setWsState(WebSocket.CONNECTING);
 
     setConnectTS(Date.now());
@@ -277,10 +285,13 @@ function MSEPlayer({
   }, []);
 
   const reconnect = (timeout?: number) => {
-    // Don't reconnect if intentional disconnect was flagged
-    if (intentionalDisconnectRef.current) {
-      return;
-    }
+    // An explicit reconnect() call *is* the intent to reconnect, so it
+    // clears the flag rather than obeying it. The flag exists only to
+    // stop onClose from auto-reconnecting after a deliberate teardown;
+    // callers that mean "stay down" call onDisconnect() and nothing
+    // else. Without this, the <video onError> path — which calls
+    // onDisconnect() and then reconnect(5000) — could never recover.
+    intentionalDisconnectRef.current = false;
 
     setWsState(WebSocket.CONNECTING);
     wsRef.current = null;
@@ -302,11 +313,10 @@ function MSEPlayer({
       return;
     }
 
-    if (wsState === WebSocket.CLOSED) return;
     reconnect();
     // reconnect is defined below and stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsState]);
+  }, []);
 
   const sendWithTimeout = (value: object, timeout: number) => {
     return new Promise<void>((resolve, reject) => {
