@@ -68,11 +68,12 @@ def capture_frames(
     _last_metrics_update = 0.0
 
     try:
+        import ctypes
+
         from frigate.util.frame_rs import (
             frame_rs_available,
             read_ffmpeg_frame_to_ptr,
         )
-        import ctypes
 
         _use_rust_reader = frame_rs_available()
     except Exception:
