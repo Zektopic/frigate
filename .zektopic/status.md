@@ -181,3 +181,8 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Test Verification Update (New Run)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests across 13 test files passed successfully in isolation. Node deprecation warnings regarding the `punycode` module were observed in the output.
+- **Backend Native Tests (Python)**: Executed `python3 test_runner.py`. The suite starts successfully, but out of 710 tests, there are 28 failures and 198 errors. These are predominantly caused by limitations in the `test_runner.py` mock environment (e.g., Pydantic validations, Numpy shapes, missing OpenCV bindings) which fail to accurately replicate native C-extensions and V2 schemas.
+- **Backend Docker Tests**: Attempted to run `make run_tests`. It fails with `overlayfs` invalid argument errors during the `docker buildx build` phase, making native testing on the local daemon blocked. Or tried with `DOCKER_BUILDKIT=0 make run_tests` and still failing with overlayfs cachemount issue.
