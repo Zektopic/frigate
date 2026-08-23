@@ -11,7 +11,6 @@ import secrets
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -32,7 +31,7 @@ from frigate.api.media_auth import (
     deny_response_for_media_uri,
     is_role_restricted,
 )
-from frigate.config import AuthConfig, NetworkingConfig, ProxyConfig
+from frigate.config import AuthConfig, ProxyConfig
 from frigate.const import CONFIG_DIR, JWT_SECRET_ENV_VAR, PASSWORD_HASH_ALGORITHM
 from frigate.models import User
 
@@ -364,9 +363,18 @@ def get_jwt_secret() -> str:
                     jwt_secret = secrets.token_hex(64)
 
     if len(jwt_secret) < 64:
-        raise ValueError(
-            "JWT Secret must be at least 64 characters for security. "
-            f"Current length: {len(jwt_secret)}"
+        # Loud, but not fatal. A short secret is weak, yet refusing to
+        # start strands an NVR: cameras stop recording and the UI is
+        # unreachable until someone intervenes, which is a worse outcome
+        # than a weak signing key on a system that is usually only
+        # reachable on a LAN. Secrets Frigate generates itself are 128
+        # hex characters, so this only fires on one supplied through the
+        # environment, a Docker secret, or the add-on options -- i.e. a
+        # deliberate choice the operator can correct without downtime.
+        logger.error(
+            "JWT secret is %d characters; at least 64 is strongly recommended. "
+            "Replace it with a value from `openssl rand -hex 64`.",
+            len(jwt_secret),
         )
 
     return jwt_secret
@@ -395,7 +403,7 @@ def verify_password(password, password_hash):
     return secrets.compare_digest(password_hash, compare_hash)
 
 
-def validate_password_strength(password: str) -> tuple[bool, Optional[str]]:
+def validate_password_strength(password: str) -> tuple[bool, str | None]:
     """
     Validate password strength.
 
@@ -422,7 +430,7 @@ def create_encoded_jwt(user, role, expiration, secret):
 
 
 def set_jwt_cookie(
-    request: Request, response: Response, cookie_name, encoded_jwt, expiration, secure
+    request: Request, response: Response, cookie_name, encoded_jwt, max_age, secure
 ):
     # SameSite is intentionally left unset (browsers default to Lax). Setting
     # SameSite=Lax/Strict would stop the cookie from being sent in cross-origin
@@ -434,7 +442,7 @@ def set_jwt_cookie(
         key=cookie_name,
         value=encoded_jwt,
         httponly=True,
-        expires=expiration,
+        max_age=max_age,
         secure=secure or request.url.scheme == "https",
     )
 
@@ -451,7 +459,7 @@ async def get_current_user(request: Request):
     return {"username": username, "role": role}
 
 
-def require_role(required_roles: List[str]):
+def require_role(required_roles: list[str]):
     async def role_checker(request: Request):
         proxy_config: ProxyConfig = request.app.frigate_config.proxy
         config_roles = list(request.app.frigate_config.auth.roles.keys())
@@ -627,18 +635,18 @@ def resolve_role(
 def auth(request: Request):
     auth_config: AuthConfig = request.app.frigate_config.auth
     proxy_config: ProxyConfig = request.app.frigate_config.proxy
-    networking_config: NetworkingConfig = request.app.frigate_config.networking
 
     success_response = Response("", status_code=202)
 
-    # handle case where internal port is a string with ip:port
-    internal_port = networking_config.listen.internal
-    if type(internal_port) is str:
-        internal_port = int(internal_port.split(":")[-1])
-
     # dont require auth if the request is on the internal port
-    # this header is set by Frigate's nginx proxy, so it cant be spoofed
-    if int(request.headers.get("x-server-port", default=0)) == internal_port:
+    # this header is set by Frigate's nginx proxy, so it cant be spoofed.
+    # the port is the boot-time snapshot rather than the live config value:
+    # nginx's listeners are fixed at container start, so an in-memory config
+    # change must never move the port that is trusted here
+    if (
+        int(request.headers.get("x-server-port", default=0))
+        == request.app.auth_internal_port
+    ):
         success_response.headers["remote-user"] = "anonymous"
         success_response.headers["remote-role"] = "admin"
         return success_response
@@ -770,7 +778,7 @@ def auth(request: Request):
                 success_response,
                 JWT_COOKIE_NAME,
                 new_encoded_jwt,
-                new_expiration,
+                JWT_SESSION_LENGTH,
                 JWT_COOKIE_SECURE,
             )
 
@@ -887,7 +895,7 @@ def login(request: Request, body: AppPostLoginBody):
             response,
             JWT_COOKIE_NAME,
             encoded_jwt,
-            expiration,
+            JWT_SESSION_LENGTH,
             JWT_COOKIE_SECURE,
         )
         # Clear admin_first_time_login flag after successful admin login so the
@@ -980,6 +988,7 @@ def delete_user(request: Request, username: str):
     summary="Update user password",
     description="Updates a user's password. Users can only change their own password unless they have admin role. Requires the current password to verify identity for non-admin users. Password must be at least 12 characters long. If user changes their own password, a new JWT cookie is automatically issued.",
 )
+@limiter.limit(limit_value=rateLimiter.get_limit)
 async def update_password(
     request: Request,
     username: str,
@@ -993,10 +1002,11 @@ async def update_password(
     current_username = current_user.get("username")
     current_role = current_user.get("role")
 
-    # viewers can only change their own password
-    if current_role == "viewer" and current_username != username:
+    # Only admins may target another account. This has to cover every non-admin
+    # role rather than just viewer, since custom roles are arbitrary names
+    if current_role != "admin" and current_username != username:
         raise HTTPException(
-            status_code=403, detail="Viewers can only update their own password"
+            status_code=403, detail="Users can only update their own password"
         )
 
     HASH_ITERATIONS = request.app.frigate_config.auth.hash_iterations
@@ -1054,7 +1064,7 @@ async def update_password(
             response,
             JWT_COOKIE_NAME,
             encoded_jwt,
-            expiration,
+            JWT_SESSION_LENGTH,
             JWT_COOKIE_SECURE,
         )
 
@@ -1100,7 +1110,7 @@ async def update_role(
 
 
 async def require_camera_access(
-    camera_name: Optional[str] = None,
+    camera_name: str | None = None,
     request: Request = None,
 ):
     """Dependency to enforce camera access based on user role."""
@@ -1165,8 +1175,8 @@ GO2RTC_STREAM_PROXY_PATHS = frozenset(
 
 
 def deny_response_for_go2rtc_stream(
-    original_url: Optional[str], role: Optional[str], request: Request
-) -> Optional[int]:
+    original_url: str | None, role: str | None, request: Request
+) -> int | None:
     """Block role-restricted users from go2rtc live streams they cannot access.
 
     Returns 403 when any `src` stream named in `original_url` resolves to a
@@ -1211,7 +1221,7 @@ def deny_response_for_go2rtc_stream(
 
 
 async def require_go2rtc_stream_access(
-    stream_name: Optional[str] = None,
+    stream_name: str | None = None,
     request: Request = None,
 ):
     """Dependency to enforce go2rtc stream access based on owning camera access."""
@@ -1261,3 +1271,23 @@ async def get_allowed_cameras_for_filter(request: Request):
     all_camera_names = set(request.app.frigate_config.cameras.keys())
     roles_dict = request.app.frigate_config.auth.roles
     return User.get_allowed_cameras(role, roles_dict, all_camera_names)
+
+
+async def require_full_camera_access(
+    request: Request,
+    allowed_cameras: list[str] = Depends(get_allowed_cameras_for_filter),
+):
+    """Dependency for endpoints returning data that spans every camera.
+
+    Some responses cannot be meaningfully scoped to a subset of cameras, so
+    rather than filter them the endpoint is limited to callers who can already
+    see every camera. Admin and viewer always qualify; a custom role qualifies
+    only when its camera list covers all configured cameras.
+    """
+    all_camera_names = set(request.app.frigate_config.cameras.keys())
+
+    if not all_camera_names.issubset(allowed_cameras):
+        raise HTTPException(
+            status_code=403,
+            detail="Access to all cameras is required for this endpoint",
+        )

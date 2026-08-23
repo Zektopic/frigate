@@ -12,8 +12,8 @@ import signal
 import subprocess as sp
 import time
 import traceback
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import cv2
 import psutil
@@ -60,7 +60,7 @@ def get_cgroups_version() -> str:
         return "unknown"
 
     try:
-        with open("/proc/mounts", "r") as f:
+        with open("/proc/mounts") as f:
             mounts = f.readlines()
 
         for mount in mounts:
@@ -90,7 +90,7 @@ def get_docker_memlimit_bytes() -> int:
         memlimit_path = "/sys/fs/cgroup/memory.max"
 
         try:
-            with open(memlimit_path, "r") as f:
+            with open(memlimit_path) as f:
                 value = f.read().strip()
 
             if value.isnumeric():
@@ -151,7 +151,7 @@ def get_cpu_stats() -> dict[str, dict]:
             if not any(keyword in cmdline for keyword in keywords):
                 continue
 
-            with open(f"/proc/{pid}/stat", "r") as f:
+            with open(f"/proc/{pid}/stat") as f:
                 stats = f.readline().split()
             utime = int(stats[13])
             stime = int(stats[14])
@@ -170,7 +170,7 @@ def get_cpu_stats() -> dict[str, dict]:
             process_usage_sec = process_utime_sec + process_stime_sec
             cpu_average_usage = process_usage_sec * 100 // process_elapsed_sec
 
-            with open(f"/proc/{pid}/statm", "r") as f:
+            with open(f"/proc/{pid}/statm") as f:
                 mem_stats = f.readline().split()
             mem_res = int(mem_stats[1]) * os.sysconf("SC_PAGE_SIZE") / 1024
 
@@ -195,7 +195,7 @@ def get_physical_interfaces(interfaces) -> list:
     if not interfaces:
         return []
 
-    with open("/proc/net/dev", "r") as file:
+    with open("/proc/net/dev") as file:
         lines = file.readlines()
 
     physical_interfaces = []
@@ -259,10 +259,13 @@ def is_vaapi_amd_driver() -> bool:
         output = p.stdout.decode("unicode_escape").split("\n")
 
         # VA Info will print out the friendly name of the driver (e.g. AMD Radeon Graphics, AMD Radeon Vega 8 Graphics, etc.)
-        return any("AMD" in line and ("Radeon" in line or "Graphics" in line) for line in output)
+        return any(
+            "AMD" in line and ("Radeon" in line or "Graphics" in line)
+            for line in output
+        )
 
 
-def get_amd_gpu_stats() -> Optional[dict[str, str]]:
+def get_amd_gpu_stats() -> dict[str, str] | None:
     """Get stats using radeontop."""
     radeontop_command = ["radeontop", "-d", "-", "-l", "1"]
 
@@ -309,6 +312,10 @@ _XE_ENGINE_KEYS = {
     "vecs": "video-enhance",
     "ccs": "compute",
 }
+_INTEL_DRM_DRIVERS = ("i915", "xe")
+_PCI_ADDRESS_RE = re.compile(
+    r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$"
+)
 
 
 def _resolve_intel_gpu_pdev(device: str | None) -> str | None:
@@ -318,29 +325,70 @@ def _resolve_intel_gpu_pdev(device: str | None) -> str | None:
     if not device:
         return None
 
-    if re.match(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$", device):
+    if _PCI_ADDRESS_RE.match(device):
         return device
 
     name = os.path.basename(device.rstrip("/"))
     try:
-        return os.path.basename(os.path.realpath(f"/sys/class/drm/{name}/device"))
+        pdev = os.path.basename(os.path.realpath(f"/sys/class/drm/{name}/device"))
     except OSError:
         return None
 
+    # realpath does not raise on a nonexistent node; it returns the input
+    # path unchanged, so validate the result actually looks like a PCI
+    # address before trusting it.
+    return pdev if _PCI_ADDRESS_RE.match(pdev) else None
 
-def _read_intel_drm_fdinfo(target_pdev: str | None) -> dict:
+
+def _enumerate_drm_devices() -> dict[str, str]:
+    """Map each PCI-attached DRM device to its bound kernel driver.
+
+    Reads /sys/class/drm, which reflects every GPU on the host even when only
+    some render nodes are mapped into the container, so device presence can be
+    verified without /dev access. Returns {pdev: driver}, e.g.
+    {"0000:00:02.0": "i915"}.
+    """
+    devices: dict[str, str] = {}
+
+    try:
+        entries = os.listdir("/sys/class/drm")
+    except OSError:
+        return devices
+
+    for entry in entries:
+        device_dir = f"/sys/class/drm/{entry}/device"
+        pdev = os.path.basename(os.path.realpath(device_dir))
+
+        if not _PCI_ADDRESS_RE.match(pdev):
+            continue
+
+        try:
+            driver = os.path.basename(os.readlink(f"{device_dir}/driver"))
+        except OSError:
+            continue
+
+        devices[pdev] = driver
+
+    return devices
+
+
+def _read_intel_drm_fdinfo(target_pdev: str | None) -> dict | None:
     """Snapshot DRM fdinfo for every Intel client visible in /proc.
 
     Returns a dict keyed by (pdev, drm-client-id, pid) so the same context
     seen via multiple file descriptors on a single process collapses to one
-    entry.
+    entry. Clients whose fdinfo carries no engine counters are still included
+    with an empty "engines" dict so the caller can distinguish "clients exist
+    but the kernel publishes no busyness" from "no clients at all". Returns
+    None when /proc itself cannot be scanned, which is a different failure
+    than a scan that finds nothing.
     """
     snapshot: dict = {}
 
     try:
         proc_entries = os.listdir("/proc")
     except OSError:
-        return snapshot
+        return None
 
     for entry in proc_entries:
         if not entry.isdigit():
@@ -384,7 +432,7 @@ def _read_intel_drm_fdinfo(target_pdev: str | None) -> dict:
             if key in snapshot:
                 continue
 
-            engines: dict[str, tuple[int, int]] = {}
+            engines: dict[str, tuple[int, int, int]] = {}
 
             if driver == "i915":
                 for fkey, engine in _I915_ENGINE_KEYS.items():
@@ -392,29 +440,70 @@ def _read_intel_drm_fdinfo(target_pdev: str | None) -> dict:
                     if not raw:
                         continue
                     try:
-                        engines[engine] = (int(raw.split()[0]), 0)
+                        engines[engine] = (int(raw.split()[0]), 0, 1)
                     except (ValueError, IndexError):
                         continue
             else:
                 for suffix, engine in _XE_ENGINE_KEYS.items():
                     busy_raw = fields.get(f"drm-cycles-{suffix}")
                     total_raw = fields.get(f"drm-total-cycles-{suffix}")
+
                     if not (busy_raw and total_raw):
                         continue
+
+                    # drm-cycles-* is summed across every instance of the engine
+                    # class while drm-total-cycles-* tracks a single instance, so
+                    # busy/total scales up to the capacity (e.g. Battlemage
+                    # reports 2 for vcs/vecs). Capture it to divide back out;
+                    # absent means a single engine, so default to 1.
+                    capacity_raw = fields.get(f"drm-engine-capacity-{suffix}")
+
+                    try:
+                        capacity = int(capacity_raw.split()[0]) if capacity_raw else 1
+                    except (ValueError, IndexError):
+                        capacity = 1
+
                     try:
                         engines[engine] = (
                             int(busy_raw.split()[0]),
                             int(total_raw.split()[0]),
+                            max(1, capacity),
                         )
                     except (ValueError, IndexError):
                         continue
 
-            if not engines:
-                continue
-
             snapshot[key] = {"driver": driver, "pid": entry, "engines": engines}
 
     return snapshot
+
+
+def _idle_intel_gpu_stats(
+    target_pdev: str | None, intel_pdevs: dict[str, str]
+) -> dict[str, dict[str, Any]]:
+    """Build a 0% reading for the configured (or every) Intel GPU.
+
+    Used when the device is confirmed present but no DRM client is currently
+    attached, e.g. while camera processes are restarting. That is an idle
+    state, not a collection failure, so it must produce a valid reading:
+    returning None would latch the hwaccel error cooldown and blank GPU stats
+    for an hour over a momentary gap.
+    """
+    from frigate.stats.intel_gpu_info import intel_gpu_name_resolver
+
+    names = intel_gpu_name_resolver.get_names()
+    pdevs = [target_pdev] if target_pdev else sorted(intel_pdevs)
+
+    return {
+        pdev: {
+            "name": names.get(pdev) or "Intel iGPU",
+            "vendor": "intel",
+            "gpu": "0.0%",
+            "mem": "-%",
+            "compute": "0.0%",
+            "dec": "0.0%",
+        }
+        for pdev in pdevs
+    }
 
 
 def get_intel_gpu_stats(
@@ -423,27 +512,84 @@ def get_intel_gpu_stats(
     """Get stats by reading DRM fdinfo files, bucketed per-pdev.
 
     Each DRM client FD exposes monotonic per-engine busy counters via
-    /proc/<pid>/fdinfo/<fd> (i915 since kernel 5.19, Xe since first release).
-    We sample twice and divide busy-time deltas by wall-clock to derive
-    utilization. Render/3D and Compute are pooled into "compute"; Video and
-    VideoEnhance into "dec". Overall "gpu" is the sum of those pools (clamped
-    to 100%).
+    /proc/<pid>/fdinfo/<fd>. For i915 this requires kernel 6.5 or newer:
+    earlier kernels omit the per-engine counters whenever GuC submission is
+    active, which is the default on 12th gen and newer. Xe has exposed them
+    since its first release. We sample twice and divide busy-time deltas by
+    wall-clock to derive utilization. Render/3D and Compute are pooled into
+    "compute"; Video and VideoEnhance into "dec". Overall "gpu" is the sum of
+    those pools (clamped to 100%).
 
     The return value is keyed by the GPU's drm-pdev string so multiple Intel
     GPUs in the same system are reported separately. Each entry carries a
     "name" populated from OpenVINO (falling back to the pdev) so callers can
     surface a real device name in the UI.
+
+    A device that exists but has no attached DRM clients reports an idle 0%
+    reading. None is returned only for durable failures (no Intel GPU, a bad
+    intel_gpu_device config, unreadable /proc, or a kernel that publishes no
+    counters), each of which logs a distinct warning, and the caller latches
+    it against retries for an hour.
     """
     from frigate.stats.intel_gpu_info import intel_gpu_name_resolver
 
     target_pdev = _resolve_intel_gpu_pdev(intel_gpu_device)
+    if intel_gpu_device and not target_pdev:
+        logger.warning(
+            "Unable to collect Intel GPU stats: configured intel_gpu_device %s "
+            "does not exist or could not be resolved to a PCI device",
+            intel_gpu_device,
+        )
+        return None
+
+    drm_devices = _enumerate_drm_devices()
+    intel_pdevs = {
+        pdev: driver
+        for pdev, driver in drm_devices.items()
+        if driver in _INTEL_DRM_DRIVERS
+    }
+
+    if not intel_pdevs:
+        logger.warning(
+            "Unable to collect Intel GPU stats: no Intel GPU (i915/xe) found in "
+            "/sys/class/drm. Check that the driver is loaded on the host"
+        )
+        return None
+
+    if target_pdev and target_pdev not in intel_pdevs:
+        logger.warning(
+            "Unable to collect Intel GPU stats: configured intel_gpu_device %s "
+            "resolved to %s (driver: %s), which is not an Intel GPU",
+            intel_gpu_device,
+            target_pdev,
+            drm_devices.get(target_pdev, "unknown"),
+        )
+        return None
 
     snapshot_a = _read_intel_drm_fdinfo(target_pdev)
+    if snapshot_a is None:
+        logger.warning("Unable to collect Intel GPU stats: /proc could not be read")
+        return None
+
     if not snapshot_a:
+        # No process currently holds the GPU open, e.g. while camera processes
+        # are restarting. The device is confirmed present, so report idle
+        # rather than an error; the next stats cycle re-samples normally.
+        logger.debug("No active DRM clients for Intel GPU, reporting idle")
+        return _idle_intel_gpu_stats(target_pdev, intel_pdevs)
+
+    if not any(client["engines"] for client in snapshot_a.values()):
+        # Clients exist but the kernel published no busyness for them, so
+        # there is nothing to sample and a second snapshot would not help.
+        # i915 suppresses per-client engine counters while GuC submission is
+        # active on kernels older than 6.5 (kernel commit 1324680a80eb lifted
+        # this), which covers stock Debian 12 and Ubuntu 22.04 on 12th gen
+        # and newer.
         logger.warning(
-            "Unable to collect Intel GPU stats: no DRM fdinfo entries found"
-            "%s. Check that /proc is readable and the i915/xe driver is loaded",
-            f" for pdev {target_pdev}" if target_pdev else "",
+            "Unable to collect Intel GPU stats: found %d DRM client(s) for %s but "
+            "no per-engine counters. Kernel 6.5 or newer is required.",
+            len(snapshot_a),
+            "/".join(sorted({client["driver"] for client in snapshot_a.values()})),
         )
         return None
 
@@ -452,11 +598,17 @@ def get_intel_gpu_stats(
     elapsed_ns = (time.monotonic() - start) * 1e9
 
     snapshot_b = _read_intel_drm_fdinfo(target_pdev)
-    if not snapshot_b or elapsed_ns <= 0:
-        logger.warning(
-            "Unable to collect Intel GPU stats: second DRM fdinfo sample was empty"
-        )
+    if snapshot_b is None:
+        logger.warning("Unable to collect Intel GPU stats: /proc could not be read")
         return None
+
+    if not snapshot_b or elapsed_ns <= 0:
+        # Every client disappeared during the sample window; transient by
+        # definition, so report idle instead of latching an error.
+        logger.debug(
+            "No DRM clients persisted across Intel GPU samples, reporting idle"
+        )
+        return _idle_intel_gpu_stats(target_pdev, intel_pdevs)
 
     def _new_engine_pct() -> dict[str, float]:
         return {"render": 0.0, "video": 0.0, "video-enhance": 0.0, "compute": 0.0}
@@ -469,16 +621,23 @@ def get_intel_gpu_stats(
         if not data_a or data_a["driver"] != data_b["driver"]:
             continue
 
+        # Skip before the setdefault below so a counter-less client cannot
+        # register its pdev on its own.
+        if not data_b["engines"]:
+            continue
+
         pdev = key[0]
         engine_pct = per_pdev_engine_pct.setdefault(pdev, _new_engine_pct())
         pid_pct = per_pdev_pid_pct.setdefault(pdev, {})
 
         client_total = 0.0
-        for engine, (busy_b, total_b) in data_b["engines"].items():
+        for engine, (busy_b, total_b, capacity) in data_b["engines"].items():
             if engine not in engine_pct:
                 continue
 
-            busy_a, total_a = data_a["engines"].get(engine, (busy_b, total_b))
+            busy_a, total_a, _ = data_a["engines"].get(
+                engine, (busy_b, total_b, capacity)
+            )
 
             if data_b["driver"] == "i915":
                 delta = max(0, busy_b - busy_a)
@@ -488,7 +647,9 @@ def get_intel_gpu_stats(
                 delta_total = total_b - total_a
                 if delta_total <= 0:
                     continue
-                pct = min(100.0, delta_busy / delta_total * 100.0)
+                # Normalize by capacity so a class with N engine instances
+                # (busy summed across all N) reports 0-100%, not 0-N*100%.
+                pct = min(100.0, delta_busy / (delta_total * capacity) * 100.0)
 
             engine_pct[engine] += pct
             client_total += pct
@@ -496,11 +657,12 @@ def get_intel_gpu_stats(
         pid_pct[data_b["pid"]] = pid_pct.get(data_b["pid"], 0.0) + client_total
 
     if not per_pdev_engine_pct:
-        logger.warning(
-            "Unable to collect Intel GPU stats: no per-engine counters available "
-            "(i915 requires kernel >= 5.19)"
+        # Clients were seen in both snapshots but none persisted as the same
+        # (pdev, client-id, pid); process churn, so report idle.
+        logger.debug(
+            "No DRM clients persisted across Intel GPU samples, reporting idle"
         )
-        return None
+        return _idle_intel_gpu_stats(target_pdev, intel_pdevs)
 
     names = intel_gpu_name_resolver.get_names()
     results: dict[str, dict[str, Any]] = {}
@@ -538,7 +700,7 @@ def get_openvino_npu_stats() -> dict[str, str] | None:
     NPU_RUNTIME_PATH = "/sys/devices/pci0000:00/0000:00:0b.0/power/runtime_active_time"
 
     try:
-        with open(NPU_RUNTIME_PATH, "r") as f:
+        with open(NPU_RUNTIME_PATH) as f:
             initial_runtime = float(f.read().strip())
 
         initial_time = time.time()
@@ -547,7 +709,7 @@ def get_openvino_npu_stats() -> dict[str, str] | None:
         time.sleep(1.0)
 
         # Read runtime value again
-        with open(NPU_RUNTIME_PATH, "r") as f:
+        with open(NPU_RUNTIME_PATH) as f:
             current_runtime = float(f.read().strip())
 
         current_time = time.time()
@@ -569,7 +731,7 @@ def get_openvino_npu_stats() -> dict[str, str] | None:
 def get_rockchip_gpu_stats() -> dict[str, str | float] | None:
     """Get GPU stats using rk."""
     try:
-        with open("/sys/kernel/debug/rkrga/load", "r") as f:
+        with open("/sys/kernel/debug/rkrga/load") as f:
             content = f.read()
     except FileNotFoundError:
         return None
@@ -587,7 +749,7 @@ def get_rockchip_gpu_stats() -> dict[str, str | float] | None:
     stats: dict[str, str | float] = {"gpu": average_load, "mem": "-%"}
 
     try:
-        with open("/sys/class/thermal/thermal_zone5/temp", "r") as f:
+        with open("/sys/class/thermal/thermal_zone5/temp") as f:
             line = f.readline().strip()
             stats["temp"] = round(int(line) / 1000, 1)
     except (FileNotFoundError, OSError, ValueError):
@@ -599,7 +761,7 @@ def get_rockchip_gpu_stats() -> dict[str, str | float] | None:
 def get_rockchip_npu_stats() -> dict[str, float | str] | None:
     """Get NPU stats using rk."""
     try:
-        with open("/sys/kernel/debug/rknpu/load", "r") as f:
+        with open("/sys/kernel/debug/rknpu/load") as f:
             npu_output = f.read()
 
             if "Core0:" in npu_output:
@@ -619,7 +781,7 @@ def get_rockchip_npu_stats() -> dict[str, float | str] | None:
     stats: dict[str, float | str] = {"npu": mean, "mem": "-%"}
 
     try:
-        with open("/sys/class/thermal/thermal_zone6/temp", "r") as f:
+        with open("/sys/class/thermal/thermal_zone6/temp") as f:
             line = f.readline().strip()
             stats["temp"] = round(int(line) / 1000, 1)
     except (FileNotFoundError, OSError, ValueError):
@@ -752,11 +914,11 @@ def get_jetson_stats() -> dict[int, dict] | None:
         results["mem"] = "-"  # no discrete gpu memory
 
         if os.path.exists("/sys/devices/gpu.0/load"):
-            with open("/sys/devices/gpu.0/load", "r") as f:
+            with open("/sys/devices/gpu.0/load") as f:
                 gpuload = float(f.readline()) / 10
                 results["gpu"] = f"{gpuload}%"
         elif os.path.exists("/sys/devices/platform/gpu.0/load"):
-            with open("/sys/devices/platform/gpu.0/load", "r") as f:
+            with open("/sys/devices/platform/gpu.0/load") as f:
                 gpuload = float(f.readline()) / 10
                 results["gpu"] = f"{gpuload}%"
         else:
@@ -1014,7 +1176,7 @@ async def analyze_record_keyframes(
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=window + 15)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("Keyframe probe timed out for record stream")
         proc.kill()
         return classify_keyframe_gaps([], segment_time)
@@ -1128,7 +1290,7 @@ async def get_video_properties(
             )
             try:
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=6)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.info(
                     "ffprobe timed out while probing %s (transport=%s)",
                     clean_camera_user_pass(url),
@@ -1237,7 +1399,7 @@ def process_logs(
 
         # Handle cases where S6 does not include date in log line
         if "  " not in clean_line:
-            clean_line = f"{datetime.now(timezone.utc)}  {clean_line}"
+            clean_line = f"{datetime.now(UTC)}  {clean_line}"
 
         try:
             # Find the position of the first double space to extract timestamp and message
