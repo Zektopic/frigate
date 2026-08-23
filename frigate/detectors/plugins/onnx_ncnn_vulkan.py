@@ -104,12 +104,21 @@ class NCNNDetector(DetectionApi):
             if arr0.ndim == 2 and (arr0.shape[0] == 84 or arr0.shape[1] == 84):
                 if arr0.shape[1] == 84 and arr0.shape[0] != 84:
                     arr0 = arr0.T
-                from frigate.detectors.rust_yolo import yolo26_post_process, yolo_available
+                from frigate.detectors.rust_yolo import (
+                    yolo26_post_process,
+                    yolo_available,
+                )
+
                 if yolo_available():
                     return yolo26_post_process(arr0, self.model_input_size, 1.0, 1.0)
                 else:
                     from frigate.util.model import post_process_yolo
-                    return post_process_yolo([np.expand_dims(arr0, 0)], self.model_input_size, self.model_input_size)
+
+                    return post_process_yolo(
+                        [np.expand_dims(arr0, 0)],
+                        self.model_input_size,
+                        self.model_input_size,
+                    )
 
             ret1, out1_raw = ex.extract("out1")
             ret2, out2_raw = ex.extract("out2")
@@ -125,6 +134,7 @@ class NCNNDetector(DetectionApi):
             outputs.append(arr)
 
         from frigate.util.model import post_process_yolo
+
         return post_process_yolo(outputs, self.model_input_size, self.model_input_size)
 
     @staticmethod
