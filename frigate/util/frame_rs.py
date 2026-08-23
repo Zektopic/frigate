@@ -7,16 +7,15 @@ from FFmpeg pipes into shared memory buffers.
 import ctypes
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 _LIB_NAME = "libfrigate_frame_rs.so"
-_lib: Optional[ctypes.CDLL] = None
-_available: Optional[bool] = None
+_lib: ctypes.CDLL | None = None
+_available: bool | None = None
 
 
-def _load_lib() -> Optional[ctypes.CDLL]:
+def _load_lib() -> ctypes.CDLL | None:
     global _lib, _available
     if _available is False:
         return None

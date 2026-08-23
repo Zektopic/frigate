@@ -18,7 +18,7 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
         )
         script_path = os.path.join(root_dir, "generate_config_translations.py")
 
-        with open(script_path, "r") as f:
+        with open(script_path) as f:
             tree = ast.parse(f.read())
 
         # Filter out import statements and top-level calls to isolate function definitions
@@ -38,9 +38,9 @@ class TestExtractTranslationsFromSchema(unittest.TestCase):
         compiled = compile(new_tree, filename="<ast>", mode="exec")
         cls.namespace = {}
         # Provide typing dependency since it uses Dict/Any
-        from typing import Any, Dict
+        from typing import Any
 
-        cls.namespace.update({"Dict": Dict, "Any": Any})
+        cls.namespace.update({"Dict": dict, "Any": Any})
         exec(compiled, cls.namespace)
 
     def setUp(self):
