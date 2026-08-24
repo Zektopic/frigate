@@ -106,10 +106,8 @@ class MockPydantic:
 
 class ModuleMock(MagicMock):
     def __lt__(self, other):
-
-        if isinstance(other, tuple):
-            return False
         return False
+
 
     def __gt__(self, other):
         if isinstance(other, tuple):
