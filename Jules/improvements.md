@@ -204,3 +204,27 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Test Integrity & System Execution Report
+
+### Backend System Mocking Limitations
+The local testing suite (`test_runner.py`) uses extensive dependency mocking (`pydantic`, `cv2`, `numpy`, `peewee`) to run independently of Docker. This causes multiple false positives (28 failures) because the mock implementations lack standard API adherence (e.g. `pydantic` schema validation fails to trigger exceptions, `numpy` mock arrays fail shape validations).
+
+**Implementation Roadmap:**
+* Deprecate the extensive use of `sys.modules` for complex logic.
+* Standardize on `pytest` and provide a robust virtual environment setup guide, or ensure Docker builds are hermetic and bypass layer caching errors (`overlayfs invalid argument`).
+* Create integration tests that do not mock `peewee` and `cv2` but run against actual memory bounds or fixtures.
+
+### Code Quality (Rust)
+The Rust workspaces have 100% pass rates across 26 tests, but compile with warnings.
+
+**Implementation Roadmap:**
+* Refactor `frigate-motion-rs/src/lib.rs` to fix `#[warn(unused_mut)]` on the `avg` arrays.
+* Refactor `frigate-yolo-rs/src/lib.rs` to remove unused items `AF_STRIDES` and `make_grid_points` or appropriately gate them behind `#[cfg(test)]`.
+* Refactor `frigate-detector-rs/src/main.rs` to address the `Shutdown` variant not being constructed.
+
+### Frontend Dependency Housekeeping
+Frontend test execution (`npx vitest`) executes quickly (138 tests passed) but is polluted with Node.js deprecation logs.
+
+**Implementation Roadmap:**
+* Map node dependency tree to track the origin of the deprecated `punycode` usage and push package updates or alternative polyfills.

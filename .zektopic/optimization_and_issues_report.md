@@ -229,3 +229,18 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 
 - Extensive documentation for this fix and future implementation tasks has been logged in `Jules/improvements.md` and `.zektopic/status.md`.
 
+
+## Backend Testing Limitations & Improvements
+* **Mock Fallback Instability:** Local testing via `test_runner.py` outside of Docker relies heavily on fragile mock logic in `sys.modules` for complex C-extensions (`numpy`, `cv2`) and schema validators (`pydantic`). This frequently masks actual bugs or reports false positives (such as `MockPydanticValidationError not raised` and `transform_is_finite` assertions returning `True is not false`).
+* **Docker Dependency:** The Docker-based `make run_tests` target is critical but frequently encounters buildx overlayfs cache issues on some host systems (`err: invalid argument`).
+* **Improvement Action:**
+  1. Fully decouple or streamline the `frigate:latest` build process to avoid complex caching layer issues.
+  2. Implement a `devcontainer` or standard local Python environment (e.g., using `poetry` or `uv`) that allows native installation of required bindings rather than using stub mocks.
+
+## Rust Compilation Optimization Opportunities
+* **Dead Code / Unused Mutability:** `frigate-motion-rs` contains unused mutable assignments (`let mut avg`), and `frigate-yolo-rs` contains unused constants/functions (`AF_STRIDES`, `make_grid_points`).
+* **Improvement Action:** Address compiler warnings using `cargo fix --lib --tests` and manual refactoring to keep the build warnings-free, which reduces noise in CI logs.
+
+## Frontend Deprecation Warnings
+* **Punycode Module Deprecation:** The execution of frontend tests generates multiple deprecation warnings: `The 'punycode' module is deprecated`.
+* **Improvement Action:** Audit Vite/Vitest and other node dependencies to isolate and update the packages relying on the deprecated `punycode` API.
