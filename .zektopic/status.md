@@ -181,3 +181,6 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Testing Outcomes Status (Last Run)
+Frontend tests are perfectly stable: ran via `npx vitest run src/` in the `web/` directory, 138 tests successfully passed in isolated execution. Observed Node `DEP0040` deprecation warnings related to the `punycode` package. Backend natively run tests (`make run_tests`) fail via Docker Buildkit overlayfs mount errors (`invalid argument`). Local mocked `test_runner.py` continues to run but fails ~200 logic tests due to limitations in Python `sys.modules` to accurately simulate complex C-extensions and Pydantic V2 validations.
