@@ -204,7 +204,6 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
-
 ### Test Stability Findings (Last Run)
 - **Frontend Test Suite**: 138/138 tests successfully passed in web/src. No e2e overlap. Deprecation warnings for `punycode` should be addressed by bumping Node library versions.
 - **Backend Unit Tests**: `make run_tests` locally experiences BuildKit overlayfs limits. Future optimization must include native Docker fixes or removing `test_runner.py` mocks and allowing local dependency installation for precise logic execution.
