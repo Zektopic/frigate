@@ -114,6 +114,8 @@ class ModuleMock(MagicMock):
     def __gt__(self, other):
         if isinstance(other, tuple):
             return True
+        if isinstance(other, int):
+            return True
         return True
 
     def __le__(self, other):
