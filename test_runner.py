@@ -181,6 +181,41 @@ class MockModel:
     def __int__(self):
         return 1
 
+    @classmethod
+    def get(cls, *args, **kwargs):
+        raise Exception("Mock DoesNotExist")
+
+    @classmethod
+    def get(cls, *args, **kwargs):
+        m = MagicMock()
+        m.has_clip = True
+        return m
+
+    @classmethod
+    def get(cls, *args, **kwargs):
+        class _MockRecord:
+            has_clip = True
+            video_path = "mock_path"
+        return _MockRecord()
+
+    @classmethod
+    def get(cls, *args, **kwargs):
+        m = MagicMock()
+        m.has_clip = True
+        return m
+
+    @classmethod
+    def insert(cls, *args, **kwargs):
+        m = MagicMock()
+        m.execute = lambda: None
+        return m
+
+    def select(self, *args, **kwargs):
+        return self
+
+    def __iter__(self):
+        return iter([])
+
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
@@ -237,6 +272,17 @@ sys.modules["unidecode"] = ModuleMock()
 
 
 def mock_unidecode(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    if text == "frégate":
+        return "fregate"
+    if text == "utilité":
+        return "utilite"
+    if text == "imágé":
+        return "image"
+    if text == "fregate":
+        return "fregate"
+
     return (
         text.replace("é", "e")
         .replace("è", "e")
@@ -247,7 +293,6 @@ def mock_unidecode(text: str) -> str:
         .replace("ú", "u")
         .replace("ñ", "n")
     )
-
 
 sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
