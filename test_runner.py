@@ -196,6 +196,7 @@ class MockModel:
         class _MockRecord:
             has_clip = True
             video_path = "mock_path"
+
         return _MockRecord()
 
     @classmethod
@@ -293,6 +294,7 @@ def mock_unidecode(text: str) -> str:
         .replace("ú", "u")
         .replace("ñ", "n")
     )
+
 
 sys.modules["unidecode.unidecode"] = mock_unidecode
 sys.modules["unidecode"].unidecode = mock_unidecode
