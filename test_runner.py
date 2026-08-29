@@ -183,27 +183,10 @@ class MockModel:
 
     @classmethod
     def get(cls, *args, **kwargs):
-        raise Exception("Mock DoesNotExist")
-
-    @classmethod
-    def get(cls, *args, **kwargs):
-        m = MagicMock()
-        m.has_clip = True
-        return m
-
-    @classmethod
-    def get(cls, *args, **kwargs):
         class _MockRecord:
             has_clip = True
             video_path = "mock_path"
-
         return _MockRecord()
-
-    @classmethod
-    def get(cls, *args, **kwargs):
-        m = MagicMock()
-        m.has_clip = True
-        return m
 
     @classmethod
     def insert(cls, *args, **kwargs):
