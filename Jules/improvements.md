@@ -204,3 +204,20 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Final Testing Session Outcomes (Backend / Frontend / Rust)
+- Re-evaluated testing environments fully per user request.
+- **Frontend**: Tests in `web/` were executed using `cd web && npm ci && npm run test src/`. All 138 unit tests complete flawlessly with no collisions because they were scoped appropriately.
+- **Backend (Native)**: Executed Python backend tests locally using `python3 test_runner.py`. The custom mock framework still shows severe limitations trying to emulate `pydantic` schemas, database queries (`peewee`), and math matrices (`numpy`/OpenCV). 26 failures and 177 errors persist entirely because of lack of true dependencies.
+- **Backend (Docker)**: Attempting to bypass the mocks by running `make run_tests` fails early because of Docker BuildKit `overlayfs` mount issues in the environment (`invalid argument`), restricting full dependency execution.
+- **Rust Services**: Executed `cargo test` in all rust subdirectories (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). Tests successfully pass:
+  - `frigate-detector-rs`: 2 passed.
+  - `frigate-frame-rs`: 7 passed.
+  - `frigate-motion-rs`: 13 passed.
+  - `frigate-yolo-rs`: 4 passed.
+  (A few compiler warnings exist regarding unused variables and constants).
+
+### Summary Roadmap
+- For frontend, update `punycode` related dependencies to silence node warnings.
+- For backend, fix Docker container volume mapping or disable BuildKit locally so developers don't have to rely on `test_runner.py`'s extensive mocks.
+- For rust, clean up dead code and unused variables in crates as identified by `cargo test`.

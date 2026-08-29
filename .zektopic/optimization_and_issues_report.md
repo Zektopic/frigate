@@ -229,3 +229,20 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 
 - Extensive documentation for this fix and future implementation tasks has been logged in `Jules/improvements.md` and `.zektopic/status.md`.
 
+
+## Most Recent Optimization & Issues Report Update
+
+### Rust Crates Verification
+We validated the Rust logic implementation by running `cargo test` within `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`.
+**Status**: All 26 Rust tests pass.
+**Optimization Opportunities (Rust)**:
+- In `frigate-detector-rs`, `Shutdown` enum variant is never constructed.
+- In `frigate-motion-rs`, there are unnecessary `mut` bindings for variables (e.g. `avg = vec![100.0f32; len]`) and unused functions like `not_a_test_debug_step_by_step`.
+- In `frigate-yolo-rs`, `AF_STRIDES` constant and `make_grid_points` function are unused.
+- **Recommendation**: Run `cargo fix --lib --tests` and resolve dead code warnings to maintain a pristine codebase.
+
+### Frontend and Backend Verification
+- Frontend Vitest suite is highly stable when scoped to `src/`. All 138 tests run in `< 6s`.
+- Node deprecation warning `[DEP0040]` for `punycode` is still spammed in CI logs; dependencies should be updated to address this.
+- Native backend tests (`test_runner.py`) generate significant failures due to the `sys.modules` strategy failing to replicate `pydantic` structure and `cv2` bindings.
+- Docker execution (`make run_tests`) continues to fail at the build phase due to the host `overlayfs` limitation.
