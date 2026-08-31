@@ -233,7 +233,19 @@ class PeeweeMigrateMock:
 sys.modules["peewee_migrate"] = PeeweeMigrateMock()
 sys.modules["peewee_migrate.router"] = PeeweeMigrateMock()
 
-sys.modules["unidecode"] = ModuleMock()
+class MockUnidecodeModule(ModuleMock):
+    def unidecode(self, text: str) -> str:
+        return (
+            text.replace("é", "e")
+            .replace("è", "e")
+            .replace("ê", "e")
+            .replace("á", "a")
+            .replace("í", "i")
+            .replace("ó", "o")
+            .replace("ú", "u")
+            .replace("ñ", "n")
+        )
+sys.modules["unidecode"] = MockUnidecodeModule()
 
 
 def mock_unidecode(text: str) -> str:
