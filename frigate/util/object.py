@@ -70,7 +70,7 @@ def get_camera_regions_grid(
     if event_count == 0:
         return grid
 
-    new_update = datetime.datetime.now().timestamp()
+    new_update = datetime.datetime.now(datetime.timezone.utc).timestamp()
     timeline = (
         Timeline.select(
             *[
@@ -195,10 +195,7 @@ def get_region_from_grid(
         (cell["mean"] - cell["std_dev"])
         <= calc_size
         <= (cell["mean"] + cell["std_dev"])
-    ):
-        return box
-    # TODO not sure how to handle case where cluster is larger than expected region
-    elif calc_size > (cell["mean"] + cell["std_dev"]):
+    ) or calc_size > (cell["mean"] + cell["std_dev"]):
         return box
 
     size = cell["mean"] * frame_shape[1]
@@ -306,16 +303,14 @@ def create_tensor_input(frame, model_config: ModelConfig, region):
 
 
 def box_overlaps(b1, b2):
-    if b1[2] < b2[0] or b1[0] > b2[2] or b1[1] > b2[3] or b1[3] < b2[1]:
-        return False
-    return True
+    return not (b1[2] < b2[0] or b1[0] > b2[2] or b1[1] > b2[3] or b1[3] < b2[1])
 
 
 def box_inside(b1, b2):
     # check if b2 is inside b1
     if b2[0] >= b1[0] and b2[1] >= b1[1] and b2[2] <= b1[2] and b2[3] <= b1[3]:
         return True
-    return False
+    return b2[0] >= b1[0] and b2[1] >= b1[1] and b2[2] <= b1[2] and b2[3] <= b1[3]
 
 
 def reduce_boxes(boxes, iou_threshold=0.0):
@@ -507,7 +502,7 @@ def reduce_detections(
 
     def reduce_overlapping_detections(detections: list[tuple[Any]]) -> list[tuple[Any]]:
         """apply non-maxima suppression to suppress weak, overlapping bounding boxes."""
-        detected_object_groups = defaultdict(lambda: [])
+        detected_object_groups = defaultdict(list)
         for detection in detections:
             detected_object_groups[detection[0]].append(detection)
 
@@ -546,7 +541,7 @@ def reduce_detections(
 
     def get_consolidated_object_detections(detections: list[tuple[Any]]):
         """Drop detections that overlap too much."""
-        detected_object_groups = defaultdict(lambda: [])
+        detected_object_groups = defaultdict(list)
         for detection in detections:
             detected_object_groups[detection[0]].append(detection)
 
@@ -560,7 +555,7 @@ def reduce_detections(
             # sort smallest to largest by area
             sorted_by_area = sorted(group, key=lambda g: g[3])
 
-            for current_detection_idx in range(0, len(sorted_by_area)):
+            for current_detection_idx in range(len(sorted_by_area)):
                 current_detection = sorted_by_area[current_detection_idx]
                 current_label = current_detection[0]
                 current_box = current_detection[2]
