@@ -181,3 +181,12 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## New Testing Iteration Update (Latest)
+- I ran the frontend unit tests using Vitest scoped to `web/src/`. All 138 frontend tests pass locally successfully.
+- I ran the backend unit tests using `python3 test_runner.py` locally. There are some failures (28 failures, 198 errors) due to the limitation of mimicking complex C-extensions (`numpy`, `cv2`, `openvino`) and nested schema components in Pydantic V2 via `sys.modules`.
+- I attempted to execute backend unit tests using `make run_tests` within Docker. It fails due to the local environment's `overlayfs` mount restrictions `err: invalid argument` during `docker buildx build`.
+- I have updated `.zektopic/status.md` and `Jules/improvements.md` with recommendations on implementations to do in the future.
+
+### Summary
+Testing execution on the backend side will keep facing mock challenges unless Docker's BuildKit daemon is corrected on the local machine allowing dependencies to natively install, or real dependency bootstrapping is handled. Frontend testing runs very stably.

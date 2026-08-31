@@ -204,3 +204,9 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Final Testing Environment and Implementation Future Path
+Based on the current evaluation, testing on the backend falls short without genuine package resolutions:
+- We recommend switching the local Docker setup to support `vfs` or disable BuildKit if `overlayfs` issues persist for `make run_tests` on local sandbox setups.
+- The `test_runner.py` mocks for nested config items, Pydantic V2 exceptions, and `numpy.ndarray.shape` behaviors need total refactoring to pass tests locally without Docker.
+- In `web/`, Node punycode deprecation module warnings (e.g., `DEP0040`) should be removed in future by bumping `whatwg-url` or similar dependencies that still reference `punycode`.
