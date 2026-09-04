@@ -181,3 +181,27 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Testing Status and Next Steps Update (Current Iteration)
+
+### Frontend Tests
+- Executed `cd web && npm ci && npm run test -- --run src/`.
+- All 138 unit tests across 13 files passed successfully.
+- Deprecation warnings (`DEP0040`) for `punycode` continue to be logged.
+
+### Rust Backend Tests
+- Executed `cargo test` against `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`.
+- All standard and pixel pipeline tests pass completely (26 tests total). No errors or failures.
+
+### Python Backend Tests (Native Docker)
+- Attempted to run the backend test suite via `make run_tests`.
+- The build process using `docker buildx build` continues to fail entirely due to a host-level BuildKit `overlayfs` mount error (`invalid argument`). Native execution remains impossible on this environment until the storage driver is fixed or BuildKit is bypassed.
+
+### Python Backend Tests (Local Fallback)
+- Executed `python3 test_runner.py` outside of Docker.
+- The script executes the 621+ tests but generates significant false negatives (28 failures, 198 errors).
+- Notable mocked failures:
+  - `PermissionError: [Errno 13] Permission denied: '/config'`: `MODEL_CACHE_DIR` defaults to this path, requiring either a system permission or mocked `os.makedirs`/`frigate.const.MODEL_CACHE_DIR`.
+  - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
+  - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
+  - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
