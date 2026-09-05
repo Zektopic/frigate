@@ -182,32 +182,5 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Backend Testing Update (Local execution via test_runner.py)
-* Date: 2026-08-27 00:27:11
-* **Status:** Failed natively due to Missing Docker Environment/Dependencies
-* **Failures:** 28 failures, 198 errors.
-* **Findings:**
-  - Mocking `pydantic` via `sys.modules` in the fallback local `test_runner.py` is brittle and bypassed Pydantic v2 schema validation.
-  - Assertions like `MockPydanticValidationError not raised` in `test_profiles.py` are a direct result of the incomplete fallback mock environment.
-  - The native build `docker buildx build` encountered an overlayfs mount issue (`invalid argument`) and prevented execution via Docker (`make run_tests`).
-  - Errors related to `cv2` and missing `numpy` shapes highlight that mocking these libraries purely via fallback environment logic leads to inaccurate assertion boundaries (e.g. `untracked_shm_cls.assert_not_called()` failures).
-* **Future Actions:**
-  - Fix overlayfs issue within the local build host to ensure Docker environment correctly initializes for `make run_tests`.
-  - Refactor or completely containerize local testing loops, as `test_runner.py`'s fallback mock architecture is insufficient for reproducing accurate internal Frigate states.
-
-## Frontend Testing Update (npx vitest)
-* Date: 2026-08-27 00:27:11
-* **Status:** Success
-* **Outcomes:** 138 tests passed.
-* **Findings:** Clean run after `npm ci`. Minimal warnings (Node's deprecated `punycode` module usage from dependencies).
-* **Future Actions:** Migrate/update dependencies that rely on `punycode` to silence deprecation warnings.
-
-## Rust Testing Update (cargo test)
-* Date: 2026-08-27 00:27:11
-* **Status:** Success
-* **Outcomes:** 26 tests passed across `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`.
-* **Findings:**
-  - Tests completed successfully.
-  - Minor compiler warnings in `frigate-detector-rs` (`dead_code`), `frigate-motion-rs` (`unused_mut`), and `frigate-yolo-rs` (`dead_code`).
-* **Future Actions:**
-  - Cleanup compiler warnings (e.g., remove unnecessary mutable assignments `let mut avg` in `frigate-motion-rs`, and remove/use `AF_STRIDES` in `frigate-yolo-rs`).
+## Testing Outcomes Status (Last Run)
+Frontend tests are perfectly stable: ran via `npx vitest run src/` in the `web/` directory, 138 tests successfully passed in isolated execution. Observed Node `DEP0040` deprecation warnings related to the `punycode` package. Backend natively run tests (`make run_tests`) fail via Docker Buildkit overlayfs mount errors (`invalid argument`). Local mocked `test_runner.py` continues to run but fails ~200 logic tests due to limitations in Python `sys.modules` to accurately simulate complex C-extensions and Pydantic V2 validations.
