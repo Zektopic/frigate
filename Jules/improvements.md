@@ -220,3 +220,22 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 2. Frontend Modernization
 - **Dependency Upgrades**: The Vitest runner is emitting Node deprecation warnings (e.g., `DEP0040` for the `punycode` module). The underlying dependencies (like `whatwg-url` or `tr46`) should be bumped to newer major versions, or userland alternatives should be integrated to clean up the test logs.
 - **E2E Isolation**: While `npx vitest run src/` scopes unit tests, appending explicit exclusion paths (e.g. `exclude: ['e2e/**']`) to `web/vitest.config.ts` will permanently resolve Playwright matching conflicts when users generically execute `npm test`.
+
+
+## Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend & Mock Architecture Refactoring
+- **Address Docker Mount Issues**: To properly test the backend natively without brittle mocks, the host environment's Docker storage driver (e.g., switching from `overlayfs` to `vfs` or properly configuring `containerd`) must be addressed, or the project needs a specific test target that strictly disables `buildx`/BuildKit.
+- **Refine the Fallback Mock Engine**: If local `test_runner.py` execution remains a requirement, significantly refactor `MockBaseModel` and `MockPydanticValidationError` to strictly adhere to Pydantic v2 core structures, handling deeply nested dictionaries and strict schema validation accurately. Provide robust dummy implementations for `numpy` matrices and shape properties.
+- **Resolve Mypy Strictness**: Clean up the 61 reported mypy errors. Remove unused `type: ignore` directives, explicitly type `BaseModel` and `SqliteQueueDatabase` implementations if possible, and ensure functions returning `Any` are correctly strongly typed or ignored properly.
+
+#### B. Frontend Modernization
+- **Update Deprecated Dependencies**: Bump underlying packages (like `whatwg-url` or `tr46`) to their latest major versions, or implement userland alternatives, to resolve the `punycode` Node deprecation warnings and keep CI logs clean.
+- **Test Isolation Configuration**: Ensure `web/vitest.config.ts` explicitly scopes unit tests (e.g., excluding `e2e/**`) to permanently prevent matcher collisions with Playwright if users execute a generic `npm test` command.
+
+#### C. Rust Optimizations
+- **Clean Up Warnings**: Resolve the unused variables (e.g., `AF_STRIDES` in `frigate-yolo-rs`), unused functions (`not_a_test_debug_step_by_step` in `frigate-motion-rs`), and remove unnecessary `mut` bindings highlighted by the compiler during tests.
+
+#### D. Database & Video Pipeline
+- **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
+- **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
