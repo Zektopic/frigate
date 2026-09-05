@@ -1,29 +1,3 @@
-# Current Status Update
-
-## Test Outcomes (Latest Run)
-- **Backend Tests (`python3 test_runner.py`)**: 710 tests ran in 2.464s. 28 failures, 198 errors, 4 skipped. The failures and errors are primarily due to incomplete mocking in the local environment (e.g. `AssertionError: MockPydanticValidationError not raised`, `AttributeError: 'MagicMock' object has no attribute 'shape'`).
-- **Web Frontend Tests (`npm run test -- --run src/`)**: 138 tests across 13 test files passed successfully in 5.53s. Identified `DEP0040` node deprecation warnings about the 'punycode' module from dependencies.
-- **Rust Tests (`cargo test`)**: All tests across `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs` passed successfully. Some compiler warnings for unused variables and dead code were noted.
-
-## Roadmap for Future Implementations and Improvements
-
-### 1. Backend Testing Environment Stabilization
-- **Action**: Overhaul `test_runner.py` to properly simulate the Pydantic v2 validation lifecycle, specifically targeting nested dictionary structures and raising robust `ValidationError` mocks to allow `test_profiles.py` to pass natively.
-- **Action**: Enhance `cv2` and `numpy` mocks in `test_runner.py` to return accurately typed dummy objects (e.g., returning tuples for shapes instead of MagicMocks) to fix dimension-checking failures in `test_shared_memory_frame_manager.py` and `test_video.py`.
-- **Action**: Fix missing dependencies dynamically imported during HTTP testing (e.g., full mocking of `peewee.DatabaseError` and related DB structures) to resolve `ModuleNotFoundError`s outside of Docker.
-
-### 2. Frontend Dependency Maintenance
-- **Action**: Investigate and upgrade transitive dependencies (like `whatwg-url` or `tr46`) triggering `DEP0040` Node deprecation warnings during the `vitest` execution to clean up console output and ensure compatibility with newer Node versions.
-- **Action**: Consider explicitly mocking or isolating API endpoints natively within Vitest to ensure UI components don't leak state or log excessively during `render()` tests.
-
-### 3. Rust Codebase Hygiene
-- **Action**: Clean up unused variables and dead code highlighted during `cargo test` runs. Specifically:
-  - Remove `mut` from `avg` variables in `frigate-motion-rs/src/lib.rs`.
-  - Remove unused function `not_a_test_debug_step_by_step` in `frigate-motion-rs/src/lib.rs`.
-  - Remove unused constant `AF_STRIDES` and function `make_grid_points` in `frigate-yolo-rs/src/lib.rs`.
-
----
-
 # Test Environment Setup and Code Review Request
 
 All of the previous unit tests failures (except the network/requests errors related to go2rtc connection which shouldn't block the logic validation) have been resolved.
@@ -208,21 +182,12 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Testing Status and Improvements (Update 6 - Comprehensive Rust Validation)
-### Test Execution Results
-- **Frontend Tests (`web/`)**: Executed via `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests across 13 test files passed perfectly.
-- **Node Punycode Warning**: Node vitest runner emitted `[DEP0040] DeprecationWarning: The punycode module is deprecated`.
-- **Backend Tests (`test_runner.py` fallback)**: Fallback mock testing triggered due to Docker Buildkit `overlayfs` mount restrictions on the host sandbox. Using `python3 test_runner.py` resulted in typical mock errors due to missing real libraries (e.g., Pydantic v2 metadata extraction failures and Numpy multidimensional shape mock limitations).
-- **Rust Components (`cargo test`)**:
-  - `frigate-detector-rs`: 2 tests passed successfully.
-  - `frigate-frame-rs`: 7 tests passed successfully.
-  - `frigate-motion-rs`: 13 tests passed successfully.
-  - `frigate-yolo-rs`: 4 tests passed successfully.
+## Final Testing Environment Wrap-up (Update 6)
+### Backend Native Execution Dependencies & Code Mocks
+- The `make run_tests` Docker BuildKit failure (`overlayfs mount invalid argument`) remains the primary blocker for a healthy native testing environment on local setups. Resolving this via `DOCKER_BUILDKIT=0` or alternative storage drivers (like `vfs`) should be a top priority to execute reliable backend validations.
+- The `test_runner.py` custom script implements extremely brittle `sys.modules` patching for `pydantic`, `cv2`, `numpy`, `ruamel.yaml` and `openvino`. Building perfect mocks that trick Python's native runtime type checking and deep dictionary validation for Pydantic v2 schemas has proven unfeasible without the real libraries.
+- **Action Item**: Once the Docker engine mount issue is resolved, permanently deprecate `test_runner.py` reliance for API model testing and fallback solely to native container runs, as relying on `sys.modules` causes massive false-positive failures and missing validation coverage.
 
-### System Verification Summary
-The testing infrastructure has been thoroughly validated. The native Rust components and Node-based Frontend pass cleanly. The Backend python components show expected failures solely because of the limitation of local sys.modules mocks vs true installed libraries (such as C-extensions or pydantic binaries).
-
-### Recommended Roadmap for Future Enhancements
-1. **Docker Environment Triage**: Configure the sandbox environment to natively build via Docker using a `vfs` storage driver or switch to `DOCKER_BUILDKIT=0` so backend tests can be run via `make run_tests` natively, eliminating the brittle mock scripts entirely.
-2. **Frontend Modernization**: Eliminate the `DEP0040 punycode` deprecation warning by upgrading dependencies in `web/package.json` that rely on older DNS parsing logic, switching to userland alternatives.
-3. **Rust Dead Code Elimination**: Several minor warnings were logged during cargo tests. For example, `Shutdown` in `frigate-detector-rs` enum `Msg`, unused mutable declarations (`mut avg`) in `frigate-motion-rs`, and unused grid constants `AF_STRIDES` in `frigate-yolo-rs`. These should be audited and cleaned up in a future PR.
+### Frontend Quality of Life
+- The front-end unit test suite runs 138 tests entirely free of errors when scoped using `cd web && npm run test -- --run src/`.
+- **Action Item**: Node dependency warnings regarding `punycode` were observed during the Vitest execution sequence. A minor maintenance task should be opened to update packages or replace the deprecated `punycode` library with a community userland alternative to keep CI logs clean.
