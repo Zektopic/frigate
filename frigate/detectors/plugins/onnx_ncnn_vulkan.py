@@ -36,15 +36,34 @@ class NCNNDetector(DetectionApi):
 
         self.ncnn = ncnn
 
-        # Find the ncnn model files (.param and .bin) next to the ONNX model
-        model_dir = os.path.dirname(detector_config.model.path)
-        param_path = os.path.join(model_dir, "yolov5s.ncnn.param")
-        bin_path = os.path.join(model_dir, "yolov5s.ncnn.bin")
+        # Find the ncnn model files (.param and .bin)
+        model_path = detector_config.model.path or ""
+        if model_path.endswith(".param"):
+            param_path = model_path
+            bin_path = model_path[:-6] + ".bin"
+        elif model_path.endswith(".bin"):
+            bin_path = model_path
+            param_path = model_path[:-4] + ".param"
+        else:
+            model_dir = os.path.dirname(model_path)
+            candidate_param = os.path.join(model_dir, "yolo26n.param")
+            candidate_bin = os.path.join(model_dir, "yolo26n.bin")
+            if os.path.exists(candidate_param) and os.path.exists(candidate_bin):
+                param_path = candidate_param
+                bin_path = candidate_bin
+            else:
+                candidate_param = os.path.join(model_dir, "yolo11n.ncnn.param")
+                candidate_bin = os.path.join(model_dir, "yolo11n.ncnn.bin")
+                if os.path.exists(candidate_param) and os.path.exists(candidate_bin):
+                    param_path = candidate_param
+                    bin_path = candidate_bin
+                else:
+                    param_path = os.path.join(model_dir, "yolov5s.ncnn.param")
+                    bin_path = os.path.join(model_dir, "yolov5s.ncnn.bin")
 
         if not os.path.exists(param_path) or not os.path.exists(bin_path):
             raise FileNotFoundError(
-                f"ncnn model not found: {param_path} / {bin_path}. "
-                f"Download from https://github.com/nihui/ncnn-assets"
+                f"ncnn model not found: {param_path} / {bin_path}."
             )
 
         logger.info(f"NCNN: loading model from {param_path}")
@@ -64,17 +83,10 @@ class NCNNDetector(DetectionApi):
         self.net.load_param(param_path)
         self.net.load_model(bin_path)
 
-        # YOLOv5s input: 640x640
+        # Input: 640x640
         self.model_input_size = 640
         self._num_classes = 80
         self._class_names = None
-
-        # YOLOv5s anchors (width, height) per stride
-        self._anchors = {
-            8: np.array([[10, 13], [16, 30], [33, 23]], dtype=np.float32),
-            16: np.array([[30, 61], [62, 45], [59, 119]], dtype=np.float32),
-            32: np.array([[116, 90], [156, 198], [373, 326]], dtype=np.float32),
-        }
 
         # Load COCO labels
         label_path = detector_config.model.labelmap_path
@@ -87,10 +99,8 @@ class NCNNDetector(DetectionApi):
         )
 
     def detect_raw(self, tensor_input: np.ndarray):
-        """YOLOv5s inference via ncnn Vulkan, using Frigate's existing YOLO postprocessing."""
-
+        """Inference via ncnn Vulkan, supporting both YOLO26/11 decoded and YOLOv5s multipart."""
         _, _, h, w = tensor_input.shape
-        # ncnn YOLOv5s expects 0-255 range, Frigate normalizes to 0-1
         mat_in = self.ncnn.Mat((tensor_input.squeeze(0) * 255.0).astype(np.float32))
 
         with self.net.create_extractor() as ex:
@@ -100,13 +110,14 @@ class NCNNDetector(DetectionApi):
                 return np.zeros((0, 6), np.float32)
 
             arr0 = np.array(out0_raw)
+
             # Check if this is a single-output YOLO26/11 tensor (e.g. 84x8400 or 8400x84)
             if arr0.ndim == 2 and (arr0.shape[0] == 84 or arr0.shape[1] == 84):
                 if arr0.shape[1] == 84 and arr0.shape[0] != 84:
                     arr0 = arr0.T
                 from frigate.detectors.rust_yolo import yolo26_post_process, yolo_available
                 if yolo_available():
-                    return yolo26_post_process(arr0, self.model_input_size, 1.0, 1.0)
+                    return yolo26_post_process(arr0, self.model_input_size, w, h)
                 else:
                     from frigate.util.model import post_process_yolo
                     return post_process_yolo([np.expand_dims(arr0, 0)], self.model_input_size, self.model_input_size)
