@@ -514,6 +514,34 @@ pub unsafe extern "C" fn track_distance(det: *const f64, est: *const f64) -> f64
     (dx * dx + dy * dy + wr * wr + hr * hr).sqrt()
 }
 
+/// Vectorized computation of an N x M pairwise association distance matrix
+/// between N candidate detections and M tracked estimates.
+#[no_mangle]
+pub unsafe extern "C" fn batch_track_distance_matrix(
+    detections: *const f64,
+    n_dets: u32,
+    estimates: *const f64,
+    n_ests: u32,
+    out_matrix: *mut f64,
+) {
+    if detections.is_null() || estimates.is_null() || out_matrix.is_null() || n_dets == 0 || n_ests == 0 {
+        return;
+    }
+    let n = n_dets as usize;
+    let m = n_ests as usize;
+    let dets = std::slice::from_raw_parts(detections, n * 4);
+    let ests = std::slice::from_raw_parts(estimates, m * 4);
+    let out = std::slice::from_raw_parts_mut(out_matrix, n * m);
+
+    for i in 0..n {
+        let det_ptr = dets.as_ptr().add(i * 4);
+        for j in 0..m {
+            let est_ptr = ests.as_ptr().add(j * 4);
+            out[i * m + j] = track_distance(det_ptr, est_ptr);
+        }
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -665,6 +693,28 @@ mod tests {
             assert!(track_distance(a.as_ptr(), zero_w.as_ptr()).is_infinite());
             assert!(track_distance(nan_box.as_ptr(), a.as_ptr()).is_infinite());
         }
+    }
+
+    #[test]
+    fn test_batch_track_distance_matrix() {
+        let a = [10.0f64, 20.0, 110.0, 220.0];
+        let b = [60.0f64, 20.0, 160.0, 220.0];
+        let dets = [a, b].concat();
+        let ests = [a, b].concat();
+        let mut out = vec![0.0f64; 4];
+
+        unsafe {
+            batch_track_distance_matrix(dets.as_ptr(), 2, ests.as_ptr(), 2, out.as_mut_ptr());
+        }
+
+        // Distance(a, a) = 0.0
+        assert_eq!(out[0], 0.0);
+        // Distance(a, b) = 0.5
+        assert!((out[1] - 0.5).abs() < 1e-12);
+        // Distance(b, a) = 0.5
+        assert!((out[2] - 0.5).abs() < 1e-12);
+        // Distance(b, b) = 0.0
+        assert_eq!(out[3], 0.0);
     }
 }
 
