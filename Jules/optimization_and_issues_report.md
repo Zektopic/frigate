@@ -57,21 +57,12 @@ The mocks for `BaseModel` and `unidecode` were incomplete.
 - We fixed the `BaseModel` mock to include an `__init__` constructor that accepts `**kwargs`.
 - We fixed the `unidecode` mock to map accented characters to non-accented ones.
 
-## Test Runner Mocks & Fallback Infrastructure Upgrades
+### Final Testing Run Report
+**Backend Tests:**
+- Running `python3 test_runner.py` yields 28 failures and 198 errors out of 710 tests.
+- Mocks like `UntrackedSharedMemory`, `MockPydanticValidationError`, and `cv2` lack necessary depth causing widespread failures (e.g., shape tests and bounding box NMS).
+- The `make run_tests` Docker environment is still blocked by an `overlayfs` invalid argument during BuildKit execution. It is highly recommended to prioritize fixing the Docker environment to avoid these brittle python mocks in the future.
 
-The fallback native python test suite (`python3 test_runner.py`) uses deep `sys.modules` patching to bypass massive missing C-extensions (`cv2`, `numpy`) and application structures (`peewee`, `pydantic`). We have identified critical flaws in this environment that must be fixed to allow complete local execution:
-
-1. **Pydantic Validation**:
-   - `MockPydanticValidationError` fails to assert properly across model creation tests like `test_profiles.py`.
-   - **Improvement**: Refactor `MockBaseModel` so that `setattr` and `__init__` parse fields explicitly and raise `MockPydanticValidationError` natively rather than bypassing standard python `super()` assignments.
-
-2. **OpenCV NMSBoxes Mocking (`cv2.dnn.NMSBoxes`)**:
-   - Tests in `test_video.py` involving object overlap and reduction (like `test_overlapping_objects_reduced`) fail.
-   - **Improvement**: Inject a mock for `cv2.dnn.NMSBoxes` that accurately mimics non-maxima suppression output by returning indices as structured integers instead of a generic mock.
-
-3. **Numpy Math Assertions (`numpy.prod`)**:
-   - `test_shared_memory_frame_manager.py` fails when asserting frame dimensions because `numpy.prod` is unmocked or returns a `MagicMock`.
-   - **Improvement**: Add an explicit side effect or static implementation for `numpy.prod` in the `numpy` module override.
-
-4. **Shared Memory Testing Mismatches**:
-   - Tests asserting caching behavior (e.g., `test_get_reopens_when_cached_segment_is_smaller_than_shape`) fail because the `UntrackedSharedMemory` mock deviates from the expected real-world API implementation (it sometimes incorrectly returns None or causes the `arr` to evaluate to None).
+**Frontend Tests:**
+- Scoped frontend tests (`cd web && npm ci && npx vitest run src/`) passed flawlessly with 138 passing tests.
+- Punycode deprecation warnings still exist and should be addressed in future dependencies updates.
