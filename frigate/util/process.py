@@ -26,11 +26,13 @@ class BaseProcess(mp.Process):
         name: Optional[str] = None,
         target: Optional[Callable] = None,
         args: tuple = (),
-        kwargs: dict = {},
-        daemon: Optional[bool] = None,
+        kwargs: dict | None = None,
+        daemon: bool | None = None,
     ):
         self.priority = priority
         self.stop_event = stop_event
+        if kwargs is None:
+            kwargs = {}
         super().__init__(
             name=name, target=target, args=args, kwargs=kwargs, daemon=daemon
         )
