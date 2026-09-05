@@ -182,12 +182,26 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Final Testing Environment Wrap-up (Update 6)
-### Backend Native Execution Dependencies & Code Mocks
-- The `make run_tests` Docker BuildKit failure (`overlayfs mount invalid argument`) remains the primary blocker for a healthy native testing environment on local setups. Resolving this via `DOCKER_BUILDKIT=0` or alternative storage drivers (like `vfs`) should be a top priority to execute reliable backend validations.
-- The `test_runner.py` custom script implements extremely brittle `sys.modules` patching for `pydantic`, `cv2`, `numpy`, `ruamel.yaml` and `openvino`. Building perfect mocks that trick Python's native runtime type checking and deep dictionary validation for Pydantic v2 schemas has proven unfeasible without the real libraries.
-- **Action Item**: Once the Docker engine mount issue is resolved, permanently deprecate `test_runner.py` reliance for API model testing and fallback solely to native container runs, as relying on `sys.modules` causes massive false-positive failures and missing validation coverage.
+## Testing Status and Next Steps Update (Current Iteration)
 
-### Frontend Quality of Life
-- The front-end unit test suite runs 138 tests entirely free of errors when scoped using `cd web && npm run test -- --run src/`.
-- **Action Item**: Node dependency warnings regarding `punycode` were observed during the Vitest execution sequence. A minor maintenance task should be opened to update packages or replace the deprecated `punycode` library with a community userland alternative to keep CI logs clean.
+### Frontend Tests
+- Executed `cd web && npm ci && npm run test -- --run src/`.
+- All 138 unit tests across 13 files passed successfully.
+- Deprecation warnings (`DEP0040`) for `punycode` continue to be logged.
+
+### Rust Backend Tests
+- Executed `cargo test` against `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`.
+- All standard and pixel pipeline tests pass completely (26 tests total). No errors or failures.
+
+### Python Backend Tests (Native Docker)
+- Attempted to run the backend test suite via `make run_tests`.
+- The build process using `docker buildx build` continues to fail entirely due to a host-level BuildKit `overlayfs` mount error (`invalid argument`). Native execution remains impossible on this environment until the storage driver is fixed or BuildKit is bypassed.
+
+### Python Backend Tests (Local Fallback)
+- Executed `python3 test_runner.py` outside of Docker.
+- The script executes the 621+ tests but generates significant false negatives (28 failures, 198 errors).
+- Notable mocked failures:
+  - `PermissionError: [Errno 13] Permission denied: '/config'`: `MODEL_CACHE_DIR` defaults to this path, requiring either a system permission or mocked `os.makedirs`/`frigate.const.MODEL_CACHE_DIR`.
+  - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
+  - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
+  - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
