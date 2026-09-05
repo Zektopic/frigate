@@ -221,21 +221,18 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dependency Upgrades**: The Vitest runner is emitting Node deprecation warnings (e.g., `DEP0040` for the `punycode` module). The underlying dependencies (like `whatwg-url` or `tr46`) should be bumped to newer major versions, or userland alternatives should be integrated to clean up the test logs.
 - **E2E Isolation**: While `npx vitest run src/` scopes unit tests, appending explicit exclusion paths (e.g. `exclude: ['e2e/**']`) to `web/vitest.config.ts` will permanently resolve Playwright matching conflicts when users generically execute `npm test`.
 
-
-## Actionable Roadmap of Future Implementations and Improvements
+### Actionable Roadmap of Future Implementations and Improvements
 
 #### A. Backend & Mock Architecture Refactoring
-- **Address Docker Mount Issues**: To properly test the backend natively without brittle mocks, the host environment's Docker storage driver (e.g., switching from `overlayfs` to `vfs` or properly configuring `containerd`) must be addressed, or the project needs a specific test target that strictly disables `buildx`/BuildKit.
-- **Refine the Fallback Mock Engine**: If local `test_runner.py` execution remains a requirement, significantly refactor `MockBaseModel` and `MockPydanticValidationError` to strictly adhere to Pydantic v2 core structures, handling deeply nested dictionaries and strict schema validation accurately. Provide robust dummy implementations for `numpy` matrices and shape properties.
-- **Resolve Mypy Strictness**: Clean up the 61 reported mypy errors. Remove unused `type: ignore` directives, explicitly type `BaseModel` and `SqliteQueueDatabase` implementations if possible, and ensure functions returning `Any` are correctly strongly typed or ignored properly.
+- **Address Docker Storage Driver**: For native backend container execution without brittle mocks, ensure host Docker configurations utilize `overlay2` or `fuse-overlayfs`, or execute builds with `DOCKER_BUILDKIT=0` if host mount restrictions arise.
+- **Refine the Fallback Mock Engine**: When running localized tests outside Docker via `test_runner.py`, enhance `MockBaseModel` and `MockPydanticValidationError` to conform strictly to Pydantic v2 core schemas, handling nested dictionaries and NumPy array shape attributes cleanly.
+- **Resolve Mypy Strictness**: Clean up the outstanding Mypy type-check errors, explicitly typing `BaseModel` and `SqliteQueueDatabase` signatures and removing obsolete `type: ignore` comments.
 
 #### B. Frontend Modernization
-- **Update Deprecated Dependencies**: Bump underlying packages (like `whatwg-url` or `tr46`) to their latest major versions, or implement userland alternatives, to resolve the `punycode` Node deprecation warnings and keep CI logs clean.
-- **Test Isolation Configuration**: Ensure `web/vitest.config.ts` explicitly scopes unit tests (e.g., excluding `e2e/**`) to permanently prevent matcher collisions with Playwright if users execute a generic `npm test` command.
+- **Update Deprecated Dependencies**: Bump underlying packages (`whatwg-url`, `tr46`) to resolve `punycode` deprecation notices (`DEP0040`) in Node test logs.
+- **Test Isolation Configuration**: In `web/vite.config.ts`, ensure the `test:` section scopes unit tests by spreading `configDefaults.exclude` (e.g. `exclude: [...configDefaults.exclude, 'e2e/**']`) to prevent Playwright matcher collisions when running test runners.
 
-#### C. Rust Optimizations
-- **Clean Up Warnings**: Resolve the unused variables (e.g., `AF_STRIDES` in `frigate-yolo-rs`), unused functions (`not_a_test_debug_step_by_step` in `frigate-motion-rs`), and remove unnecessary `mut` bindings highlighted by the compiler during tests.
+#### C. Database & Video Pipeline
+- **Utilize Peewee Bulk Operations**: Leverage SQLite batch chunking in hot export loops (e.g. in `frigate.record.export`) rather than iterative single-record queries for higher IO throughput.
+- **Quantized Model Loading**: Enable dynamic loading for quantized/INT8 models in CPU/APU configurations to bypass unnecessary contiguous array memory copies in ONNX/YOLO pipelines.
 
-#### D. Database & Video Pipeline
-- **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
-- **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
