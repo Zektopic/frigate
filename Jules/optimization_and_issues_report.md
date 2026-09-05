@@ -57,15 +57,13 @@ The mocks for `BaseModel` and `unidecode` were incomplete.
 - We fixed the `BaseModel` mock to include an `__init__` constructor that accepts `**kwargs`.
 - We fixed the `unidecode` mock to map accented characters to non-accented ones.
 
-## Final Testing Verification (Update 3)
+## General Testing Report - 2026-08-27 00:27:11
 
-**Frontend Diagnostics:**
-Isolated Vitest execution via `npm ci && npm run test -- --run src/` successfully completed.
-- **Passed**: 138 tests across 13 suites.
-- **Issues**: None blocking. Only minor node deprecation warnings (`punycode`). Resolving the E2E matcher collisions is confirmed functional when restricted to `src/`.
+* **Backend Issues:** Local tests fallback via `test_runner.py` is brittle and fails consistently on Pydantic v2 validation errors (e.g., `MockPydanticValidationError not raised`) and mocked CV/Numpy shape assertions. Docker execution fails due to `overlayfs` mount issues.
+* **Rust Warnings:** `frigate-detector-rs`, `frigate-motion-rs`, and `frigate-yolo-rs` exhibit `dead_code` and `unused_mut` compiler warnings.
+* **Frontend Setup:** Vitest runs smoothly, however, node processes emit repeated `punycode` deprecation warnings due to internal/dependency usage.
 
-**Backend Diagnostics:**
-Execution via `python3 test_runner.py` highlighted significant gaps in local simulation dependencies.
-- **Summary**: 28 failures, 198 errors, 4 skipped out of 710 total tests.
-- **Core Issues**: Tests requiring exact schema validation (`Pydantic`) and numerical matrix evaluations (`Numpy`/`OpenCV`) cannot properly execute on basic `MagicMock` instances.
-- **Recommendation**: Optimize local testing by implementing fully structural mock models in `test_runner.py` or resolving the local Docker buildx overlayfs cache issue to enable native `make run_tests`.
+### Optimization Focus for Future Sprints
+1. **Docker Environment Reliability:** Configure the CI/CD and Makefile to avoid standard cache issues during `docker buildx build`.
+2. **Local Dev Environment:** Move away from manual `sys.modules` overriding for core logic; adopt native virtualenvs.
+3. **Rust Build Strictness:** Compile the Rust workspaces with `#![deny(warnings)]` or run `cargo clippy -- -D warnings` to enforce code cleanliness.

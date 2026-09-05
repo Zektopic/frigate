@@ -205,58 +205,26 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Roadmap for Resolving `test_runner.py` Limitations
+## Test Integrity & System Execution Report
 
-The following actionable steps should be taken in the future to improve the local testing infrastructure (`test_runner.py`) and resolve the current backend test failures.
+### Backend System Mocking Limitations
+The local testing suite (`test_runner.py`) uses extensive dependency mocking (`pydantic`, `cv2`, `numpy`, `peewee`) to run independently of Docker. This causes multiple false positives (28 failures) because the mock implementations lack standard API adherence (e.g. `pydantic` schema validation fails to trigger exceptions, `numpy` mock arrays fail shape validations).
 
-### 1. Fix Configuration Directory Permission Errors
-**Issue**: Tests fail with `PermissionError` when attempting to create `/config/model_cache` because `test_profiles.py` imports `MODEL_CACHE_DIR` directly from `frigate.const`, bypassing runtime environment variable overrides.
-**Implementation Fix**:
-*   Modify `test_runner.py` to patch `frigate.const.MODEL_CACHE_DIR` directly using `unittest.mock.patch` *before* the tests are executed.
-*   Alternatively, use `patch('os.makedirs')` in the global `test_runner.py` configuration to prevent the tests from interacting with the host filesystem entirely.
+**Implementation Roadmap:**
+* Deprecate the extensive use of `sys.modules` for complex logic.
+* Standardize on `pytest` and provide a robust virtual environment setup guide, or ensure Docker builds are hermetic and bypass layer caching errors (`overlayfs invalid argument`).
+* Create integration tests that do not mock `peewee` and `cv2` but run against actual memory bounds or fixtures.
 
-### 2. Implement Pydantic V2 Validation in `MockBaseModel`
-**Issue**: Tests expecting schema validation failures (`AssertionError: MockPydanticValidationError not raised`) fail because `MockBaseModel` blindly accepts all arguments.
-**Implementation Fix**:
-Update the `__init__` method of `MockBaseModel` in `test_runner.py` to inspect the provided `kwargs`. If the `kwargs` contain keys that are explicitly meant to trigger errors in tests (e.g., keys not present in a known dictionary, or specific values like `{"invalid": "value"}`), manually raise `MockPydanticValidationError`:
+### Code Quality (Rust)
+The Rust workspaces have 100% pass rates across 26 tests, but compile with warnings.
 
-```python
-class MockBaseModel:
-    def __init__(self, **kwargs):
-        # ... existing replacements ...
+**Implementation Roadmap:**
+* Refactor `frigate-motion-rs/src/lib.rs` to fix `#[warn(unused_mut)]` on the `avg` arrays.
+* Refactor `frigate-yolo-rs/src/lib.rs` to remove unused items `AF_STRIDES` and `make_grid_points` or appropriately gate them behind `#[cfg(test)]`.
+* Refactor `frigate-detector-rs/src/main.rs` to address the `Shutdown` variant not being constructed.
 
-        # Add basic schema validation simulation
-        if "invalid_field" in kwargs or "unknown_section" in kwargs:
-             raise MockPydanticValidationError("Invalid field")
+### Frontend Dependency Housekeeping
+Frontend test execution (`npx vitest`) executes quickly (138 tests passed) but is polluted with Node.js deprecation logs.
 
-        # ... existing setattr logic ...
-```
-*Note: A more robust long-term solution is to migrate away from `MockPydantic` and utilize a virtual environment with the actual Pydantic library installed.*
-
-### 3. Improve `numpy` Mocks for Frame Managers
-**Issue**: Size calculations and assertions fail because `np.prod` and `ndarray.shape` return `MagicMock` instances instead of integers and tuples.
-**Implementation Fix**:
-Update the `numpy` mock definition in `test_runner.py` to provide concrete implementations for required functions and properties:
-
-```python
-import math
-
-class MockNumpy(MagicMock):
-    @staticmethod
-    def prod(iterable):
-        return math.prod(iterable)
-
-class MockNdarray:
-    def __init__(self, shape):
-        self.shape = shape
-
-# In the sys.modules injection:
-sys.modules["numpy"] = MockNumpy()
-sys.modules["numpy"].ndarray = MockNdarray
-```
-This ensures that mathematical operations on shapes compute correctly, preventing unexpected calls to `UntrackedSharedMemory` during cache evaluation.
-
-### 4. Enhance OpenCV (`cv2`) Mock Return Types
-**Issue**: `test_video.py` shape assertions fail because `cv2.cvtColor().shape` evaluates to a `MagicMock`.
-**Implementation Fix**:
-Explicitly mock `cv2.cvtColor` to return an object (like `MockNdarray` defined above) that possesses a concrete `.shape` tuple attribute.
+**Implementation Roadmap:**
+* Map node dependency tree to track the origin of the deprecated `punycode` usage and push package updates or alternative polyfills.
