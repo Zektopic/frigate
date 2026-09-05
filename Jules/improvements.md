@@ -205,15 +205,7 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## New Testing Cycle Findings (Backend & Frontend)
-
-### Frontend
-- **Execution**: The frontend test suite was verified successfully using `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests pass seamlessly.
-- **Node Deprecations**: The output logs present `[DEP0040] DeprecationWarning` regarding the `punycode` module.
-  - **Improvement**: Update underlying dependencies that use `punycode` (e.g. `tr46`, `whatwg-url`) to modern versions or integrate userland alternatives to prevent node warnings from bloating the CI outputs.
-
-### Backend
-- **Mock Limitations (`test_runner.py`)**: Tests executed locally (`python3 test_runner.py`) produced 28 failures and 198 errors (out of 710 tests). The core issue remains: `sys.modules` patching is not sufficient to replicate complex Pydantic v2 schemas or OpenCV/NumPy native multi-dimensional matrices and C-bindings.
-  - **Improvement**: Refactor `MockPydanticValidationError` and `MockBaseModel` in the test runner to properly parse nested configuration dictionaries (like `detect`, `ffmpeg`) and match V2 core structure validations.
-- **Docker Mount Issues (`make run_tests`)**: Attempted running native tests fully via Docker (`make run_tests`), but encountered persistent `overlayfs` and cachemount `invalid argument` errors from Docker BuildKit in the local test environment.
-  - **Improvement**: Since `overlayfs` fails in this local daemon setup, developers must use a different storage driver like `vfs` or a distinct docker test harness to execute `make run_tests` natively. The Python fallback is too brittle for this project's requirements.
+## Testing Run Summary Mon Aug 24 00:15:31 UTC 2026
+- Frontend Tests: Executed `cd web && npm ci && npm run test -- --run src/`. All 138 tests passed successfully.
+- Backend Tests: Executed `python3 test_runner.py`. Encountered failures (28 failures, 198 errors) primarily due to incomplete mocks for complex dependencies (numpy, cv2, pydantic) and native docker buildx issues (overlayfs mount invalid argument) that prevent running `make run_tests` locally.
+- Action items: Implement full Python dependency environment for reliable backend testing or configure a working local Docker backend testing strategy. Fix Node.js deprecation warnings (e.g. punycode) by updating dependencies in `web/package.json`.
