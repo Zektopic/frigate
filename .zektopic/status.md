@@ -1,3 +1,29 @@
+# Current Status Update
+
+## Test Outcomes (Latest Run)
+- **Backend Tests (`python3 test_runner.py`)**: 710 tests ran in 2.464s. 28 failures, 198 errors, 4 skipped. The failures and errors are primarily due to incomplete mocking in the local environment (e.g. `AssertionError: MockPydanticValidationError not raised`, `AttributeError: 'MagicMock' object has no attribute 'shape'`).
+- **Web Frontend Tests (`npm run test -- --run src/`)**: 138 tests across 13 test files passed successfully in 5.53s. Identified `DEP0040` node deprecation warnings about the 'punycode' module from dependencies.
+- **Rust Tests (`cargo test`)**: All tests across `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs` passed successfully. Some compiler warnings for unused variables and dead code were noted.
+
+## Roadmap for Future Implementations and Improvements
+
+### 1. Backend Testing Environment Stabilization
+- **Action**: Overhaul `test_runner.py` to properly simulate the Pydantic v2 validation lifecycle, specifically targeting nested dictionary structures and raising robust `ValidationError` mocks to allow `test_profiles.py` to pass natively.
+- **Action**: Enhance `cv2` and `numpy` mocks in `test_runner.py` to return accurately typed dummy objects (e.g., returning tuples for shapes instead of MagicMocks) to fix dimension-checking failures in `test_shared_memory_frame_manager.py` and `test_video.py`.
+- **Action**: Fix missing dependencies dynamically imported during HTTP testing (e.g., full mocking of `peewee.DatabaseError` and related DB structures) to resolve `ModuleNotFoundError`s outside of Docker.
+
+### 2. Frontend Dependency Maintenance
+- **Action**: Investigate and upgrade transitive dependencies (like `whatwg-url` or `tr46`) triggering `DEP0040` Node deprecation warnings during the `vitest` execution to clean up console output and ensure compatibility with newer Node versions.
+- **Action**: Consider explicitly mocking or isolating API endpoints natively within Vitest to ensure UI components don't leak state or log excessively during `render()` tests.
+
+### 3. Rust Codebase Hygiene
+- **Action**: Clean up unused variables and dead code highlighted during `cargo test` runs. Specifically:
+  - Remove `mut` from `avg` variables in `frigate-motion-rs/src/lib.rs`.
+  - Remove unused function `not_a_test_debug_step_by_step` in `frigate-motion-rs/src/lib.rs`.
+  - Remove unused constant `AF_STRIDES` and function `make_grid_points` in `frigate-yolo-rs/src/lib.rs`.
+
+---
+
 # Test Environment Setup and Code Review Request
 
 All of the previous unit tests failures (except the network/requests errors related to go2rtc connection which shouldn't block the logic validation) have been resolved.
