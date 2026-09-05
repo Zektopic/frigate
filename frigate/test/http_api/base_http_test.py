@@ -25,14 +25,18 @@ class AuthTestClient(TestClient):
     """TestClient that automatically adds auth headers to all requests."""
 
     def request(self, *args, **kwargs):
-        # Add default auth headers if not already present
+        # Copy rather than mutate: kwargs["headers"] may be a dict the
+        # caller still holds a reference to.
         headers = dict(kwargs.get("headers") or {})
         if "remote-user" not in headers:
             headers["remote-user"] = "admin"
         if "remote-role" not in headers:
             headers["remote-role"] = "admin"
+        # check_csrf() in fastapi_app.py rejects any non-safe method
+        # without this header, so without it every POST/PUT/DELETE in the
+        # suite returned 401 and the assertions under test never ran.
         if "x-csrf-token" not in headers:
-            headers["x-csrf-token"] = "test-csrf-token"
+            headers["x-csrf-token"] = "1"
         kwargs["headers"] = headers
         return super().request(*args, **kwargs)
 
