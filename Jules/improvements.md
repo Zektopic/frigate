@@ -205,21 +205,11 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Test Runner Mocks & Fallback Infrastructure Upgrades
+## Testing Status Update (New Execution)
+- Ran `python3 test_runner.py` locally. The backend test suite continues to hit limits with mock dependencies. As noted previously, 28 failures and 198 errors occurred across 710 tests. Attempting to use Docker via `make run_tests` fails early due to an `overlayfs` BuildKit error specific to this local environment.
+- Ran `cd web && npm ci && npm run test -- --run src/`. All 138 frontend tests pass locally.
 
-The fallback native python test suite (`python3 test_runner.py`) uses deep `sys.modules` patching to bypass massive missing C-extensions (`cv2`, `numpy`) and application structures (`peewee`, `pydantic`). We have identified critical flaws in this environment that must be fixed to allow complete local execution:
-
-1. **Pydantic Validation**:
-   - `MockPydanticValidationError` fails to assert properly across model creation tests like `test_profiles.py`.
-   - **Improvement**: Refactor `MockBaseModel` so that `setattr` and `__init__` parse fields explicitly and raise `MockPydanticValidationError` natively rather than bypassing standard python `super()` assignments.
-
-2. **OpenCV NMSBoxes Mocking (`cv2.dnn.NMSBoxes`)**:
-   - Tests in `test_video.py` involving object overlap and reduction (like `test_overlapping_objects_reduced`) fail.
-   - **Improvement**: Inject a mock for `cv2.dnn.NMSBoxes` that accurately mimics non-maxima suppression output by returning indices as structured integers instead of a generic mock.
-
-3. **Numpy Math Assertions (`numpy.prod`)**:
-   - `test_shared_memory_frame_manager.py` fails when asserting frame dimensions because `numpy.prod` is unmocked or returns a `MagicMock`.
-   - **Improvement**: Add an explicit side effect or static implementation for `numpy.prod` in the `numpy` module override.
-
-4. **Shared Memory Testing Mismatches**:
-   - Tests asserting caching behavior (e.g., `test_get_reopens_when_cached_segment_is_smaller_than_shape`) fail because the `UntrackedSharedMemory` mock deviates from the expected real-world API implementation (it sometimes incorrectly returns None or causes the `arr` to evaluate to None).
+### Action Items for Future Implementations
+- **Backend Mock Infrastructure**: In order to make local backend tests robust without Docker, `test_runner.py`'s mocks for `numpy`, `cv2`, `peewee`, and `pydantic` must be thoroughly refactored or actual dependencies installed locally. Specifically, `MockPydanticValidationError` fails to mimic Pydantic v2's strict validation logic.
+- **Docker Fixes**: Fix the BuildKit `overlayfs` mount error on the local daemon, for example by running tests with `DOCKER_BUILDKIT=0` or a different storage driver (e.g., `vfs`), to allow `make run_tests` to execute native unit tests correctly.
+- **Frontend Deprecations**: Fix the Node deprecation warnings related to the `punycode` module emitted during vitest test execution by updating frontend packages or utilizing userland alternatives.

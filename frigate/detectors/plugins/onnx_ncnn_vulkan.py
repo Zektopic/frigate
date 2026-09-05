@@ -36,28 +36,15 @@ class NCNNDetector(DetectionApi):
 
         self.ncnn = ncnn
 
-        # Find the ncnn model files (.param and .bin)
-        model_path = detector_config.model.path or ""
-        if model_path.endswith(".param"):
-            param_path = model_path
-            bin_path = model_path[:-6] + ".bin"
-        elif model_path.endswith(".bin"):
-            bin_path = model_path
-            param_path = model_path[:-4] + ".param"
-        else:
-            model_dir = os.path.dirname(model_path)
-            candidate_param = os.path.join(model_dir, "yolo11n.ncnn.param")
-            candidate_bin = os.path.join(model_dir, "yolo11n.ncnn.bin")
-            if os.path.exists(candidate_param) and os.path.exists(candidate_bin):
-                param_path = candidate_param
-                bin_path = candidate_bin
-            else:
-                param_path = os.path.join(model_dir, "yolov5s.ncnn.param")
-                bin_path = os.path.join(model_dir, "yolov5s.ncnn.bin")
+        # Find the ncnn model files (.param and .bin) next to the ONNX model
+        model_dir = os.path.dirname(detector_config.model.path)
+        param_path = os.path.join(model_dir, "yolov5s.ncnn.param")
+        bin_path = os.path.join(model_dir, "yolov5s.ncnn.bin")
 
         if not os.path.exists(param_path) or not os.path.exists(bin_path):
             raise FileNotFoundError(
-                f"ncnn model not found: {param_path} / {bin_path}."
+                f"ncnn model not found: {param_path} / {bin_path}. "
+                f"Download from https://github.com/nihui/ncnn-assets"
             )
 
         logger.info(f"NCNN: loading model from {param_path}")
@@ -108,25 +95,44 @@ class NCNNDetector(DetectionApi):
 
         with self.net.create_extractor() as ex:
             ex.input("in0", mat_in)
-            ret1, out0_raw = ex.extract("out0")
-            ret2, out1_raw = ex.extract("out1")
-            ret3, out2_raw = ex.extract("out2")
+            ret0, out0_raw = ex.extract("out0")
+            if ret0 != 0:
+                return np.zeros((0, 6), np.float32)
 
-        if ret1 != 0:
-            return np.zeros((0, 6), np.float32)
+            arr0 = np.array(out0_raw)
+            # Check if this is a single-output YOLO26/11 tensor (e.g. 84x8400 or 8400x84)
+            if arr0.ndim == 2 and (arr0.shape[0] == 84 or arr0.shape[1] == 84):
+                if arr0.shape[1] == 84 and arr0.shape[0] != 84:
+                    arr0 = arr0.T
+                from frigate.detectors.rust_yolo import (
+                    yolo26_post_process,
+                    yolo_available,
+                )
 
-        # Convert ncnn outputs: apply sigmoid, keep in (1, 255, grid, grid) format
-        # which is what Frigate's postprocessor expects
+                if yolo_available():
+                    return yolo26_post_process(arr0, self.model_input_size, 1.0, 1.0)
+                else:
+                    from frigate.util.model import post_process_yolo
+
+                    return post_process_yolo(
+                        [np.expand_dims(arr0, 0)],
+                        self.model_input_size,
+                        self.model_input_size,
+                    )
+
+            ret1, out1_raw = ex.extract("out1")
+            ret2, out2_raw = ex.extract("out2")
+            if ret1 != 0 or ret2 != 0:
+                return np.zeros((0, 6), np.float32)
+
+        # Convert multipart YOLOv5s outputs: apply sigmoid
         outputs = []
         for ncnn_mat in [out0_raw, out1_raw, out2_raw]:
             arr = np.array(ncnn_mat)
-            # Apply sigmoid (ncnn outputs raw logits, ONNX models have sigmoid baked in)
             arr = 1.0 / (1.0 + np.exp(-arr))
-            # Frigate expects (1, 255, grid, grid)
             arr = np.expand_dims(arr, 0)
             outputs.append(arr)
 
-        # Use Frigate's own YOLO postprocessing
         from frigate.util.model import post_process_yolo
 
         return post_process_yolo(outputs, self.model_input_size, self.model_input_size)
