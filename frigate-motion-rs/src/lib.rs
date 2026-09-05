@@ -130,61 +130,6 @@ unsafe fn contrast_stretch_simd(buf: &mut [u8], min_val: u8, max_val: u8, len: u
         let v = ((v - min_v) * scale).clamp(0.0, 255.0);
         buf[j] = v as u8;
     }
-
-    fn not_a_test_debug_step_by_step() {
-        let w = 64usize;
-        let h = 64usize;
-        let len = w * h;
-        
-        let mut avg = vec![100.0f32; len];
-        let mut frame = vec![100u8; len];
-        for y in 20..40 {
-            for x in 20..40 {
-                frame[y * w + x] = 200;
-            }
-        }
-        let mask = vec![0u8; len];
-        
-        let mut buf: Vec<u8> = frame.clone();
-        
-        // Step 1: mask
-        for i in 0..len {
-            if mask[i] != 0 { buf[i] = 0; }
-        }
-        println!("After mask: buf[22*64+22]={} (should be 200)", buf[22*64+22]);
-        
-        // Step 4-5: absdiff
-        let mut avg_u8 = vec![0u8; len];
-        for i in 0..len { avg_u8[i] = avg[i].clamp(0.0, 255.0) as u8; }
-        println!("avg_u8[22*64+22]={} (should be 100)", avg_u8[22*64+22]);
-        
-        let mut diff = vec![0u8; len];
-        unsafe { absdiff_avx2(&buf, &avg_u8, &mut diff, len); }
-        println!("After absdiff: diff[22*64+22]={} (should be 100)", diff[22*64+22]);
-        println!("diff non-zero count: {}", diff.iter().filter(|&&v| v > 0).count());
-        println!("diff max: {}", diff.iter().max().unwrap());
-        
-        // Step 5: threshold + mask
-        let thresh: u8 = 15;
-        unsafe { threshold_mask_avx2(&mut diff, &mask, thresh, len); }
-        let white = diff.iter().filter(|&&v| v == 255).count();
-        println!("After threshold({thresh}): {} white pixels (should be 400 for 20x20 rect)", white);
-        println!("diff[22*64+22]={} (should be 255)", diff[22*64+22]);
-        
-        // Step 6: dilate
-        let mut dilated = vec![0u8; len];
-        unsafe { dilate_3x3(&mut diff, &mut dilated, w, h); }
-        let white2 = diff.iter().filter(|&&v| v == 255).count();
-        println!("After dilate: {} white pixels", white2);
-        
-        // Step 7: contours
-        let boxes = find_contours_bounding_boxes(&diff, w, h, 10);
-        println!("Contours found: {}", boxes.len());
-        for (i, b) in boxes.iter().enumerate() {
-            println!("  box {i}: ({}, {}, {}, {})", b.0, b.1, b.2, b.3);
-        }
-        assert!(boxes.len() > 0, "Should find at least 1 contour");
-    }
 }
 
 #[cfg(not(target_arch = "x86_64"))]
@@ -750,7 +695,7 @@ mod tests {
         let w = 64usize;
         let h = 64usize;
         let len = w * h;
-        let mut avg = vec![100.0f32; len];
+        let avg = vec![100.0f32; len];
         let mut frame = vec![100u8; len];
         for y in 20..40 { for x in 20..40 { frame[y * w + x] = 200; } }
         let mask = vec![0u8; len];

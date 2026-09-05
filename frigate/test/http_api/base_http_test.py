@@ -26,11 +26,13 @@ class AuthTestClient(TestClient):
 
     def request(self, *args, **kwargs):
         # Add default auth headers if not already present
-        headers = kwargs.get("headers") or {}
+        headers = dict(kwargs.get("headers") or {})
         if "remote-user" not in headers:
             headers["remote-user"] = "admin"
         if "remote-role" not in headers:
             headers["remote-role"] = "admin"
+        if "x-csrf-token" not in headers:
+            headers["x-csrf-token"] = "test-csrf-token"
         kwargs["headers"] = headers
         return super().request(*args, **kwargs)
 

@@ -83,7 +83,7 @@ function Logs() {
 
       return lines.filter((line) => {
         const parsedLine = parseLogLines(logService, [line])[0];
-        return filterSeverity.includes(parsedLine.severity);
+        return parsedLine ? filterSeverity.includes(parsedLine.severity) : false;
       });
     },
     [filterSeverity, logService],
@@ -161,7 +161,23 @@ function Logs() {
       reader: ReadableStreamDefaultReader<Uint8Array>,
     ): Promise<void> => {
       return reader.read().then(({ done, value }) => {
-        if (done) return;
+        if (done) {
+          if (buffer.length > 0) {
+            const finalLines = [buffer];
+            const filteredFinalLines = filterSeverity?.length
+              ? finalLines.filter((line) => {
+                  const parsedLine = parseLogLines(logService, [line])[0];
+                  return parsedLine
+                    ? filterSeverity.includes(parsedLine.severity)
+                    : false;
+                })
+              : finalLines;
+            if (filteredFinalLines.length > 0) {
+              lazyLogRef.current?.appendLines(filteredFinalLines);
+            }
+          }
+          return;
+        }
 
         // Decode the chunk and add it to our buffer
         buffer += decoder.decode(value, { stream: true });
@@ -177,7 +193,9 @@ function Logs() {
           const filteredLines = filterSeverity?.length
             ? lines.filter((line) => {
                 const parsedLine = parseLogLines(logService, [line])[0];
-                return filterSeverity.includes(parsedLine.severity);
+                return parsedLine
+                  ? filterSeverity.includes(parsedLine.severity)
+                  : false;
               })
             : lines;
           if (filteredLines.length > 0) {
@@ -252,7 +270,7 @@ function Logs() {
 
     lazyLogRef.current.setState((prevState) => ({
       ...prevState,
-      lines: prevState.lines.unshift(...newLinesArray),
+      lines: [...newLinesArray, ...prevState.lines],
       count: prevState.count + newLines.length,
     }));
   }, []);
