@@ -205,6 +205,33 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-### Test Stability Findings (Last Run)
-- **Frontend Test Suite**: 138/138 tests successfully passed in web/src. No e2e overlap. Deprecation warnings for `punycode` should be addressed by bumping Node library versions.
-- **Backend Unit Tests**: `make run_tests` locally experiences BuildKit overlayfs limits. Future optimization must include native Docker fixes or removing `test_runner.py` mocks and allowing local dependency installation for precise logic execution.
+## Testing Status and Roadmap (Update 6 - Comprehensive Validation)
+
+### Final System Test Run Outcomes
+1. **Frontend Tests**: Executed `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests across 13 test files passed successfully in isolation.
+2. **Backend Native Tests (Python)**: Executed `python3 test_runner.py`. Out of 710 tests, there are ~198 errors and 28 failures. These are predominantly caused by limitations in the `test_runner.py` mock environment. `MockPydanticValidationError` fails to accurately replicate Pydantic v2's schema validation, leading to false positives in config tests. Similarly, the `sys.modules` mocks for `cv2`, `numpy`, and `peewee` lack the depth required for complex mathematical assertions and database queries.
+3. **Rust Components (`cargo test`)**:
+   - `frigate-detector-rs`: 2 tests passed successfully.
+   - `frigate-frame-rs`: 7 tests passed successfully.
+   - `frigate-motion-rs`: 13 tests passed successfully.
+   - `frigate-yolo-rs`: 4 tests passed successfully.
+4. **Backend Docker Tests**: Attempted to run the fully containerized suite using `make run_tests`. The build fails on the host environment with an `overlayfs` invalid argument error during the `docker buildx build` phase.
+
+### Future Implementations and Improvements Roadmap
+Based on the full-codebase testing evaluation, here are specific features and optimizations that should be implemented in future iterations:
+
+#### 1. Backend & Mock Architecture
+- **Pydantic V2 Migration Completion**: Refactor the custom mock testing scripts (e.g., `MockPydanticValidationError` and `MockBaseModel`) to correctly parse deeply nested dictionaries and correctly match Pydantic V2 core structures.
+- **Mock Library Installation**: Add requirements files or virtual environment bootstrapping for local test dependencies (like `requests`, `ruamel.yaml`, `peewee`, and `numpy`) so that unit tests can natively exercise logic rather than relying on brittle `sys.modules` overriding.
+- **Fallback Execution Engines**: Since `overlayfs` fails in some host setups, create a Docker `vfs` based test compose target to allow true native tests for developers experiencing mount source limitations.
+
+#### 2. Frontend Modernization
+- **Dependency Upgrades**: The Vitest runner is emitting Node deprecation warnings (e.g., `DEP0040` for the `punycode` module). The underlying dependencies (like `whatwg-url` or `tr46`) should be bumped to newer major versions, or userland alternatives should be integrated to clean up the test logs.
+- **E2E Isolation**: While `npx vitest run src/` scopes unit tests, appending explicit exclusion paths (e.g. `exclude: ['e2e/**']`) to `web/vitest.config.ts` will permanently resolve Playwright matching conflicts when users generically execute `npm test`.
+
+#### 3. Database & Optimization
+- **Database Bulk Updates**: The SQLite benchmark demonstrates 109k+ r/s using `batch_size=100`. Features relying on looping un-batched `select` queries (such as `frigate.record.export`) should be optimized to use `peewee` batch chunking to leverage those IO gains.
+- **Model Quantization Engine**: CPU tests showed missing tags. Implementing dynamic loading for INT8/quantized models could reduce the ONNX and Yolo translation overhead (e.g. `np.transpose` contiguous copy bottlenecks) specifically on AMD APUs or constrained environments.
+
+#### 4. Rust Engine Cleanup
+- **Linter & Warning Resolution**: Run `cargo fix` across the rust libraries. Remove unused enumerations (e.g. `Msg::Shutdown` in `frigate-detector-rs`), unnecessary mutability in algorithm buffers (e.g. `mut avg` in `frigate-motion-rs`), and dead constants (e.g. `AF_STRIDES` in `frigate-yolo-rs`) to ensure clean compilation outputs during CI.

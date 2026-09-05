@@ -63,14 +63,14 @@ class TestGetFsType(unittest.TestCase):
     not SERVICES_AVAILABLE, "OpenCV not installed — required by frigate.util.services"
 )
 class TestIsRestrictedGo2rtcSource(unittest.TestCase):
-    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    @patch("frigate.util.services.is_go2rtc_arbitrary_exec_allowed")
     def test_restricted_sources_when_exec_not_allowed(self, mock_exec_allowed):
         mock_exec_allowed.return_value = False
         self.assertTrue(is_restricted_go2rtc_source("echo:test"))
         self.assertTrue(is_restricted_go2rtc_source("expr:test"))
         self.assertTrue(is_restricted_go2rtc_source("exec:test"))
 
-    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    @patch("frigate.util.services.is_go2rtc_arbitrary_exec_allowed")
     def test_unrestricted_sources_when_exec_not_allowed(self, mock_exec_allowed):
         mock_exec_allowed.return_value = False
         self.assertFalse(is_restricted_go2rtc_source("rtsp://test"))
@@ -78,14 +78,14 @@ class TestIsRestrictedGo2rtcSource(unittest.TestCase):
         self.assertFalse(is_restricted_go2rtc_source("ffmpeg:test"))
         self.assertFalse(is_restricted_go2rtc_source("hass:test"))
 
-    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    @patch("frigate.util.services.is_go2rtc_arbitrary_exec_allowed")
     def test_restricted_sources_when_exec_allowed(self, mock_exec_allowed):
         mock_exec_allowed.return_value = True
         self.assertFalse(is_restricted_go2rtc_source("echo:test"))
         self.assertFalse(is_restricted_go2rtc_source("expr:test"))
         self.assertFalse(is_restricted_go2rtc_source("exec:test"))
 
-    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    @patch("frigate.util.services.is_go2rtc_arbitrary_exec_allowed")
     def test_unrestricted_sources_when_exec_allowed(self, mock_exec_allowed):
         mock_exec_allowed.return_value = True
         self.assertFalse(is_restricted_go2rtc_source("rtsp://test"))
@@ -93,7 +93,7 @@ class TestIsRestrictedGo2rtcSource(unittest.TestCase):
         self.assertFalse(is_restricted_go2rtc_source("ffmpeg:test"))
         self.assertFalse(is_restricted_go2rtc_source("hass:test"))
 
-    @patch("frigate.util.services._go2rtc_arbitrary_exec_allowed")
+    @patch("frigate.util.services.is_go2rtc_arbitrary_exec_allowed")
     def test_whitespace_handling(self, mock_exec_allowed):
         mock_exec_allowed.return_value = False
         self.assertTrue(is_restricted_go2rtc_source("  exec:test  "))
