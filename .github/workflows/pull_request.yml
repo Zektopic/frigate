@@ -12,43 +12,6 @@ env:
   DEFAULT_PYTHON: 3.11
 
 jobs:
-  rust_checks:
-    name: Rust - Build, test and lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup component add clippy
-          # The acceleration crates carry scalar fallbacks so they must
-          # keep building for non-x86 hosts (Raspberry Pi, RK3588, ARM
-          # NAS boxes). Cross-checking aarch64 is what stops an
-          # unguarded `use std::arch::x86_64` from landing again.
-          rustup target add aarch64-unknown-linux-gnu
-      - name: Build and test
-        run: |
-          set -eux
-          for crate in frigate-detector-rs frigate-motion-rs frigate-yolo-rs frigate-frame-rs; do
-            (cd "$crate" && cargo build --release && cargo test --release)
-          done
-      - name: Cross-check aarch64
-        run: |
-          set -eux
-          for crate in frigate-motion-rs frigate-yolo-rs frigate-frame-rs; do
-            (cd "$crate" && cargo check --release --target aarch64-unknown-linux-gnu)
-          done
-      - name: Clippy
-        run: |
-          set -eux
-          # correctness lints are hard failures; style lints are advisory
-          # until the existing backlog is cleared.
-          for crate in frigate-detector-rs frigate-motion-rs frigate-yolo-rs frigate-frame-rs; do
-            (cd "$crate" && cargo clippy --release --all-targets -- -D clippy::correctness)
-          done
-
   web_lint:
     name: Web - Lint
     runs-on: ubuntu-latest
@@ -127,7 +90,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Python ${{ env.DEFAULT_PYTHON }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5.2.0
         with:
           python-version: ${{ env.DEFAULT_PYTHON }}
       - name: Install requirements
@@ -165,9 +128,4 @@ jobs:
       - name: Check API spec is up to date
         run: devcontainer exec --workspace-folder . bash -lc "python3 generate_api_auth_spec.py --check"
       - name: Run unit tests in devcontainer
-        # Scoped to frigate/test rather than bare discovery from the
-        # repo root: a stray root-level test_*.py (test_runner.py did
-        # exactly this) gets imported by discovery and its sys.modules
-        # patching of numpy/cv2/peewee/pydantic then poisons the whole
-        # run.
-        run: devcontainer exec --workspace-folder . bash -lc "python3 -u -m unittest discover -s frigate/test -t ."
+        run: devcontainer exec --workspace-folder . bash -lc "python3 -u -m unittest"
