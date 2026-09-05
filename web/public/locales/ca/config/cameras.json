@@ -29,7 +29,7 @@
         },
         "listen": {
             "label": "Tipus d'escoltes",
-            "description": "Llista de tipus d'esdeveniment d'àudio a detectar (per exemple: escorça, focarmalarma, crit, parla, crida)."
+            "description": "Llista de tipus d'esdeveniment d'àudio a detectar (per exemple: escorça, focarmalarma, parla, crida)."
         },
         "filters": {
             "label": "Filtres d'àudio",
@@ -152,11 +152,11 @@
         }
     },
     "ffmpeg": {
-        "label": "FFmpeg",
-        "description": "Paràmetres del FFmpeg que inclouen la ruta dels binaris, args, opcions de hwaccel i args de sortida per rol.",
+        "label": "Fluxos (FFmpeg)",
+        "description": "Les entrades de flux de càmera i les opcions del FFmpeg, incloent-hi el camí binari, els arguments, l'hwaccel i els arguments de sortida per rol.",
         "path": {
             "label": "Ruta FFmpeg",
-            "description": "Ruta al binari FFmpeg a usar o un àlies de versió («5.0» o «7.0»)."
+            "description": "Ruta al binari FFmpeg a usar o un àlies de versió («7.0» o «8.0»)."
         },
         "global_args": {
             "label": "Arguments globals del FFmpeg",
@@ -493,6 +493,9 @@
             "max_concurrent": {
                 "label": "Màxim d'exportacions concurrents",
                 "description": "Nombre màxim de treballs d'exportació a processar al mateix temps."
+            },
+            "chapters": {
+                "label": "Metadades de capítol per incrustar en els enregistraments exportats"
             }
         },
         "preview": {
@@ -864,8 +867,8 @@
             "description": "Ordre numèric utilitzat per ordenar la càmera a la interfície d'usuari (taulell de control i llistes per defecte); els nombres més grans apareixen més tard."
         },
         "dashboard": {
-            "label": "Mostra a l'interfície d'usuari",
-            "description": "Estableix si aquesta càmera és visible a tot arreu a la interfície d'usuari de la Frigate. Desactivar això requerirà editar manualment la configuració per tornar a veure aquesta càmera a la interfície d'usuari."
+            "label": "Mostra al tauler en directe",
+            "description": "Alterna si aquesta càmera és visible al tauler de control en directe de totes les càmeres per defecte. La càmera roman disponible a tot arreu a la interfície d'usuari, inclosos els grups i la configuració de la càmera."
         },
         "review": {
             "label": "Mostra en la revisió",
