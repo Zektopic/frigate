@@ -6,6 +6,7 @@
 ///
 /// Exposes a flat C ABI for Python `ctypes`.
 
+#[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
 // ── YUV420 planar → interleaved RGB (u8) ────────────────────────────
@@ -28,6 +29,13 @@ pub unsafe extern "C" fn yuv420_to_rgb(
 ) {
     let w = w as usize;
     let h = h as usize;
+    // Guard the FFI boundary: from_raw_parts on a null pointer is
+    // UB even at zero length, and zero dimensions underflow the
+    // `- 1` index clamps below.
+    if y.is_null() || u.is_null() || v.is_null() || rgb.is_null() || w == 0 || h == 0 {
+        return;
+    }
+
     let y = std::slice::from_raw_parts(y, w * h);
     let u = std::slice::from_raw_parts(u, (w / 2) * (h / 2));
     let v = std::slice::from_raw_parts(v, (w / 2) * (h / 2));
@@ -78,6 +86,13 @@ pub unsafe extern "C" fn bilinear_resize_u8(
     let dw = dw as usize;
     let dh = dh as usize;
     let ch = channels as usize;
+
+    // Guard the FFI boundary: from_raw_parts on a null pointer is
+    // UB even at zero length, and zero dimensions underflow the
+    // `- 1` index clamps below.
+    if src.is_null() || dst.is_null() || sw == 0 || sh == 0 || dw == 0 || dh == 0 || ch == 0 {
+        return;
+    }
 
     let src_slice = std::slice::from_raw_parts(src, sw * sh * ch);
     let dst_slice = std::slice::from_raw_parts_mut(dst, dw * dh * ch);
@@ -136,12 +151,30 @@ pub unsafe extern "C" fn normalize_u8_to_f32(
     len: u32,
 ) {
     let len = len as usize;
+    if src.is_null() || dst.is_null() || len == 0 {
+        return;
+    }
+
     let src = std::slice::from_raw_parts(src, len);
     let dst = std::slice::from_raw_parts_mut(dst, len);
 
-    let inv255: f32 = 1.0 / 255.0;
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return normalize_u8_to_f32_avx2(src, dst, len);
+        }
+    }
+    normalize_u8_to_f32_scalar(src, dst, len)
+}
 
-    // SIMD: process 8 u8→f32 per iteration
+/// AVX2 kernel for [`normalize_u8_to_f32`], 8 lanes per iteration.
+///
+/// # Safety
+/// Caller must have verified AVX2 is available at runtime.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn normalize_u8_to_f32_avx2(src: &[u8], dst: &mut [f32], len: usize) {
+    let inv255: f32 = 1.0 / 255.0;
     let mut i = 0usize;
     let simd_end = (len / 8) * 8;
 
@@ -157,6 +190,14 @@ pub unsafe extern "C" fn normalize_u8_to_f32(
 
     // scalar tail
     for j in i..len {
+        dst[j] = src[j] as f32 * inv255;
+    }
+}
+
+/// Portable reference kernel for [`normalize_u8_to_f32`].
+fn normalize_u8_to_f32_scalar(src: &[u8], dst: &mut [f32], len: usize) {
+    let inv255: f32 = 1.0 / 255.0;
+    for j in 0..len {
         dst[j] = src[j] as f32 * inv255;
     }
 }
@@ -179,6 +220,10 @@ pub unsafe extern "C" fn nhwc_to_nchw_f32(
     let h = h as usize;
     let w = w as usize;
     let c = c as usize;
+    if src.is_null() || dst.is_null() || h == 0 || w == 0 || c == 0 {
+        return;
+    }
+
     let src = std::slice::from_raw_parts(src, h * w * c);
     let dst = std::slice::from_raw_parts_mut(dst, h * w * c);
 
@@ -222,6 +267,18 @@ pub unsafe extern "C" fn preprocess_detect_input(
     let dw = dw as usize;
     let dh = dh as usize;
     let c = c as usize;
+
+    // Every dimension must be non-zero before we slice or index.
+    //
+    // The loop body below computes `.min(sh - 1)` / `.min(sw - 1)`.
+    // With sh or sw == 0 that subtraction wraps to usize::MAX in a
+    // release build (overflow checks are off), `.min()` returns the
+    // raw index, and the following get_unchecked reads far out of
+    // bounds.  A null pointer would be UB in from_raw_parts even at
+    // zero length.
+    if src.is_null() || dst.is_null() || sw == 0 || sh == 0 || dw == 0 || dh == 0 || c == 0 {
+        return;
+    }
 
     let src = std::slice::from_raw_parts(src, sw * sh * c);
     let dst = std::slice::from_raw_parts_mut(dst, c * dh * dw);
@@ -289,6 +346,15 @@ pub unsafe extern "C" fn yuv420_crop_repack(
     let cw = crop_w as usize;
     let ch = crop_h as usize;
 
+    // Guard the FFI boundary, and reject a crop window that is not
+    // fully contained in the source plane.
+    if src.is_null() || out.is_null() || sw == 0 || sh == 0 || cw == 0 || ch == 0 {
+        return;
+    }
+    if cx + cw > sw || cy + ch > sh {
+        return;
+    }
+
     let y_plane_size = sw * sh;
     let uv_plane_size = (sw / 2) * (sh / 2);
 
@@ -343,6 +409,10 @@ pub unsafe extern "C" fn yuv420_to_3channel(
 ) {
     let w = w as usize;
     let h = h as usize;
+    if y.is_null() || u.is_null() || v.is_null() || out.is_null() || w == 0 || h == 0 {
+        return;
+    }
+
     let y = std::slice::from_raw_parts(y, w * h);
     let u = std::slice::from_raw_parts(u, (w / 2) * (h / 2));
     let v = std::slice::from_raw_parts(v, (w / 2) * (h / 2));
@@ -377,6 +447,10 @@ pub unsafe extern "C" fn transform_detect_input(
     let h = h as usize;
     let w = w as usize;
     let c = c as usize;
+    if src.is_null() || dst.is_null() || h == 0 || w == 0 || c == 0 {
+        return;
+    }
+
     let src = std::slice::from_raw_parts(src, h * w * c);
     let dst = std::slice::from_raw_parts_mut(dst, c * h * w);
     let inv255: f32 = 1.0 / 255.0;
@@ -412,6 +486,15 @@ pub unsafe extern "C" fn read_ffmpeg_frame(
     use std::fs::File;
     use std::io::Read;
 
+    // Validate everything *before* touching the fd.  File::from_raw_fd
+    // asserts on a negative descriptor, and this crate is a cdylib
+    // built with panic = "abort" — so a closed pipe during an ffmpeg
+    // restart would abort the whole Frigate process rather than
+    // failing one frame.  The caller already treats <= 0 as an error.
+    if fd < 0 || dst.is_null() || frame_size == 0 {
+        return -1;
+    }
+
     let mut file = std::mem::ManuallyDrop::new(File::from_raw_fd(fd));
     let slice = std::slice::from_raw_parts_mut(dst, frame_size as usize);
     match file.read_exact(slice) {
@@ -440,6 +523,10 @@ pub unsafe extern "C" fn intersection_over_union(
     box_a: *const f32,
     box_b: *const f32,
 ) -> f32 {
+    // 0.0 means "no overlap" — the safe answer for a bad pointer.
+    if box_a.is_null() || box_b.is_null() {
+        return 0.0;
+    }
     let a = std::slice::from_raw_parts(box_a, 4);
     let b = std::slice::from_raw_parts(box_b, 4);
 
@@ -484,6 +571,11 @@ pub unsafe extern "C" fn intersection_over_union(
 /// `det` and `est` must point to valid arrays of 4 f64s.
 #[no_mangle]
 pub unsafe extern "C" fn track_distance(det: *const f64, est: *const f64) -> f64 {
+    // +inf matches the existing "degenerate input" contract, so the
+    // caller treats it as an impossible association rather than a match.
+    if det.is_null() || est.is_null() {
+        return f64::INFINITY;
+    }
     let d = std::slice::from_raw_parts(det, 4);
     let e = std::slice::from_raw_parts(est, 4);
 
@@ -645,6 +737,7 @@ pub unsafe extern "C" fn fast_shm_copy(
 // ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::erasing_op)] // index math documents tensor layout
 mod tests {
     use super::*;
 
@@ -796,3 +889,102 @@ mod tests {
     }
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  AVX2 ↔ scalar parity for normalize_u8_to_f32.
+//
+//  The scalar kernel is the fallback on aarch64 and on x86_64 CPUs
+//  without AVX2, so it must agree with the SIMD path exactly.
+// ═══════════════════════════════════════════════════════════════════
+#[cfg(all(test, target_arch = "x86_64"))]
+mod simd_parity_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_scalar_matches_avx2() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+        // Lengths straddling the 8-lane stride cover body and tail.
+        for &len in &[0usize, 1, 7, 8, 9, 16, 255, 1000] {
+            let src: Vec<u8> = (0..len).map(|i| (i * 37 % 256) as u8).collect();
+            let mut simd = vec![0f32; len];
+            let mut scalar = vec![0f32; len];
+            unsafe { normalize_u8_to_f32_avx2(&src, &mut simd, len) };
+            normalize_u8_to_f32_scalar(&src, &mut scalar, len);
+            assert_eq!(simd, scalar, "normalize mismatch at len={len}");
+        }
+    }
+
+    /// Every u8 must map into [0.0, 1.0] on both paths.
+    #[test]
+    fn normalize_covers_full_u8_range() {
+        let src: Vec<u8> = (0..=255u8).collect();
+        let len = src.len();
+        let mut scalar = vec![0f32; len];
+        normalize_u8_to_f32_scalar(&src, &mut scalar, len);
+        assert_eq!(scalar[0], 0.0);
+        assert_eq!(scalar[255], 1.0);
+        assert!(scalar.iter().all(|v| (0.0..=1.0).contains(v)));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  FFI boundary guards — see the note in frigate-motion-rs.
+// ═══════════════════════════════════════════════════════════════════
+#[cfg(test)]
+#[allow(clippy::erasing_op)] // index math documents tensor layout
+mod ffi_guard_tests {
+    use super::*;
+
+    #[test]
+    fn iou_rejects_null() {
+        assert_eq!(unsafe { intersection_over_union(std::ptr::null(), std::ptr::null()) }, 0.0);
+        let b = [0f32, 0.0, 10.0, 10.0];
+        assert_eq!(unsafe { intersection_over_union(b.as_ptr(), std::ptr::null()) }, 0.0);
+    }
+
+    #[test]
+    fn track_distance_rejects_null() {
+        assert!(unsafe { track_distance(std::ptr::null(), std::ptr::null()) }.is_infinite());
+    }
+
+    #[test]
+    fn read_ffmpeg_frame_rejects_null_and_zero() {
+        assert_eq!(unsafe { read_ffmpeg_frame(-1, std::ptr::null_mut(), 128) }, -1);
+        let mut buf = vec![0u8; 8];
+        assert_eq!(unsafe { read_ffmpeg_frame(-1, buf.as_mut_ptr(), 0) }, -1);
+    }
+
+    /// The zero-dimension case that used to underflow `sh - 1` into
+    /// usize::MAX and read far out of bounds in release builds.
+    #[test]
+    fn preprocess_rejects_zero_dimensions() {
+        let src = vec![128u8; 64];
+        let mut dst = vec![-1.0f32; 64];
+        for (sw, sh, dw, dh) in [(0u32, 4u32, 4u32, 4u32), (4, 0, 4, 4), (4, 4, 0, 4), (4, 4, 4, 0)] {
+            unsafe { preprocess_detect_input(src.as_ptr(), dst.as_mut_ptr(), sw, sh, dw, dh, 1) };
+        }
+        assert!(dst.iter().all(|&v| v == -1.0), "guard path must not write");
+        unsafe { preprocess_detect_input(std::ptr::null(), dst.as_mut_ptr(), 4, 4, 4, 4, 1) };
+        assert!(dst.iter().all(|&v| v == -1.0));
+    }
+
+    #[test]
+    fn bilinear_resize_rejects_zero_dimensions() {
+        let src = vec![7u8; 16];
+        let mut dst = vec![0u8; 16];
+        unsafe { bilinear_resize_u8(src.as_ptr(), dst.as_mut_ptr(), 4, 0, 4, 4, 1) };
+        assert!(dst.iter().all(|&v| v == 0));
+    }
+
+    /// A crop window must be fully contained in the source plane.
+    #[test]
+    fn crop_repack_rejects_out_of_bounds_window() {
+        let src = vec![0u8; 16 * 16 * 3 / 2];
+        let mut out = vec![0xABu8; 64];
+        // crop_x + crop_w exceeds src_w
+        unsafe { yuv420_crop_repack(src.as_ptr(), 16, 16, 12, 0, 8, 8, out.as_mut_ptr()) };
+        assert!(out.iter().all(|&v| v == 0xAB), "must not write on an out-of-range crop");
+    }
+}
