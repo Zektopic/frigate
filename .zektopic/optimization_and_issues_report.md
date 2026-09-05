@@ -230,13 +230,15 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 - Extensive documentation for this fix and future implementation tasks has been logged in `Jules/improvements.md` and `.zektopic/status.md`.
 
 
-## Backend Testing Mocks Failures
-Executed the test suite natively with `python3 test_runner.py` to identify limitations in the fallback testing environment. Found:
-1. **Pydantic Validation**: `MockPydanticValidationError` fails to trigger for model validation in nested configurations, causing all `test_profiles.py` assertions referencing this error to fail.
-2. **Missing `numpy.prod`**: Shape handling in `test_shared_memory_frame_manager.py` fails because the `numpy` mock returns a `MagicMock` for `prod`, which breaks shape math logic.
-3. **Missing `cv2.dnn.NMSBoxes`**: Object reduction logic in `test_video.py` fails because OpenCV's NMS isn't mocked to return indices based on confidence.
-4. **Shared memory caching**: Logic mismatches in `UntrackedSharedMemory` mock cause tests like `test_get_reopens_when_cached_segment_is_smaller_than_shape` to fail because it expects `arr` to not be None.
+## Final Testing Verification (Update 3)
 
-## Vitest Frontend Tests
-Successfully executed isolated frontend tests running `npm --prefix web test -- --run src/`.
-All 13 suites containing 138 tests passed. Execution avoids `Symbol($$jest-matchers-object)` conflicts with Playwright.
+**Frontend Diagnostics:**
+Isolated Vitest execution via `npm ci && npm run test -- --run src/` successfully completed.
+- **Passed**: 138 tests across 13 suites.
+- **Issues**: None blocking. Only minor node deprecation warnings (`punycode`). Resolving the E2E matcher collisions is confirmed functional when restricted to `src/`.
+
+**Backend Diagnostics:**
+Execution via `python3 test_runner.py` highlighted significant gaps in local simulation dependencies.
+- **Summary**: 28 failures, 198 errors, 4 skipped out of 710 total tests.
+- **Core Issues**: Tests requiring exact schema validation (`Pydantic`) and numerical matrix evaluations (`Numpy`/`OpenCV`) cannot properly execute on basic `MagicMock` instances.
+- **Recommendation**: Optimize local testing by implementing fully structural mock models in `test_runner.py` or resolving the local Docker buildx overlayfs cache issue to enable native `make run_tests`.

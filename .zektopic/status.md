@@ -182,13 +182,15 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Final Testing Environment Wrap-up (Update 6)
-### Backend Native Execution Dependencies & Code Mocks
-- The `make run_tests` Docker BuildKit failure (`overlayfs mount invalid argument`) remains the primary blocker for a healthy native testing environment on local setups. Resolving this via `DOCKER_BUILDKIT=0` or alternative storage drivers (like `vfs`) should be a top priority to execute reliable backend validations.
-- The `test_runner.py` custom script implements extremely brittle `sys.modules` patching for `pydantic`, `cv2`, `numpy`, `ruamel.yaml` and `openvino`. Building perfect mocks that trick Python's native runtime type checking and deep dictionary validation for Pydantic v2 schemas has proven unfeasible without the real libraries.
-- The latest test run reports 28 failures and 198 errors out of 710 tests. These failures are primarily tied to issues like `MockPydanticValidationError` not being raised correctly, and mocks for things like `UntrackedSharedMemory` or `np.prod` not accurately simulating the real libraries.
-- **Action Item**: Once the Docker engine mount issue is resolved, permanently deprecate `test_runner.py` reliance for API model testing and fallback solely to native container runs, as relying on `sys.modules` causes massive false-positive failures and missing validation coverage.
+## Test Environment Setup and Code Review Request (Update 3)
+Re-ran frontend tests cleanly via `npm ci` and `npm run test -- --run src/`.
+- 138 frontend unit tests passed perfectly across 13 suites.
+- Node warnings regarding `punycode` continue to appear but are non-blocking.
 
-### Frontend Quality of Life
-- The front-end unit test suite runs 138 tests entirely free of errors when scoped using `cd web && npm ci && npx vitest run src/`.
-- **Action Item**: Node dependency warnings regarding `punycode` were observed during the Vitest execution sequence. A minor maintenance task should be opened to update packages or replace the deprecated `punycode` library with a community userland alternative to keep CI logs clean.
+Backend tests using local `test_runner.py` reported:
+- 28 failures, 198 errors, 4 skipped.
+- Many errors stem from `sys.modules` patching inadequacies, particularly:
+  - `pydantic.ValidationError` vs `pydantic_core.ValidationError` structures for configuration tests (like `test_profiles.py`).
+  - Native `numpy` indexing requirements that `MagicMock` cannot emulate (e.g. for tensor manipulations).
+  - Missing deeper mocks for external resources like `peewee`, `requests`, and `norfair.drawing`.
+- Running `make run_tests` to execute tests natively via Docker fails immediately due to a BuildKit cache overlayfs mount error (`err: invalid argument`).

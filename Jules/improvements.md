@@ -205,11 +205,17 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Testing Status Update (New Execution)
-- Ran `python3 test_runner.py` locally. The backend test suite continues to hit limits with mock dependencies. As noted previously, 28 failures and 198 errors occurred across 710 tests. Attempting to use Docker via `make run_tests` fails early due to an `overlayfs` BuildKit error specific to this local environment.
-- Ran `cd web && npm ci && npm run test -- --run src/`. All 138 frontend tests pass locally.
+## Test Environment Improvements (Update 3)
 
-### Action Items for Future Implementations
-- **Backend Mock Infrastructure**: In order to make local backend tests robust without Docker, `test_runner.py`'s mocks for `numpy`, `cv2`, `peewee`, and `pydantic` must be thoroughly refactored or actual dependencies installed locally. Specifically, `MockPydanticValidationError` fails to mimic Pydantic v2's strict validation logic.
-- **Docker Fixes**: Fix the BuildKit `overlayfs` mount error on the local daemon, for example by running tests with `DOCKER_BUILDKIT=0` or a different storage driver (e.g., `vfs`), to allow `make run_tests` to execute native unit tests correctly.
-- **Frontend Deprecations**: Fix the Node deprecation warnings related to the `punycode` module emitted during vitest test execution by updating frontend packages or utilizing userland alternatives.
+### 1. Robust `test_runner.py` Mocks
+The current ad-hoc `sys.modules` patching in `test_runner.py` is extremely brittle for testing Pydantic v2 logic outside of a fully resolved environment.
+- **Pydantic**: Rewrite the `MockPydantic` class so that `MockPydanticValidationError` structurally matches `pydantic_core.ValidationError`, including attributes like `.title` and methods like `.errors()`. This will fix failures in `test_profiles.py` (e.g. `AssertionError: MockPydanticValidationError not raised`).
+- **Numpy**: Standard `MagicMock` cannot emulate structural multi-dimensional array slicing or shape indexing natively. Tests validating `np.prod` logic or image mask extraction fail due to this limitation. Create a `MockNdarray` class that accurately emulates `.shape`, `.reshape`, and basic arithmetic broadcasting.
+
+### 2. Docker Test Environment Fallback
+- Local unit testing heavily relies on building a Docker container via `make run_tests`. When a user attempts this, `docker buildx build` currently aborts with an overlayfs mount cache error (`err: invalid argument`).
+- Action: Investigate and provide a `Makefile` option to bypass or wipe the BuildKit cache (`--no-cache`) specifically for the `make run_tests` target so developers have a reliable native testing alternative when local mocking fails.
+
+### 3. Missing Sub-dependencies in Mocks
+- The test suite throws various errors regarding `ModuleNotFoundError` for dependencies missed in `sys.modules`.
+- Missing mocks currently include: `requests`, `peewee.OperationalError`, `norfair.drawing`, `filelock`, and OpenCV functions like `cv2.dnn.NMSBoxes`. Expand the mock mapping in `test_runner.py` to intercept these standard imports globally before test discovery.

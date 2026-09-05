@@ -57,12 +57,15 @@ The mocks for `BaseModel` and `unidecode` were incomplete.
 - We fixed the `BaseModel` mock to include an `__init__` constructor that accepts `**kwargs`.
 - We fixed the `unidecode` mock to map accented characters to non-accented ones.
 
-### Final Testing Run Report
-**Backend Tests:**
-- Running `python3 test_runner.py` yields 28 failures and 198 errors out of 710 tests.
-- Mocks like `UntrackedSharedMemory`, `MockPydanticValidationError`, and `cv2` lack necessary depth causing widespread failures (e.g., shape tests and bounding box NMS).
-- The `make run_tests` Docker environment is still blocked by an `overlayfs` invalid argument during BuildKit execution. It is highly recommended to prioritize fixing the Docker environment to avoid these brittle python mocks in the future.
+## Final Testing Verification (Update 3)
 
-**Frontend Tests:**
-- Scoped frontend tests (`cd web && npm ci && npx vitest run src/`) passed flawlessly with 138 passing tests.
-- Punycode deprecation warnings still exist and should be addressed in future dependencies updates.
+**Frontend Diagnostics:**
+Isolated Vitest execution via `npm ci && npm run test -- --run src/` successfully completed.
+- **Passed**: 138 tests across 13 suites.
+- **Issues**: None blocking. Only minor node deprecation warnings (`punycode`). Resolving the E2E matcher collisions is confirmed functional when restricted to `src/`.
+
+**Backend Diagnostics:**
+Execution via `python3 test_runner.py` highlighted significant gaps in local simulation dependencies.
+- **Summary**: 28 failures, 198 errors, 4 skipped out of 710 total tests.
+- **Core Issues**: Tests requiring exact schema validation (`Pydantic`) and numerical matrix evaluations (`Numpy`/`OpenCV`) cannot properly execute on basic `MagicMock` instances.
+- **Recommendation**: Optimize local testing by implementing fully structural mock models in `test_runner.py` or resolving the local Docker buildx overlayfs cache issue to enable native `make run_tests`.
