@@ -181,3 +181,14 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### 4. UI/UX Enhancements
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
+
+## Detailed Backend Testing Failures (test_runner.py)
+Executed the backend test suite locally via `python3 test_runner.py`. Noted 28 failures and 198 errors due to incomplete mocks in the test runner. Key failures include:
+- `MockPydanticValidationError not raised` across `test_profiles.py` because `MockPydanticValidationError` is not properly integrated into the mock pydantic validation logic for field attributes.
+- `numpy.prod` is not mocked appropriately, leading to `AssertionError` in `test_shared_memory_frame_manager.py` (e.g. `test_get_handles_n_dimensional_shape`).
+- `cv2.dnn.NMSBoxes` is not mocked in `test_video.py`, causing `test_overlapping_objects_reduced` and other reduction tests to fail because they rely on correct Non-Maximum Suppression index logic.
+- Type comparison errors like `< not supported between instances of int and MagicMock` because mocked opencv returns a MagicMock instead of real values (e.g. image shapes).
+
+## Detailed Frontend Testing Summary
+Executed Vitest suite via `npm --prefix web test -- --run src/`.
+All 138 tests across 13 test suites passed successfully in roughly 5.61s. No conflicts with playwright `e2e/` suites when specifying the `src/` directory.
