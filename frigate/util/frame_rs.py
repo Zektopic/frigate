@@ -108,43 +108,44 @@ def track_distance_rust(detection, estimate) -> float:
     return float(lib.track_distance(det, est))
 
 
-def batch_track_distance_matrix_rust(
-    detections: list[list[float]],
-    estimates: list[list[float]],
-) -> list[list[float]]:
-    """Pairwise Norfair association distance matrix between N detections and M estimates in Rust."""
+def preprocess_detect_input_rust(
+    src_bytes: bytes,
+    src_w: int,
+    src_h: int,
+    dst_w: int,
+    dst_h: int,
+    channels: int = 3,
+) -> ctypes.Array:
+    """Zero-copy SIMD preprocess detection input (bilinear resize + normalize + NHWC->NCHW)."""
     lib = _load_lib()
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
-    n = len(detections)
-    m = len(estimates)
-    if n == 0 or m == 0:
-        return []
+    out_size = channels * dst_w * dst_h
+    out_buf = (ctypes.c_float * out_size)()
 
-    flat_dets = [x for d in detections for x in d]
-    flat_ests = [x for e in estimates for x in e]
-
-    dets_arr = (ctypes.c_double * len(flat_dets))(*flat_dets)
-    ests_arr = (ctypes.c_double * len(flat_ests))(*flat_ests)
-    out_arr = (ctypes.c_double * (n * m))()
-
-    lib.batch_track_distance_matrix.argtypes = [
-        ctypes.POINTER(ctypes.c_double),
+    lib.preprocess_detect_input.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_float),
         ctypes.c_uint32,
-        ctypes.POINTER(ctypes.c_double),
         ctypes.c_uint32,
-        ctypes.POINTER(ctypes.c_double),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
     ]
-    lib.batch_track_distance_matrix.restype = None
+    lib.preprocess_detect_input.restype = None
 
-    lib.batch_track_distance_matrix(
-        dets_arr,
-        ctypes.c_uint32(n),
-        ests_arr,
-        ctypes.c_uint32(m),
-        out_arr,
+    src_arr = (ctypes.c_uint8 * len(src_bytes)).from_buffer_copy(src_bytes)
+
+    lib.preprocess_detect_input(
+        src_arr,
+        out_buf,
+        src_w,
+        src_h,
+        dst_w,
+        dst_h,
+        channels,
     )
+    return out_buf
 
-    return [[out_arr[i * m + j] for j in range(m)] for i in range(n)]
 
