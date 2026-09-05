@@ -182,15 +182,7 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Test Environment Setup and Code Review Request (Update 3)
-Re-ran frontend tests cleanly via `npm ci` and `npm run test -- --run src/`.
-- 138 frontend unit tests passed perfectly across 13 suites.
-- Node warnings regarding `punycode` continue to appear but are non-blocking.
-
-Backend tests using local `test_runner.py` reported:
-- 28 failures, 198 errors, 4 skipped.
-- Many errors stem from `sys.modules` patching inadequacies, particularly:
-  - `pydantic.ValidationError` vs `pydantic_core.ValidationError` structures for configuration tests (like `test_profiles.py`).
-  - Native `numpy` indexing requirements that `MagicMock` cannot emulate (e.g. for tensor manipulations).
-  - Missing deeper mocks for external resources like `peewee`, `requests`, and `norfair.drawing`.
-- Running `make run_tests` to execute tests natively via Docker fails immediately due to a BuildKit cache overlayfs mount error (`err: invalid argument`).
+## Test Verification Update (New Run)
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests across 13 test files passed successfully in isolation. Node deprecation warnings regarding the `punycode` module were observed in the output.
+- **Backend Native Tests (Python)**: Executed `python3 test_runner.py`. The suite starts successfully, but out of 710 tests, there are 28 failures and 198 errors. These are predominantly caused by limitations in the `test_runner.py` mock environment (e.g., Pydantic validations, Numpy shapes, missing OpenCV bindings) which fail to accurately replicate native C-extensions and V2 schemas.
+- **Backend Docker Tests**: Attempted to run `make run_tests`. It fails with `overlayfs` invalid argument errors during the `docker buildx build` phase, making native testing on the local daemon blocked. Or tried with `DOCKER_BUILDKIT=0 make run_tests` and still failing with overlayfs cachemount issue.

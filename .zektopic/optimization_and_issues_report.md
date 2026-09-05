@@ -230,15 +230,15 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 - Extensive documentation for this fix and future implementation tasks has been logged in `Jules/improvements.md` and `.zektopic/status.md`.
 
 
-## Final Testing Verification (Update 3)
+## New Testing Cycle Findings (Backend & Frontend)
 
-**Frontend Diagnostics:**
-Isolated Vitest execution via `npm ci && npm run test -- --run src/` successfully completed.
-- **Passed**: 138 tests across 13 suites.
-- **Issues**: None blocking. Only minor node deprecation warnings (`punycode`). Resolving the E2E matcher collisions is confirmed functional when restricted to `src/`.
+### Frontend
+- **Execution**: The frontend test suite was verified successfully using `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests pass seamlessly.
+- **Node Deprecations**: The output logs present `[DEP0040] DeprecationWarning` regarding the `punycode` module.
+  - **Improvement**: Update underlying dependencies that use `punycode` (e.g. `tr46`, `whatwg-url`) to modern versions or integrate userland alternatives to prevent node warnings from bloating the CI outputs.
 
-**Backend Diagnostics:**
-Execution via `python3 test_runner.py` highlighted significant gaps in local simulation dependencies.
-- **Summary**: 28 failures, 198 errors, 4 skipped out of 710 total tests.
-- **Core Issues**: Tests requiring exact schema validation (`Pydantic`) and numerical matrix evaluations (`Numpy`/`OpenCV`) cannot properly execute on basic `MagicMock` instances.
-- **Recommendation**: Optimize local testing by implementing fully structural mock models in `test_runner.py` or resolving the local Docker buildx overlayfs cache issue to enable native `make run_tests`.
+### Backend
+- **Mock Limitations (`test_runner.py`)**: Tests executed locally (`python3 test_runner.py`) produced 28 failures and 198 errors (out of 710 tests). The core issue remains: `sys.modules` patching is not sufficient to replicate complex Pydantic v2 schemas or OpenCV/NumPy native multi-dimensional matrices and C-bindings.
+  - **Improvement**: Refactor `MockPydanticValidationError` and `MockBaseModel` in the test runner to properly parse nested configuration dictionaries (like `detect`, `ffmpeg`) and match V2 core structure validations.
+- **Docker Mount Issues (`make run_tests`)**: Attempted running native tests fully via Docker (`make run_tests`), but encountered persistent `overlayfs` and cachemount `invalid argument` errors from Docker BuildKit in the local test environment.
+  - **Improvement**: Since `overlayfs` fails in this local daemon setup, developers must use a different storage driver like `vfs` or a distinct docker test harness to execute `make run_tests` natively. The Python fallback is too brittle for this project's requirements.

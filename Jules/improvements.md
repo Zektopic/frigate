@@ -205,17 +205,15 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Dynamic Config Fallbacks**: Features failing during missing dependencies (like missing `labelmap.txt`) should fail gracefully by displaying an informative status in the UI config editor instead of a strict backend exception crash.
 
 
-## Test Environment Improvements (Update 3)
+## New Testing Cycle Findings (Backend & Frontend)
 
-### 1. Robust `test_runner.py` Mocks
-The current ad-hoc `sys.modules` patching in `test_runner.py` is extremely brittle for testing Pydantic v2 logic outside of a fully resolved environment.
-- **Pydantic**: Rewrite the `MockPydantic` class so that `MockPydanticValidationError` structurally matches `pydantic_core.ValidationError`, including attributes like `.title` and methods like `.errors()`. This will fix failures in `test_profiles.py` (e.g. `AssertionError: MockPydanticValidationError not raised`).
-- **Numpy**: Standard `MagicMock` cannot emulate structural multi-dimensional array slicing or shape indexing natively. Tests validating `np.prod` logic or image mask extraction fail due to this limitation. Create a `MockNdarray` class that accurately emulates `.shape`, `.reshape`, and basic arithmetic broadcasting.
+### Frontend
+- **Execution**: The frontend test suite was verified successfully using `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests pass seamlessly.
+- **Node Deprecations**: The output logs present `[DEP0040] DeprecationWarning` regarding the `punycode` module.
+  - **Improvement**: Update underlying dependencies that use `punycode` (e.g. `tr46`, `whatwg-url`) to modern versions or integrate userland alternatives to prevent node warnings from bloating the CI outputs.
 
-### 2. Docker Test Environment Fallback
-- Local unit testing heavily relies on building a Docker container via `make run_tests`. When a user attempts this, `docker buildx build` currently aborts with an overlayfs mount cache error (`err: invalid argument`).
-- Action: Investigate and provide a `Makefile` option to bypass or wipe the BuildKit cache (`--no-cache`) specifically for the `make run_tests` target so developers have a reliable native testing alternative when local mocking fails.
-
-### 3. Missing Sub-dependencies in Mocks
-- The test suite throws various errors regarding `ModuleNotFoundError` for dependencies missed in `sys.modules`.
-- Missing mocks currently include: `requests`, `peewee.OperationalError`, `norfair.drawing`, `filelock`, and OpenCV functions like `cv2.dnn.NMSBoxes`. Expand the mock mapping in `test_runner.py` to intercept these standard imports globally before test discovery.
+### Backend
+- **Mock Limitations (`test_runner.py`)**: Tests executed locally (`python3 test_runner.py`) produced 28 failures and 198 errors (out of 710 tests). The core issue remains: `sys.modules` patching is not sufficient to replicate complex Pydantic v2 schemas or OpenCV/NumPy native multi-dimensional matrices and C-bindings.
+  - **Improvement**: Refactor `MockPydanticValidationError` and `MockBaseModel` in the test runner to properly parse nested configuration dictionaries (like `detect`, `ffmpeg`) and match V2 core structure validations.
+- **Docker Mount Issues (`make run_tests`)**: Attempted running native tests fully via Docker (`make run_tests`), but encountered persistent `overlayfs` and cachemount `invalid argument` errors from Docker BuildKit in the local test environment.
+  - **Improvement**: Since `overlayfs` fails in this local daemon setup, developers must use a different storage driver like `vfs` or a distinct docker test harness to execute `make run_tests` natively. The Python fallback is too brittle for this project's requirements.
