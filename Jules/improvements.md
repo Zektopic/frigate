@@ -239,12 +239,3 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
-
-## Test Framework Improvements (2026-09-06 00:29:03)
-- Need to improve the `test_runner.py` to better mock dependencies, specifically for:
-  - `pydantic` schemas, error validation, and nested configurations.
-  - `cv2` and `numpy` functions to return appropriately shaped arrays/tuples instead of generic `MagicMock`s to prevent failures in shape-dependent logic like `test_motion_search_spatial` or snapshot generation.
-  - Mock Peewee database integration or switch local tests to use an in-memory SQLite database to fully support HTTP API and storage manipulation testing without `AttributeError`s.
-  - Mock filesystem operations or configuration paths (like `MODEL_CACHE_DIR`) to prevent `PermissionError`s during local test execution.
-- Recommend updating frontend dependencies (`whatwg-url`, `tr46`) to resolve NodeJS `punycode` deprecation warnings during vitest runs.
-- Investigate and resolve docker buildkit `overlayfs` mount issues to enable the native `make run_tests` suite.
