@@ -140,7 +140,7 @@ class NorfairTracker(ObjectTracker):
         self.untracked_object_boxes: list[list[int]] = []
         self.disappeared: dict[str, int] = {}
         self.positions: dict[str, dict[str, Any]] = {}
-        self.stationary_box_history: dict[str, list[list[int]]] = {}
+        self.stationary_box_history: dict[str, list[list[int] | tuple[int, ...]]] = {}
         self.camera_config = config
         self.detect_config = config.detect
         self.ptz_metrics = ptz_metrics
