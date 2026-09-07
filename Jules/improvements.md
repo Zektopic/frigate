@@ -239,3 +239,21 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
+
+
+
+## Identified Improvements from Latest Test Run
+
+### Local Test Infrastructure Reliability
+- **Pydantic v2 Mock Expansion**: The current local testing fallback `test_runner.py` is brittle and missing critical exports like `RootModel`. Expanding this mock infrastructure to more closely mimic Pydantic v2's actual structure will dramatically reduce false-positive test failures when running outside of Docker.
+- **Numpy Operator Mocks**: Implement magic method overrides (`__gt__`, `__ge__`, `__lt__`, `__getitem__`, etc.) within the `MockNumpy` class. Currently, operations on mock arrays throw `TypeError`, completely halting any logic tests in `util/object.py` and `test_video.py`.
+- **Mock Security Boundaries**: The current mocked `sanitize_filename` function returns a mock object string rather than properly returning `None` when a traversal attempt (`..`) is detected, breaking critical security assertions. This mock needs to be made smarter to simulate valid/invalid paths.
+
+### Dependency Modernization
+- **Node.js Ecosystem**: Update underlying dependencies like `tr46` and `whatwg-url` to remove the deprecated `punycode` module usage in the web frontend, clearing up terminal warnings and future-proofing the build against newer Node versions.
+
+### Actionable Roadmap for Future Implementations
+1. **Implement `RootModel` Stub**: Edit `test_runner.py` to add `RootModel = MagicMock` and ensure the Pydantic mock correctly stubs `BaseModel` metaclass behaviors.
+2. **Implement Numpy Magic Methods**: Enhance the Numpy mock in `test_runner.py` to return valid integers or booleans for comparison operations so that cluster boundary math (`boxes_arr[:, 0] >= cluster_boundary[0]`) does not crash.
+3. **Refactor Peewee Event Mock**: Ensure that when mocking the Peewee `Event` model, the class-level `.bind()` method is strictly stubbed to return `None`, preventing `AttributeError` during test class `setUp` phases.
+4. **Audit Web Lockfile**: Execute `npm ls punycode` in the `web/` directory to identify the exact packages pulling in the deprecated module and bump them.

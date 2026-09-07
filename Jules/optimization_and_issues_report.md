@@ -67,3 +67,30 @@ The mocks for `BaseModel` and `unidecode` were incomplete.
 **Frontend Testing Optimizations:**
 - Executing frontend tests in the root `web/` folder with standard `npm run test` causes assertion and describe-block collisions. This occurs because Vitest encounters Playwright integration tests inside the `e2e/` folder, causing conflicts where Playwright explicitly rejects `test.describe()` from foreign executors.
 - *Optimization Suggestion*: Always explicitly scope unit tests to the source code folder using `cd web && npm run test -- --run src/`. Doing so results in all 138 test items resolving successfully within an isolated boundary, improving both the test reliability and preventing tool-chain cross-pollution.
+
+
+
+## Latest Test Run Issues and Optimization Report
+
+### Python Backend Test Issues (Local Native Runner)
+Running the test suite natively outside Docker using `test_runner.py` yielded 89 failures and 200 errors.
+**Key Failing Areas:**
+- **Pydantic Mocks**: `ImportError: cannot import name 'RootModel' from 'MockPydantic'` in `classification_response.py`.
+- **Peewee Models**: `AttributeError: type object 'Event' has no attribute 'bind'` in `test_chat_find_similar_objects.py`.
+- **Numpy/CV2 Utility Functions**: `TypeError: '>=' not supported between instances of 'MagicMock' and 'int'` in `util/object.py` `get_cluster_candidates()`.
+- **Path Traversal Security Tests**: 10 tests in `test_util_path.py` (e.g., `test_rejects_traversal_camera_names`) fail with `AssertionError: ... is not None`.
+- **Video Object Logic**: Bounding box logic tests are outright failing, suggesting actual logic discrepancies or mock data structural issues.
+
+**Performance Insights (Benchmarks from Python Tests):**
+- Detection pre-processing [300x300]: avg=0.377ms (limit 50.0ms) - PASS
+- Detection pre-processing [640x360]: avg=0.340ms (limit 100.0ms) - PASS
+- Memory Growth: +0.0% (Limit < 10%) - PASS
+- SQLite bulk insert: Sanity check batch=100 (278,071 r/s) > batch=1 (15,938 r/s) - PASS
+
+### Web Frontend Issues
+- **Node Deprecation Warning**: Emits `[DEP0040] DeprecationWarning: The punycode module is deprecated` during Vitest runs.
+
+### Actionable Roadmap for Future Implementations
+1. **Refactor Local Mock Infrastructure**: Overhaul the custom `test_runner.py` mocks for Pydantic (specifically `RootModel`), Peewee (`Event.bind`), and Numpy (`__ge__` and other logical operators) to stabilize the fallback testing environment.
+2. **Fix Path Security Asserts**: Investigate and fix the `mock.sanitize_filename()` implementation injected during testing.
+3. **Migrate Frontend Dependencies**: Identify and bump specific sub-dependencies (e.g., `tr46`, `whatwg-url`) pulling in the deprecated `punycode` library.
