@@ -240,3 +240,36 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 **Frontend Testing Optimizations:**
 - Executing frontend tests in the root `web/` folder with standard `npm run test` causes assertion and describe-block collisions. This occurs because Vitest encounters Playwright integration tests inside the `e2e/` folder, causing conflicts where Playwright explicitly rejects `test.describe()` from foreign executors.
 - *Optimization Suggestion*: Always explicitly scope unit tests to the source code folder using `cd web && npm run test -- --run src/`. Doing so results in all 138 test items resolving successfully within an isolated boundary, improving both the test reliability and preventing tool-chain cross-pollution.
+
+
+## Latest Test Run Issues and Optimization Report
+
+### Python Backend Test Issues (Local Native Runner)
+The custom `test_runner.py` mock infrastructure fails significantly when simulating heavy dependencies outside of the Docker environment, leading to 89 failures and 200 errors.
+**Key Failing Areas:**
+- **Pydantic Mocks**: `ImportError: cannot import name 'RootModel' from 'MockPydantic'` in `classification_response.py`. The `sys.modules` override for Pydantic v2 fails to provide `RootModel`.
+- **Peewee Models**: `AttributeError: type object 'Event' has no attribute 'bind'` in `test_chat_find_similar_objects.py`. This suggests that `Event` is being improperly mocked or evaluated before `bind` can be assigned.
+- **Numpy/CV2 Utility Functions**: `TypeError: '>=' not supported between instances of 'MagicMock' and 'int'` in `util/object.py` `get_cluster_candidates()`. The mock injected for Numpy arrays does not handle basic comparison operators correctly, causing 42 cluster/region-related tests to error out.
+- **Path Traversal Security Tests**: 10 tests in `test_util_path.py` (e.g., `test_rejects_traversal_camera_names`) fail with `AssertionError: ... is not None`, indicating that path sanitization mocks might be incorrectly returning a concatenated path string instead of returning `None` for invalid paths.
+- **Video Object Logic**: Bounding box logic tests (e.g., `test_overlapping_objects_reduced`, `test_non_overlapping_objects_not_reduced`) are outright failing, suggesting actual logic discrepancies or mock data structural issues.
+
+**Performance Insights (Benchmarks from Python Tests):**
+- Detection pre-processing [300x300]: avg=0.377ms (limit 50.0ms) - PASS
+- Detection pre-processing [640x360]: avg=0.340ms (limit 100.0ms) - PASS
+- Memory Growth: +0.0% (Limit < 10%) - PASS
+- SQLite bulk insert: Sanity check batch=100 (278,071 r/s) > batch=1 (15,938 r/s) - PASS
+
+
+### Web Frontend Issues
+- **Node Deprecation Warning**: Emits `[DEP0040] DeprecationWarning: The punycode module is deprecated` during Vitest runs.
+
+
+
+### Actionable Roadmap for Future Implementations
+
+1. **Overhaul Local Mock Infrastructure**:
+   - Refactor `MockPydantic` in `test_runner.py` to correctly export `RootModel` and simulate schema validations.
+   - Inject a complete `MockNumpy` class into `sys.modules` that supports logical operator overloads (e.g., `__ge__`, `__lt__`, `__getitem__`) to prevent utility functions from crashing on comparison operations.
+   - Refactor Peewee mocks to ensure methods like `bind()` are stubbed correctly on model base classes before tests evaluate them.
+2. **Fix Path Security Asserts**: Investigate the `mock.sanitize_filename()` implementation injected during testing. It appears to concatenate `..` path mock results rather than returning `None`, causing traversal security checks to fail.
+3. **Migrate Frontend Dependencies**: Identify the specific sub-dependencies (e.g., `tr46`, `whatwg-url`) pulling in the deprecated `punycode` library and force a resolution in `package.json` to bump them to modern versions.
