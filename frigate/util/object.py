@@ -1,4 +1,3 @@
-
 """Utils for reading and writing object detection data."""
 
 import datetime
@@ -344,7 +343,9 @@ def average_boxes(boxes: Sequence[list[int] | tuple[int, ...]]) -> list[float]:
     ]
 
 
-def median_of_boxes(boxes: Sequence[list[int] | tuple[int, ...]]) -> list[int] | tuple[int, ...]:
+def median_of_boxes(
+    boxes: Sequence[list[int] | tuple[int, ...]],
+) -> list[int] | tuple[int, ...]:
     """Return a box that is the median of a list of boxes."""
     sorted_boxes = sorted(boxes, key=lambda x: area(x))
     return sorted_boxes[int(len(sorted_boxes) / 2.0)]
