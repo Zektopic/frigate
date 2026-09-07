@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+
 from frigate.db.sqlitevecq import SqliteVecQueueDatabase
 
 

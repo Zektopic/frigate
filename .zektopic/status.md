@@ -205,3 +205,18 @@ Based on the full-codebase testing evaluation, here are specific features and op
   - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
   - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
   - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
+
+
+## Latest Test Execution (Local Native Runner)
+
+- **Python Backend Tests**: 89 failures, 200 errors out of 757 tests. Many errors related to missing imports/dependencies during mock injection (e.g., `RootModel` from `MockPydantic`), AttributeError on `Event.bind` in Peewee models when running locally outside docker, and `TypeError` on `MagicMock` comparisons in `get_cluster_candidates`.
+
+- **Rust Tests**: All 47 tests passed across `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`.
+
+- **Web Frontend Tests**: All 137 tests passed. Emits node deprecation warnings (`DEP0040`) for `punycode` module which requires an update to underlying dependencies (`whatwg-url` or `tr46`).
+
+
+### Actionable Roadmap for Future Implementations
+1. **Fix Python Test Environment Mocks**: The fallback test execution via `test_runner.py` requires comprehensive overhauls to its mock implementation for `pydantic` (specifically `RootModel` and validation behaviors), `peewee` (handling `Event.bind` cleanly), and OpenCV/Numpy integrations to prevent `MagicMock` vs `int` comparison errors in utility scripts (like `util.object.get_cluster_candidates`).
+2. **Resolve Model Errors in Backend tests**: Look into tests like `test_rejects_traversal_camera_names` and `test_non_overlapping_objects_not_reduced` that explicitly fail assertion checks.
+3. **Upgrade Node Dependencies**: Bump underlying `whatwg-url` and `tr46` to resolve the `punycode` deprecation warning in Vitest.
