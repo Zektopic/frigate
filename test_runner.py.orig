@@ -95,8 +95,8 @@ class MockPydantic:
         return list
     def constr(*args, **kwargs):
         return str
-    def StringConstraints(*args, **kwargs):
-        return None
+    class StringConstraints:
+        pass
     def field_validator(*args, **kwargs):
         return lambda x: x
 

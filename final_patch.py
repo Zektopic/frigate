@@ -17,9 +17,9 @@ for line in lines:
         new_lines.append("        return False\n")
         new_lines.append("    def __gt__(self, other):\n")
         new_lines.append("        return True\n")
-    if "sys.modules[\"zeep\"] = ModuleMock()" in line:
-        new_lines.append("sys.modules[\"zeep\"].__version__ = \"1.0.0\"\n")
-    if "sys.modules[\"frigate.util.services\"] = ModuleMock()" in line:
+    if 'sys.modules["zeep"] = ModuleMock()' in line:
+        new_lines.append('sys.modules["zeep"].__version__ = "1.0.0"\n')
+    if 'sys.modules["frigate.util.services"] = ModuleMock()' in line:
         # Check if next line is already what we want
         pass
 

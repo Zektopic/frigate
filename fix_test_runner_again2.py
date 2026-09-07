@@ -31,7 +31,8 @@ replacement2 = """class ModuleMock(MagicMock):
             return 2 # To fix regex KeyError
         return super().__getattr__(name)"""
 
-content = content.replace("""class ModuleMock(MagicMock):
+content = content.replace(
+    """class ModuleMock(MagicMock):
     def __lt__(self, other):
         return False
 
@@ -51,7 +52,9 @@ content = content.replace("""class ModuleMock(MagicMock):
             "__parameters__",
         ):
             raise AttributeError(name)
-        return super().__getattr__(name)""", replacement2)
+        return super().__getattr__(name)""",
+    replacement2,
+)
 
 replacement3 = """sys.modules["zeep"] = ModuleMock()
 sys.modules["zeep"].__version__ = "1.0.0" """
