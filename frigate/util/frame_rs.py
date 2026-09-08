@@ -195,6 +195,30 @@ def batch_track_distance_matrix_rust(detections: list, estimates: list):
     return out
 
 
+def preprocess_detect_input_rust(
+    src_bytes: bytes, src_w: int, src_h: int, dst_w: int, dst_h: int, channels: int
+) -> ctypes.POINTER(ctypes.c_float):
+    """Zero-copy tensor preprocessing for detection models."""
+    lib = _load_lib()
+    if not lib:
+        raise ImportError("libfrigate_frame_rs.so not loaded")
+
+    lib.preprocess_detect_input.argtypes = [
+        ctypes.c_char_p,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+    ]
+    lib.preprocess_detect_input.restype = None
+
+    dst_size = dst_w * dst_h * channels
+    dst_buf = (ctypes.c_float * dst_size)()
+    lib.preprocess_detect_input(src_bytes, dst_buf, src_w, src_h, dst_w, dst_h, channels)
+    return dst_buf
+
 def fast_shm_copy_rust(dst_buf, src_buf, length: int) -> None:
     """Zero-copy SIMD memory copy for shared memory frame transfers."""
     lib = _load_lib()
