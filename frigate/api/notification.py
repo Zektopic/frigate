@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from peewee import DoesNotExist
 from py_vapid import Vapid01, utils
-from starlette_context import context
 
 from frigate.api.auth import allow_any_authenticated
 from frigate.api.defs.tags import Tags
@@ -58,9 +57,8 @@ def get_vapid_pub_key(request: Request):
 )
 def register_notifications(request: Request, body: dict = None):
     if request.app.frigate_config.auth.enabled:
-        username = (
-            context.get("Remote-User") or request.headers.get("remote-user") or "admin"
-        )
+        # FIXME: For FastAPI the remote-user is not being populated
+        username = request.headers.get("remote-user") or "admin"
     else:
         username = "admin"
 

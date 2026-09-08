@@ -90,10 +90,7 @@ def create_fastapi_app(
     # https://starlette-context.readthedocs.io/en/latest/plugins.html#forwarded-for
     app.add_middleware(
         middleware.ContextMiddleware,
-        plugins=(
-            plugins.ForwardedForPlugin(),
-            RemoteUserPlugin(),
-        ),
+        plugins=(plugins.ForwardedForPlugin(),),
     )
 
     # Middleware to connect to DB before and close connection after request
