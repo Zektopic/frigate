@@ -131,7 +131,9 @@ def point_in_polygon_rust(px: float, py: float, pts: list[tuple[float, float]]) 
     return bool(lib.point_in_polygon(px, py, arr, len(pts)))
 
 
-def polygon_box_overlap_rust(pts: list[tuple[float, float]], box: tuple[float, float, float, float]) -> bool:
+def polygon_box_overlap_rust(
+    pts: list[tuple[float, float]], box: tuple[float, float, float, float]
+) -> bool:
     """Check if bounding box [x1, y1, x2, y2] overlaps with polygon in Rust."""
     if len(pts) < 3:
         return False
@@ -157,6 +159,7 @@ def polygon_box_overlap_rust(pts: list[tuple[float, float]], box: tuple[float, f
 def batch_track_distance_matrix_rust(detections: list, estimates: list):
     """Vectorized NxM pairwise tracker distance matrix in Rust."""
     import numpy as np
+
     n_dets = len(detections)
     n_ests = len(estimates)
     if n_dets == 0 or n_ests == 0:
@@ -191,6 +194,30 @@ def batch_track_distance_matrix_rust(detections: list, estimates: list):
     )
     return out
 
+
+def preprocess_detect_input_rust(
+    src_bytes: bytes, src_w: int, src_h: int, dst_w: int, dst_h: int, channels: int
+) -> ctypes.POINTER(ctypes.c_float):
+    """Zero-copy tensor preprocessing for detection models."""
+    lib = _load_lib()
+    if not lib:
+        raise ImportError("libfrigate_frame_rs.so not loaded")
+
+    lib.preprocess_detect_input.argtypes = [
+        ctypes.c_char_p,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+    ]
+    lib.preprocess_detect_input.restype = None
+
+    dst_size = dst_w * dst_h * channels
+    dst_buf = (ctypes.c_float * dst_size)()
+    lib.preprocess_detect_input(src_bytes, dst_buf, src_w, src_h, dst_w, dst_h, channels)
+    return dst_buf
 
 def fast_shm_copy_rust(dst_buf, src_buf, length: int) -> None:
     """Zero-copy SIMD memory copy for shared memory frame transfers."""
