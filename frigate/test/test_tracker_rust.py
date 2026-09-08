@@ -1,9 +1,9 @@
 import unittest
 
 from frigate.util.frame_rs import (
+    batch_track_distance_matrix_rust,
     frame_rs_available,
     track_distance_rust,
-    batch_track_distance_matrix_rust,
 )
 
 
