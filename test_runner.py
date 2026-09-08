@@ -89,14 +89,6 @@ class MockPydantic:
     def PrivateAttr(*args, **kwargs):
         return None
 
-    class Json:
-        pass
-    def conlist(*args, **kwargs):
-        return list
-    def constr(*args, **kwargs):
-        return str
-    def StringConstraints(*args, **kwargs):
-        return None
     def field_validator(*args, **kwargs):
         return lambda x: x
 
@@ -181,7 +173,6 @@ class MockModel:
 
     def __gt__(self, other):
         return True
-
 
 peewee_mock = ModuleMock()
 peewee_mock.Model = MockModel
@@ -424,5 +415,3 @@ if __name__ == "__main__":
 
 sys.modules["frigate.util.services"] = ModuleMock()
 sys.modules["frigate.util.services"]._go2rtc_arbitrary_exec_allowed = True
-sys.modules["pydantic.json_schema"] = ModuleMock()
-sys.modules["pydantic.json_schema"].SkipJsonSchema = MagicMock()

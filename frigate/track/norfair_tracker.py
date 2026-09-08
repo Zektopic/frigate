@@ -379,9 +379,9 @@ class NorfairTracker(ObjectTracker):
                 -thresholds.max_stationary_history :
             ]
 
-        avg_box = average_boxes(self.stationary_box_history[id])  # type: ignore[arg-type]
+        avg_box = average_boxes(self.stationary_box_history[id])
         avg_iou = intersection_over_union(box, avg_box)
-        median_box = median_of_boxes(self.stationary_box_history[id])  # type: ignore[arg-type]
+        median_box = median_of_boxes(self.stationary_box_history[id])
 
         # Establish anchor early when stationary and stable
         if stationary and yuv_frame is not None:

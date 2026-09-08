@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from peewee import DoesNotExist
 from py_vapid import Vapid01, utils
 
-from frigate.api.auth import allow_any_authenticated, get_current_user
+from frigate.api.auth import allow_any_authenticated
 from frigate.api.defs.tags import Tags
 from frigate.const import CONFIG_DIR
 from frigate.models import User
@@ -55,15 +55,10 @@ def get_vapid_pub_key(request: Request):
     Returns a success message or an error if the subscription is not provided.
     """,
 )
-def register_notifications(
-    request: Request,
-    body: dict = None,
-    current_user: Any = Depends(get_current_user),
-):
+def register_notifications(request: Request, body: dict = None):
     if request.app.frigate_config.auth.enabled:
-        if isinstance(current_user, JSONResponse):
-            return current_user
-        username = current_user.get("username") or "admin"
+        # FIXME: For FastAPI the remote-user is not being populated
+        username = request.headers.get("remote-user") or "admin"
     else:
         username = "admin"
 
