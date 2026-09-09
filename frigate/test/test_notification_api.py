@@ -8,7 +8,11 @@ sys.modules.setdefault("py3nvml.py3nvml", MagicMock())
 sys.modules.setdefault("zmq", MagicMock())
 sys.modules.setdefault("frigate.version", MagicMock())
 
-from frigate.api.notification import register_notifications
+try:
+    from frigate.api.notification import register_notifications
+except ImportError:
+    register_notifications = None
+
 
 
 class TestNotificationApi(unittest.TestCase):
