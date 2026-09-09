@@ -205,3 +205,20 @@ Based on the full-codebase testing evaluation, here are specific features and op
   - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
   - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
   - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
+
+## Backend Testing Update
+
+Backend tests were run using the custom `test_runner.py` outside of the Docker environment due to BuildKit `overlayfs` issues (`DOCKER_BUILDKIT=0` also did not resolve it). The script required significant mocking for dependencies, particularly `pydantic`, `cryptography`, and internal Rust modules (`frigate.util.frame_rs`, `frigate.util.motion_rs`).
+
+**Results:**
+*   Tests were successfully executed after fixing import errors.
+*   **Failures: 98, Errors: 346, Skipped: 15.**
+*   The failures and errors are largely attributed to the limited functionality of the `sys.modules` mocks (e.g., `MockBaseModel` lacking robust Pydantic v2 validation and evaluation, Rust module mocks missing complex logic). Testing the complete backend effectively requires the Docker environment for native dependencies or a more comprehensive testing strategy for isolated components.
+
+## Frontend Testing Update
+
+Frontend tests (Vitest) were run using `npm ci` and `npm run test -- --run src/` to isolate tests and avoid matcher collisions with Playwright.
+
+**Results:**
+*   **Passed: 13/13 test files (137 tests).**
+*   Deprecation warnings (`DEP0040`) for the `punycode` module were observed.
