@@ -1,0 +1,5 @@
+--- frigate/mypy.ini
++++ frigate/mypy.ini
+@@ -1 +1,2 @@
+ [mypy]
++ignore_missing_imports = True

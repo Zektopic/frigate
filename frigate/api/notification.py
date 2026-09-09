@@ -71,7 +71,10 @@ def register_notifications(request: Request, body: dict = None):
 
     if not username or username == "anonymous":
         return JSONResponse(
-            content={"success": False, "message": "Cannot register notifications for an anonymous user."},
+            content={
+                "success": False,
+                "message": "Cannot register notifications for an anonymous user.",
+            },
             status_code=400,
         )
 
