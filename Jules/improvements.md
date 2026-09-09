@@ -239,3 +239,12 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
+
+## Improvements Discovered During Testing
+
+1.  **Backend Test Isolation**: The current `test_runner.py` strategy for local testing relies on brittle `sys.modules` overriding, which is highly prone to breaking when dependencies (like Pydantic or cryptography) change. A better approach would be:
+    *   Transitioning more tests to be fully unit-testable without requiring massive global mocks (e.g., dependency injection).
+    *   Creating dedicated fallback local testing profiles that don't try to mock complex external libraries like Pydantic, but rather use minimal viable implementations or require those dependencies to be installed locally.
+2.  **Docker Build Reliability**: Investigate and resolve the `overlayfs` mount errors occurring during local `docker buildx build`. This prevents developers from easily running the full native test suite (`make run_tests`) locally without relying on the brittle `test_runner.py`.
+3.  **Frontend Dependency Updates**: Address the Node.js deprecation warnings (`DEP0040: The punycode module is deprecated`) during frontend test execution by updating underlying dependencies (like `whatwg-url` or `tr46`) in the `web/` project to newer major versions.
+4.  **Mocking Rust Extensions**: The Rust extensions (e.g., `frigate.util.frame_rs`) are difficult to mock accurately in pure Python. Consider providing dummy Python implementations of these extensions explicitly for the test suite, rather than relying on ad-hoc lambda functions or empty classes injected at runtime, to allow more tests to pass locally.
