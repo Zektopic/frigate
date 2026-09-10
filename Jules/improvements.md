@@ -239,7 +239,3 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
-
-
-## Backend Test Dependency Improvements
-- **Stop Mocking Core Validation Libraries:** Tests for modules like `frigate.util.path` rely heavily on the exact behavior of third-party libraries (e.g., `pathvalidate`). Mocking these via `sys.modules` causes tests to fail with false positives. Since libraries like `pathvalidate` are lightweight and easy to install locally, they should be added to the local test environment's requirements rather than being faked in `test_runner.py`.
