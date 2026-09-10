@@ -1,7 +1,8 @@
 import logging
 import random
 import string
-from typing import Any, Sequence, cast
+from collections.abc import Sequence
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -140,7 +141,9 @@ class NorfairTracker(ObjectTracker):
         self.untracked_object_boxes: list[list[int]] = []
         self.disappeared: dict[str, int] = {}
         self.positions: dict[str, dict[str, Any]] = {}
-        self.stationary_box_history: dict[str, list[list[int]]] = {}
+        self.stationary_box_history: dict[
+            str, Sequence[list[int] | tuple[int, ...]]
+        ] = {}
         self.camera_config = config
         self.detect_config = config.detect
         self.ptz_metrics = ptz_metrics
@@ -324,7 +327,7 @@ class NorfairTracker(ObjectTracker):
             "xmax": self.detect_config.width,
             "ymax": self.detect_config.height,
         }
-        self.stationary_box_history[id] = boxes
+        self.stationary_box_history[id] = list(boxes)
 
     def deregister(self, id: str, track_id: str) -> None:
         obj = self.tracked_objects[id]
@@ -341,9 +344,7 @@ class NorfairTracker(ObjectTracker):
         ):
             tracker = self.get_tracker(obj["label"])
             tracker.tracked_objects = [
-                o
-                for o in tracker.tracked_objects
-                if str(o.global_id) != track_id
+                o for o in tracker.tracked_objects if str(o.global_id) != track_id
             ]
 
         del self.track_id_map[track_id]
@@ -372,7 +373,7 @@ class NorfairTracker(ObjectTracker):
 
         xmin, ymin, xmax, ymax = box
         position = self.positions[id]
-        self.stationary_box_history[id].append(box)
+        self.stationary_box_history[id] = list(self.stationary_box_history[id]) + [box]
 
         if len(self.stationary_box_history[id]) > thresholds.max_stationary_history:
             self.stationary_box_history[id] = self.stationary_box_history[id][
