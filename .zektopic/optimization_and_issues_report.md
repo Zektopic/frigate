@@ -240,3 +240,21 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 **Frontend Testing Optimizations:**
 - Executing frontend tests in the root `web/` folder with standard `npm run test` causes assertion and describe-block collisions. This occurs because Vitest encounters Playwright integration tests inside the `e2e/` folder, causing conflicts where Playwright explicitly rejects `test.describe()` from foreign executors.
 - *Optimization Suggestion*: Always explicitly scope unit tests to the source code folder using `cd web && npm run test -- --run src/`. Doing so results in all 138 test items resolving successfully within an isolated boundary, improving both the test reliability and preventing tool-chain cross-pollution.
+
+
+
+### Test Results Overview (Local Run)
+
+- **Backend (Python)**: Failed. (`FAILED (failures=89, errors=201, skipped=12)`) Many `ImportError` on missing test dependencies (e.g., `http_api.test_debug_replay_api`).
+- **Frontend (Web)**: Passed. 137 tests passed in 5.31s. Emitted `[DEP0040] DeprecationWarning: The punycode module is deprecated.`
+- **Rust**: Passed. 0 failures across `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`.
+- **Linting/Static Analysis**:
+    - `ruff`: 11 errors (10 fixable via `--fix`).
+    - `npm run lint`: 8 warnings (prettier formatting).
+    - `mypy`: 139 errors in 33 files.
+
+### Actionable Roadmap
+1. **Fix Python Backend Test Imports**: Modify `test_runner.py` to properly mock or install missing nested dependencies for tests failing with `ImportError`.
+2. **Fix `ruff` and `npm run lint` errors**: Run `ruff check --fix frigate/` and `npm run lint:fix` to clean up easily automatable formatting issues.
+3. **Address `mypy` typing issues**: Iteratively go through the `139` typing errors in `frigate/` (e.g., in `license_plate/mixin.py`, unused ignore comments).
+4. **Update Frontend Dependencies**: Look into userland alternatives for the `punycode` module dependency to resolve Node deprecation warnings.
