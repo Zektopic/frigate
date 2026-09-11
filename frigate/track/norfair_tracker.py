@@ -341,9 +341,7 @@ class NorfairTracker(ObjectTracker):
         ):
             tracker = self.get_tracker(obj["label"])
             tracker.tracked_objects = [
-                o
-                for o in tracker.tracked_objects
-                if str(o.global_id) != track_id
+                o for o in tracker.tracked_objects if str(o.global_id) != track_id
             ]
 
         del self.track_id_map[track_id]
@@ -379,9 +377,11 @@ class NorfairTracker(ObjectTracker):
                 -thresholds.max_stationary_history :
             ]
 
-        avg_box = average_boxes(self.stationary_box_history[id])
+        avg_box = average_boxes([tuple(b) for b in self.stationary_box_history[id]])
         avg_iou = intersection_over_union(box, avg_box)
-        median_box = median_of_boxes(self.stationary_box_history[id])
+        median_box = median_of_boxes(
+            [tuple(b) for b in self.stationary_box_history[id]]
+        )
 
         # Establish anchor early when stationary and stable
         if stationary and yuv_frame is not None:
