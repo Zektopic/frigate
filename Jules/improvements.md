@@ -239,3 +239,7 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
+
+## Backend Test Mock Environment
+- **Pydantic Validation**: Improve `MockPydanticValidationError` integration so it properly emulates `pydantic_core.ValidationError` structure in the backend test mocks.
+- **Complex Object Comparisons**: Implement magic methods (`__lt__`, `__gt__`, `__le__`, `__ge__`) in `test_runner.py` mocks for `cv2` and `numpy` arrays. Tests like `test_box_too_small_for_cluster` and `test_crop_yuv` fail when comparing mocked objects and integers.
