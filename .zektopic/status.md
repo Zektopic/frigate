@@ -205,9 +205,3 @@ Based on the full-codebase testing evaluation, here are specific features and op
   - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
   - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
   - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
-
-
-## Backend Unit Test Mock State Update
-Fixed `MockPydanticValidationError` in `test_runner.py` by implementing standard Exception attributes (`title` and `errors`).
-Some tests still fail due to incomplete mocking of complex dependencies such as OpenCV (`cv2`) and NumPy (`numpy`), particularly relating to comparison operations (`>=`, `<`, etc) on mocked variables.
-It's recommended to test via Docker (`make run_tests`) for true isolation and dependency correctness rather than relying entirely on `test_runner.py` patching.

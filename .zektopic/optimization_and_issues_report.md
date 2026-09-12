@@ -240,10 +240,3 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 **Frontend Testing Optimizations:**
 - Executing frontend tests in the root `web/` folder with standard `npm run test` causes assertion and describe-block collisions. This occurs because Vitest encounters Playwright integration tests inside the `e2e/` folder, causing conflicts where Playwright explicitly rejects `test.describe()` from foreign executors.
 - *Optimization Suggestion*: Always explicitly scope unit tests to the source code folder using `cd web && npm run test -- --run src/`. Doing so results in all 138 test items resolving successfully within an isolated boundary, improving both the test reliability and preventing tool-chain cross-pollution.
-
-## Backend Testing Status Update
-Ran unit tests using `python3 test_runner.py` (which includes local mocks).
-Several tests failed because the custom mocks (like `MockBaseModel`, `ModuleMock`, `MagicMock`) don't fully implement Python magic methods for comparison operations (`__lt__`, `__gt__`, `__ge__`, etc.).
-This led to errors such as `TypeError: '>' not supported between instances of 'ModuleMock' and 'int'` (e.g., in `test_segment_calculations`) and `TypeError: '>=' not supported between instances of 'MagicMock' and 'int'` (e.g., in `test_cluster_candidates`).
-Additionally, path-related tests in `test_util_path.py` failed due to missing return values in the `MockSanitizeFilename` mock.
-Future improvements should include upgrading these mock objects to properly handle Python type checking operations or executing the test suite inside the fully equipped Docker container to avoid mocking.
