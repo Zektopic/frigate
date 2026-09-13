@@ -205,3 +205,14 @@ Based on the full-codebase testing evaluation, here are specific features and op
   - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
   - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
   - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
+
+### Final Testing Phase Outcomes (Backend/Frontend execution tests - Update 3)
+
+**Backend Testing Updates:**
+- Fixed `frigate.util.object.reduce_detections` where overlapping detections were not properly reduced due to an issue with `np.int32` index checking logic. By checking `isinstance(index, (int, np.integer))` we ensured proper integer extraction across Numpy and OpenCV versions.
+- Ongoing limitations with `test_runner.py` remain, as it is difficult to accurately mock C-extensions (like `cv2` and `numpy`) and heavily nested structures (like Pydantic V2 schemas).
+- *Optimization Suggestion*: Resolve the Docker container BuildKit `overlayfs` mount issues to enable tests to run natively with fully installed dependencies, which will eliminate the need for brittle `sys.modules` overriding.
+
+**Frontend Testing Updates:**
+- Remember to explicitly isolate Vitest unit tests to the `src/` directory (e.g. `cd web && npm run test -- --run src/`) to avoid matcher conflicts with Playwright.
+- *Optimization Suggestion*: Vitest dependencies (like `whatwg-url` or `tr46`) should be updated to address Node deprecation warnings (e.g., `DEP0040`).

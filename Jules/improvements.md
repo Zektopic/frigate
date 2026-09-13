@@ -239,3 +239,14 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
+
+### Final Testing Phase Outcomes (Backend/Frontend execution tests - Update 3)
+
+**Backend Testing Updates:**
+- Fixed `frigate.util.object.reduce_detections` where overlapping detections were not properly reduced due to an issue with `np.int32` index checking logic. By checking `isinstance(index, (int, np.integer))` we ensured proper integer extraction across Numpy and OpenCV versions.
+- Ongoing limitations with `test_runner.py` remain, as it is difficult to accurately mock C-extensions (like `cv2` and `numpy`) and heavily nested structures (like Pydantic V2 schemas).
+- *Optimization Suggestion*: Resolve the Docker container BuildKit `overlayfs` mount issues to enable tests to run natively with fully installed dependencies, which will eliminate the need for brittle `sys.modules` overriding.
+
+**Frontend Testing Updates:**
+- Remember to explicitly isolate Vitest unit tests to the `src/` directory (e.g. `cd web && npm run test -- --run src/`) to avoid matcher conflicts with Playwright.
+- *Optimization Suggestion*: Vitest dependencies (like `whatwg-url` or `tr46`) should be updated to address Node deprecation warnings (e.g., `DEP0040`).
