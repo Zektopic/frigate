@@ -4,7 +4,7 @@ import datetime
 import logging
 import math
 from collections import defaultdict
-from typing import Any
+from typing import Any, Sequence
 
 import cv2
 import numpy as np
@@ -332,7 +332,7 @@ def reduce_boxes(boxes, iou_threshold=0.0):
     return [tuple(c) for c in clusters]
 
 
-def average_boxes(boxes: list[list[int] | tuple[int, ...]]) -> list[float]:
+def average_boxes(boxes: Sequence[list[int] | tuple[int, ...]]) -> list[float]:
     """Return a box that is the average of a list of boxes."""
     n = len(boxes)
     return [
@@ -343,7 +343,9 @@ def average_boxes(boxes: list[list[int] | tuple[int, ...]]) -> list[float]:
     ]
 
 
-def median_of_boxes(boxes: list[list[int] | tuple[int, ...]]) -> list[int] | tuple[int, ...]:
+def median_of_boxes(
+    boxes: Sequence[list[int] | tuple[int, ...]],
+) -> list[int] | tuple[int, ...]:
     """Return a box that is the median of a list of boxes."""
     sorted_boxes = sorted(boxes, key=lambda x: area(x))
     return sorted_boxes[int(len(sorted_boxes) / 2.0)]
@@ -532,7 +534,7 @@ def reduce_detections(
 
             # add objects
             for index in indices:
-                index = index if isinstance(index, np.int32) else index[0]
+                index = index if isinstance(index, (int, np.integer)) else index[0]
                 obj = group[index]
                 selected_objects.append(obj)
 

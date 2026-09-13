@@ -240,3 +240,14 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 **Frontend Testing Optimizations:**
 - Executing frontend tests in the root `web/` folder with standard `npm run test` causes assertion and describe-block collisions. This occurs because Vitest encounters Playwright integration tests inside the `e2e/` folder, causing conflicts where Playwright explicitly rejects `test.describe()` from foreign executors.
 - *Optimization Suggestion*: Always explicitly scope unit tests to the source code folder using `cd web && npm run test -- --run src/`. Doing so results in all 138 test items resolving successfully within an isolated boundary, improving both the test reliability and preventing tool-chain cross-pollution.
+
+### Final Testing Phase Outcomes (Backend/Frontend execution tests - Update 3)
+
+**Backend Testing Updates:**
+- Fixed `frigate.util.object.reduce_detections` where overlapping detections were not properly reduced due to an issue with `np.int32` index checking logic. By checking `isinstance(index, (int, np.integer))` we ensured proper integer extraction across Numpy and OpenCV versions.
+- Ongoing limitations with `test_runner.py` remain, as it is difficult to accurately mock C-extensions (like `cv2` and `numpy`) and heavily nested structures (like Pydantic V2 schemas).
+- *Optimization Suggestion*: Resolve the Docker container BuildKit `overlayfs` mount issues to enable tests to run natively with fully installed dependencies, which will eliminate the need for brittle `sys.modules` overriding.
+
+**Frontend Testing Updates:**
+- Remember to explicitly isolate Vitest unit tests to the `src/` directory (e.g. `cd web && npm run test -- --run src/`) to avoid matcher conflicts with Playwright.
+- *Optimization Suggestion*: Vitest dependencies (like `whatwg-url` or `tr46`) should be updated to address Node deprecation warnings (e.g., `DEP0040`).
