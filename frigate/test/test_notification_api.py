@@ -8,6 +8,7 @@ sys.modules.setdefault("py3nvml.py3nvml", MagicMock())
 sys.modules.setdefault("zmq", MagicMock())
 sys.modules.setdefault("frigate.version", MagicMock())
 
+# ruff: noqa: E402
 from frigate.api.notification import register_notifications
 
 

@@ -205,3 +205,18 @@ Based on the full-codebase testing evaluation, here are specific features and op
   - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
   - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
   - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
+
+### Local Native Fallback Testing Status (Python Backend)
+After resolving various mocking issues, the test suite was run natively using `test_runner.py` outside the docker container.
+However, there are still 89 test failures and 201 errors out of 758 tests.
+
+- **False Negative Mock Errors**: The remaining failures are predominantly due to incomplete or missing implementation logic in the global `sys.modules` mocks inside `test_runner.py`.
+- **C-Extension Limitations**: Attempting to mock complex behavior for `cv2` (like `cv2.dnn.NMSBoxes`) or `numpy` natively results in assertion failures. For example, `reduce_detections` in `frigate/util/object.py` leverages `cv2.dnn.NMSBoxes`, and the fallback mock returns a dummy output causing failures in `test_video.py`.
+- **Lightweight Validators**: Testing paths with `pathvalidate` fails because `test_runner.py` completely mocks it using a `ModuleMock`, bypassing actual path validation and returning `ModuleMock` objects which break tests like `test_util_path.py`. Even after installing `pathvalidate` via pip, many modules fail to evaluate properly without a full container context.
+
+### Rust and Frontend Testing Status
+- **Rust Components**: All tests inside `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs` successfully passed (`cargo test`).
+- **Web Frontend**: All 137 Vitest unit tests inside `web/src` successfully passed.
+- **Web Playwright E2E**: Playwright tests successfully ran against the frontend components.
+
+The codebase logic itself appears solid based on the passing frontend and Rust components; the Python backend tests require execution within the target Docker environment (`make run_tests`) rather than relying on brittle, ad-hoc Python mocks.

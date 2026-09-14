@@ -33,3 +33,21 @@ Based on the audit log and codebase analysis, the following architectural and pe
   - **Environment Variables & Permissions**: Local test executions throw `PermissionError: [Errno 13] Permission denied: '/config'`. Set an overridden `CONFIG_DIR` pointing to a local `/tmp/frigate-test-config` inside `test_runner.py` or aggressively mock `frigate.const.MODEL_CACHE_DIR` directly during test initialization to bypass host restricted read/writes.
   - **Peewee Database Mocks**: Tests covering `test_storage.py` and `test_video.py` fail heavily (e.g. `AttributeError: type object 'Recordings' has no attribute 'insert'`). `test_runner.py` needs an expanded mock ORM to intercept SQLite execution and correctly chain methods like `.where()`, `.order_by()`, and `.insert().execute()`.
   - **Pydantic V2 Mock Refactoring**: Update `MockBaseModel` to support strict parsing of metadata values and error types.
+
+## Future Actionable Improvements
+
+### 1. Robust Python Backend Test Environment
+- **Issue**: Running `test_runner.py` directly relies on fragile, global `sys.modules` patching. Mocked objects like `ModuleMock` break type expectations (e.g., in `pathvalidate` or `cv2.dnn.NMSBoxes`), leading to cascading false negatives.
+- **Action**: Implement a standard Python `tox` or `pytest` setup that installs minimal mock representations (via dedicated local stub libraries or using `pytest-mock`) instead of dynamic overriding. Alternatively, separate tests that require native bindings (e.g., `cv2`, `numpy`) into a dedicated suite that only runs under Docker, leaving pure Python logic tests to run blazingly fast locally without excessive mocking.
+
+### 2. Docker BuildKit Bypass for Testing
+- **Issue**: Running `make run_tests` locally currently fails during the build step due to `overlayfs` mount issues from BuildKit on certain host kernel environments.
+- **Action**: Update `Makefile` inside the `run_tests` target (or create a new `run_tests_local` target) to export `DOCKER_BUILDKIT=0` or explicitly use the standard `docker build` instead of `docker buildx build`. This provides an immediate fallback for engineers encountering local container storage driver faults during test invocation.
+
+### 3. Pydantic v2 Schema Testing Compatibility
+- **Issue**: Testing HTTP and configuration logic natively often fails because the mocked `BaseModel` lacks validation parity (e.g., missing `RootModel` logic or missing internal Pydantic error structures).
+- **Action**: Stop mocking `pydantic` globally. Since it relies heavily on native Rust core components in v2, add it as an explicit development dependency (`pip install pydantic pydantic-core`) for local testing environments. This allows exact structural validation during unit testing and ensures config objects (e.g., `FrigateConfig`) correctly trigger actual `ValidationError`s.
+
+### 4. Separation of Frontend Testing Workflows
+- **Issue**: Mixed testing tooling (Vitest and Playwright) in the `web/` directory leads to configuration overlap and test resolution failures if executed at the root level indiscriminately.
+- **Action**: Add explicit npm scripts to the root `package.json` separating integration runs from unit tests (e.g., `"test:unit": "vitest run src/"` and `"test:e2e": "playwright test"`). Ensure automated CI strictly invokes these separate targets to prevent framework collisions.

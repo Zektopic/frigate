@@ -1,18 +1,21 @@
 import unittest
+
 import numpy as np
 
 from frigate.util.frame_rs import (
     frame_rs_available,
     intersection_over_union_rust,
-    track_distance_rust,
     preprocess_detect_input_rust,
+    track_distance_rust,
 )
 
 
 class TestFrameShmRust(unittest.TestCase):
     def test_frame_rs_available(self):
         """Ensure Rust frame engine library loads correctly."""
-        self.assertTrue(frame_rs_available(), "libfrigate_frame_rs.so should be available")
+        self.assertTrue(
+            frame_rs_available(), "libfrigate_frame_rs.so should be available"
+        )
 
     def test_iou_rust(self):
         """Test bounding box IoU calculation in Rust."""
@@ -57,7 +60,6 @@ class TestFrameShmRust(unittest.TestCase):
         self.assertEqual(out_np.shape, (3, 32, 32))
         # With pixel values = 128, normalized value ≈ 128 / 255.0 ≈ 0.50196
         self.assertTrue(np.all(out_np >= 0.0) and np.all(out_np <= 1.0))
-
 
 
 if __name__ == "__main__":
