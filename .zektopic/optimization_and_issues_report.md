@@ -240,3 +240,19 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 **Frontend Testing Optimizations:**
 - Executing frontend tests in the root `web/` folder with standard `npm run test` causes assertion and describe-block collisions. This occurs because Vitest encounters Playwright integration tests inside the `e2e/` folder, causing conflicts where Playwright explicitly rejects `test.describe()` from foreign executors.
 - *Optimization Suggestion*: Always explicitly scope unit tests to the source code folder using `cd web && npm run test -- --run src/`. Doing so results in all 138 test items resolving successfully within an isolated boundary, improving both the test reliability and preventing tool-chain cross-pollution.
+
+## Detailed Analysis of Python Backend Local Mock Testing Limitations
+Running the backend tests natively via `test_runner.py` outside of the Docker container reveals systemic issues with the fallback mocking architecture:
+
+1. **C-Extension and OpenCV Mocking Failures:**
+   - `test_runner.py` attempts to globally patch `cv2` and `numpy` using `MagicMock` instances.
+   - This approach inherently breaks logic that relies on specific return values or data structures. For example, `cv2.dnn.NMSBoxes` is heavily utilized in `frigate/util/object.py` within the `reduce_detections` function to filter bounding boxes. When returning a `MagicMock`, it fails to properly filter overlap, causing `AssertionError` across multiple tests in `test_video.py` (e.g., `test_overlapping_objects_reduced`).
+
+2. **Validation and Path Library Masking:**
+   - Libraries like `pathvalidate` are mocked globally in `test_runner.py` via `sys.modules["pathvalidate"] = ModuleMock()`.
+   - Consequently, `pathvalidate.sanitize_filename` returns a `ModuleMock` object instead of a validated string. This completely breaks assertions in `test_util_path.py` (e.g., `test_rejects_relative_markers_and_empty`, `test_builds_the_expected_path`), resulting in type mismatch assertion failures where a string was expected.
+
+3. **Incomplete Dependency Coverage:**
+   - Some tests (like `test_http_latest_frame.py` or `test_notification_api.py`) fail due to missing module mocks entirely (`RootModel` from Pydantic or `cryptography.hazmat.primitives`). The brittle nature of global patching in `sys.modules` makes natively testing these endpoints difficult without heavily duplicating containerized environments.
+
+**Conclusion:** Local ad-hoc testing inside `test_runner.py` generates significant false negatives. Backend evaluation should rely strictly on containerized test execution (`make run_tests`) where real dependencies are securely isolated and evaluated.
