@@ -332,7 +332,8 @@ def reduce_boxes(boxes, iou_threshold=0.0):
     return [tuple(c) for c in clusters]
 
 
-def average_boxes(boxes: list[list[int] | tuple[int, ...]]) -> list[float]:
+from typing import Sequence
+def average_boxes(boxes: Sequence[list[int] | tuple[int, ...]]) -> list[float]:
     """Return a box that is the average of a list of boxes."""
     n = len(boxes)
     return [
