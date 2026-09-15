@@ -341,9 +341,7 @@ class NorfairTracker(ObjectTracker):
         ):
             tracker = self.get_tracker(obj["label"])
             tracker.tracked_objects = [
-                o
-                for o in tracker.tracked_objects
-                if str(o.global_id) != track_id
+                o for o in tracker.tracked_objects if str(o.global_id) != track_id
             ]
 
         del self.track_id_map[track_id]
