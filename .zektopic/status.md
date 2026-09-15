@@ -205,3 +205,23 @@ Based on the full-codebase testing evaluation, here are specific features and op
   - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
   - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
   - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
+
+## Final Comprehensive Testing Evaluation
+
+### Frontend Tests
+- Executed `cd web && npm ci && npm run test -- --run src/`.
+- 137 unit tests across 13 files passed successfully. (Slight decrease due to updated test cases or minor refactor).
+- Deprecation warnings (`DEP0040`) for `punycode` continue to be logged. To address this, frontend dependencies (e.g., `tr46`, `whatwg-url`) need upgrading, or a userland alternative must be integrated.
+
+### Rust Backend Tests
+- Executed `cargo test` against `frigate-detector-rs` (2 tests), `frigate-frame-rs` (15 tests), `frigate-motion-rs` (21 tests), and `frigate-yolo-rs` (9 tests).
+- All tests pass completely with 0 errors.
+
+### Python Backend Tests (Native Docker)
+- Attempted to run the backend test suite via `make run_tests`.
+- Buildkit `overlayfs` mount error (`invalid argument`) persists during `docker buildx build`. The native docker execution remains blocked by host environment issues. To fix this, `DOCKER_BUILDKIT=0` or a different storage driver (like `vfs`) must be used.
+
+### Python Backend Tests (Local Fallback & Unittest)
+- Executing `python3 test_runner.py` outside of Docker runs 758 tests, producing 89 failures, 201 errors, and 12 skips.
+- Additionally, running `python3 -m unittest discover frigate/test` highlights the absence of native modules such as `requests`, `numpy`, `cv2`, `peewee`, `pywebpush`, etc., demonstrating that `sys.modules` mocking in `test_runner.py` cannot accurately substitute a fully containerized environment.
+- **Future Improvements needed:** The custom test runner script requires exhaustive mocking to function properly. Alternatively, fixing the docker environment (`make run_tests`) is heavily recommended to bypass mock brittleness and correctly execute tests against real library behaviors.
