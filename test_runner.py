@@ -185,7 +185,6 @@ class MockModel:
         class _MockRecord:
             has_clip = True
             video_path = "mock_path"
-
         return _MockRecord()
 
     @classmethod
