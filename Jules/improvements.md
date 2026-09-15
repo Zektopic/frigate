@@ -239,3 +239,11 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
+
+## Final Comprehensive Testing Evaluation
+
+**Test Automation Environment:**
+1. **Frontend Testing:** The test suite (`cd web && npm ci && npm run test -- --run src/`) resolves correctly, producing 137 successful tests across 13 suites. The dependency warnings (`punycode`) will require a future resolution through node environment updates (or patching dependencies like `tr46`).
+2. **Rust Testing:** Tested natively via `cargo test` in all sub-crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). Tests fully executed with zero errors.
+3. **Docker Execution Issue:** The test container compilation block (`overlayfs` invalid argument via `make run_tests`) must be bypassed to properly validate logic in Python. Using fallback options like `DOCKER_BUILDKIT=0` could alleviate host configuration problems for future continuous integration flows.
+4. **Mock Brittleness:** Executing the python unit tests outside of the container (`python3 test_runner.py`) continues to show high error rates (89 failures, 201 errors) as `sys.modules` cannot simulate C-bindings for multi-dimensional mathematical libraries like NumPy and OpenCV. Attempting to discover unit tests normally without the test_runner (`python3 -m unittest discover frigate/test`) similarly fails instantly on module import (`requests`, `peewee`, `numpy`, `cv2`, `pywebpush`, etc.)
