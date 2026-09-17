@@ -239,3 +239,27 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
+
+## New Testing Status Summary (Latest Verification)
+Ran backend tests `python3 test_runner.py` locally. 89 failures, 201 errors observed due to incomplete test mocks in the local fallback test runner and differences in parsing complex configurations/dependency structs.
+Attempted Docker backend tests via `make run_tests`, but it failed as expected with the Docker BuildKit `overlayfs` mount restrictions on the host sandbox.
+Ran frontend tests `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests across 13 files passed flawlessly.
+
+### Future Implementations and Improvements Roadmap
+
+#### 1. Backend Testing Environment
+- **Docker Mount Fixes**: The `make run_tests` target currently fails during the build step (`docker buildx build`) because of `overlayfs` invalid arguments on the host. We need to introduce an alternative `DOCKER_BUILDKIT=0` based testing command or alter the daemon to support `vfs`.
+- **Refactoring Fallback Mocks**: The local script `test_runner.py` fails significantly due to missing Pydantic validations, `cv2` properties, multi-dimensional `numpy` mappings, and peewee query mocks. If a robust local testing suite without Docker is required, we should convert away from ad-hoc `sys.modules` patching and bootstrap an actual local Python virtual environment for dependencies.
+- **Improve Pydantic v2 Core Matching**: Fix Pydantic dictionary recursion in local tests where dict methods like `items()` fail for config structures if un-mocked.
+
+#### 2. Frontend Modernization
+- **Punycode Warnings**: The Vitest suite continues to throw `DEP0040` deprecation warnings for `punycode`. Core dependencies (`tr46`, `whatwg-url`) should be bumped to newer userland alternative versions.
+
+#### 3. Database Optimizations
+- **Bulk Chunking Operations**: Leverage `peewee` batch chunks for operations relying on repeated looping queries as tested during the SQLite throughput benchmarks.
+
+
+## Test Updates (Latest Verification)
+All Rust tests (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) pass successfully via `cargo test` (26 tests total).
+Frontend tests fully functional, but punycode deprecation errors require `whatwg-url` updates.
+Backend tests locally still exhibit 89 failures and 201 errors from incomplete mock environment setup. Native docker tests fail due to overlayfs mount errors.

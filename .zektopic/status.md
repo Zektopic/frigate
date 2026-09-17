@@ -205,3 +205,12 @@ Based on the full-codebase testing evaluation, here are specific features and op
   - `AttributeError: type object 'Recordings' has no attribute 'insert'`: Mocked Peewee models lack functional parity for storage manipulation.
   - Pydantic v2 nested object and regex attribute mapping (`MockPydanticValidationError`) limits fail configuration validation tests natively.
   - Complex multi-dimensional array comparisons (e.g. `numpy.ndarray.shape` and `cv2` properties) fail assert-equals clauses heavily in video and motion tests.
+Test result: All 138 frontend tests pass locally. (1 test suite output)
+Test result: All Rust tests ran perfectly successfully via cargo test (all 26 tests in the respective crates pass).
+Test result: Backend testing natively using docker (make run_tests) fails due to buildkit overlayfs mount errors. Local tests using test_runner.py failed for some Python dependencies mocked due to incomplete representation.
+
+## New Testing Status Summary (Latest Verification)
+Ran backend tests `python3 test_runner.py` locally. 89 failures, 201 errors observed due to incomplete test mocks in the local fallback test runner and differences in parsing complex configurations/dependency structs.
+Attempted Docker backend tests via `make run_tests`, but it failed as expected with the Docker BuildKit `overlayfs` mount restrictions on the host sandbox.
+Ran frontend tests `cd web && npm ci && npm run test -- --run src/`. All 138 unit tests across 13 files passed flawlessly.
+Ran rust tests via `cargo test` in `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`. All 26 tests passed.
