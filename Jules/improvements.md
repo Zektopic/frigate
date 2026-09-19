@@ -239,3 +239,27 @@ Based on the full-codebase testing evaluation, here are specific features and op
 #### D. Database & Video Pipeline
 - **Utilize Bulk Operations**: Given the high throughput demonstrated in SQLite batch benchmarks, refactor logic that loops over singular `select` or `insert` statements (e.g., in `frigate.record.export`) to utilize Peewee batch chunking for significant IO gains.
 - **Quantized Model Loading**: For CPU-constrained or APU setups, implement dynamic loading for INT8/quantized models to reduce overhead in ONNX/YOLO pipelines (e.g., minimizing `np.transpose` contiguous copy bottlenecks).
+
+## Testing Status and Roadmap (Update 3)
+
+### 1. Test Results Summary
+- **Python Backend Tests**: Ran using the local `test_runner.py` fallback. There are still many errors and failures (approx. 55 failures, 1 error during the `pathvalidate` isolated tests, and 8 errors during `test_video.py` isolated tests). Native execution via `make run_tests` is still blocked by the Docker BuildKit `overlayfs` mount error.
+- **Web Frontend Tests**: Ran using `npm ci && npm run test -- --run src/` in the `web/` directory. All 137 unit tests across 13 files passed successfully. The `DEP0040` deprecation warnings for the `punycode` module are present and need to be addressed in the future.
+- **Rust Component Tests**: Ran `cargo test` in all four Rust component directories (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). All tests passed successfully without any errors or failures.
+
+### 2. Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend & Testing Environment
+- **Docker BuildKit Fix**: The local Docker execution (`make run_tests`) must be configured to bypass the `overlayfs` mount error (e.g., using `DOCKER_BUILDKIT=0` or a different storage driver). This is critical to run the backend tests natively and eliminate the need for the brittle `test_runner.py` mocks.
+- **Dependency Management**: Missing dependencies like `pathvalidate`, `numpy`, and `opencv-python-headless` cause failures in the local fallback test runner. A dedicated `requirements-test.txt` or a `tox.ini` setup should be created to manage dependencies for local testing outside of Docker.
+- **Mock Enhancements**: If `test_runner.py` is maintained, the `MockNumpy`, `MockPydanticValidationError`, and `MockBaseModel` classes need significant upgrades to accurately replicate complex C-extension behaviors (like array shape comparisons and multi-dimensional indexing) and Pydantic v2 nested schema validation.
+
+#### B. Video Processing & Path Validation Fixes
+- **Video Detection Logic**: The tests in `test_video.py` reveal failures in `reduce_detections` and `get_cluster_candidates`. The logic needs to be reviewed to handle different size overlapping objects and vertical stacking without incorrectly reducing detections. Ensure robust type handling (e.g., `isinstance(index, (int, np.integer))`) when iterating through `cv2.dnn.NMSBoxes` results.
+- **Path Validation**: The `sanitize_path_component` function in `frigate/util/path.py` (which relies on `pathvalidate`) fails when testing for relative markers (e.g., `.` or `..`). The custom sanitization logic should be reviewed to ensure it correctly identifies and rejects these traversal markers.
+
+#### C. Frontend Modernization
+- **Punycode Replacement**: Update the frontend dependencies (`tr46`, `whatwg-url`) to replace the deprecated `punycode` module. This will silence the `DEP0040` warnings during test runs and improve future compatibility.
+
+#### D. Rust Optimization
+- **Code Cleanup**: Address the unused variable, unused function, and unnecessary `mut` binding warnings highlighted during the Rust `cargo test` runs.
