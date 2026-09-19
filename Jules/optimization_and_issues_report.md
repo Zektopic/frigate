@@ -67,3 +67,20 @@ The mocks for `BaseModel` and `unidecode` were incomplete.
 **Frontend Testing Optimizations:**
 - Executing frontend tests in the root `web/` folder with standard `npm run test` causes assertion and describe-block collisions. This occurs because Vitest encounters Playwright integration tests inside the `e2e/` folder, causing conflicts where Playwright explicitly rejects `test.describe()` from foreign executors.
 - *Optimization Suggestion*: Always explicitly scope unit tests to the source code folder using `cd web && npm run test -- --run src/`. Doing so results in all 138 test items resolving successfully within an isolated boundary, improving both the test reliability and preventing tool-chain cross-pollution.
+
+## Optimization and Issues Report (Update 3)
+
+### Current Issues
+
+1.  **Backend Test Runner Limitations**: The custom `test_runner.py` script relies heavily on `sys.modules` overriding, which is insufficient for complex libraries like `numpy`, `cv2`, and `pydantic`. This results in numerous false-positive test failures when run locally. The native `make run_tests` docker execution is blocked by a host-level `overlayfs` mount issue.
+2.  **Path Validation Logic Flaws**: The `frigate/util/path.py` module's `sanitize_path_component` function fails tests related to rejecting relative path markers (`.`, `..`, etc.) even after installing the `pathvalidate` dependency.
+3.  **Video Object Reduction Issues**: The `reduce_detections` and related functions in `frigate/util/object.py` fail tests in `test_video.py` involving non-overlapping, overlapping different-size, and vertically stacked objects. The cluster bounding box generation also throws TypeErrors during numpy array boolean masking in the local test runner.
+4.  **Frontend Deprecation Warnings**: The frontend test suite runs successfully but logs several `DEP0040` deprecation warnings related to the `punycode` module.
+
+### Proposed Optimizations and Future Implementations
+
+1.  **Native Docker Testing Configuration**: Implement a robust solution to bypass the BuildKit `overlayfs` mount error (e.g., fallback storage driver or non-BuildKit test execution target) to allow backend tests to run in a fully populated dependency environment, eliminating reliance on the brittle `test_runner.py`.
+2.  **Local Testing Environment Bootstrap**: Create a dedicated script or `requirements-test.txt` to seamlessly install essential lightweight dependencies (like `pathvalidate`, `numpy`, `opencv-python-headless`) for developers running tests locally without Docker.
+3.  **Refine Object Detection Reduction**: Review and correct the logic in `frigate.util.object.reduce_detections` and `get_cluster_candidates` to accurately process object clusters, especially focusing on edge cases with varying sizes and stacked bounding boxes.
+4.  **Frontend Dependency Upgrade**: Proactively upgrade underlying Node dependencies (e.g., `whatwg-url`, `tr46`) or integrate userland alternatives to completely replace the deprecated `punycode` module, ensuring long-term stability and clean CI output.
+5.  **Rust Component Cleanup**: Clean up minor compiler warnings (unused variants, variables, or functions) in the `frigate-yolo-rs` and `frigate-motion-rs` codebases to maintain pristine code health.
