@@ -257,3 +257,23 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 3.  **Refine Object Detection Reduction**: Review and correct the logic in `frigate.util.object.reduce_detections` and `get_cluster_candidates` to accurately process object clusters, especially focusing on edge cases with varying sizes and stacked bounding boxes.
 4.  **Frontend Dependency Upgrade**: Proactively upgrade underlying Node dependencies (e.g., `whatwg-url`, `tr46`) or integrate userland alternatives to completely replace the deprecated `punycode` module, ensuring long-term stability and clean CI output.
 5.  **Rust Component Cleanup**: Clean up minor compiler warnings (unused variants, variables, or functions) in the `frigate-yolo-rs` and `frigate-motion-rs` codebases to maintain pristine code health.
+
+## Optimization and Issues Report (Update 4)
+
+### Current Issues
+
+1.  **Backend Testing Docker Mount Failure**: `make run_tests` native execution fails on the host due to a Docker BuildKit `overlayfs` mount error (`invalid argument`). This completely blocks a full integration run using fully installed python dependencies.
+2.  **Fallback Mock Limitations**: Using `python3 test_runner.py` outside of Docker triggers multiple errors tied to incomplete mocking of `numpy` arrays, OpenCV multi-dimensional indexing, and nested object evaluations in Pydantic v2 schemas. Tests crash when validating mock schemas or evaluating OpenCV NMS boxes.
+3.  **Video Detection Reductions (Algorithmic Logic)**: The tests inside `test_video.py` reveal that functions like `reduce_detections` and `get_cluster_candidates` are failing to properly separate stacked cars, overlapping objects of different sizes, or properly reject candidates that fall outside size limits.
+4.  **Path Validation Flaws**: The path security module (`frigate/util/path.py`) using `sanitize_filename` continues to fail when evaluating traversal markers like `.` or `..`, leading to potential containment failures inside testing checks.
+5.  **Frontend Node Deprecation Warnings**: Vitest tests successfully execute but emit continuous `DEP0040` deprecation warnings for `punycode`.
+6.  **Rust Component Warnings**: A minor warning exists for an unused `Shutdown` variant in `frigate-detector-rs`.
+
+### Proposed Optimizations and Future Implementations
+
+1.  **Resolve BuildKit Storage Driver Issue**: Add a configuration for the local Docker testing environment to bypass the `overlayfs` mount problem (e.g. `DOCKER_BUILDKIT=0` or updating to `vfs` storage drivers). Getting the native docker environment running is the top priority for backend stability.
+2.  **Refactor Test Runner Mocks**: While waiting for the native environment fix, improve the local `test_runner.py` by implementing comprehensive mock comparisons for NumPy properties and deep dictionary recursive matching inside the `MockBaseModel` wrapper for Pydantic v2.
+3.  **Correct Detection Logic Handling**: Update `frigate/util/object.py` functions to implement the accurate algorithms that handle varying box sizes and stacked object structures without aggressively reducing valid discrete detections. Verify type safety (`isinstance`) on NMS boxes outputs for OpenCV variations.
+4.  **Strengthen Security Containment Checks**: Improve the explicit matching in `frigate/util/path.py` to firmly identify and reject directory traversal sequences that `sanitize_filename` might incorrectly interpret or silently pass.
+5.  **Clean Frontend Warnings**: Bump major underlying Node dependencies (e.g. `tr46`, `whatwg-url`) to modern versions to replace and eliminate the deprecated `punycode` module.
+6.  **Rust Code Health**: Strip the unused enum variant `Shutdown` in `frigate-detector-rs` and continually clean warnings to uphold Rust compilation hygiene.

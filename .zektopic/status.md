@@ -229,3 +229,26 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 #### D. Rust Optimization
 - **Code Cleanup**: Address the unused variable, unused function, and unnecessary `mut` binding warnings highlighted during the Rust `cargo test` runs.
+
+## Testing Status and Roadmap (Update 4)
+
+### 1. Test Results Summary
+- **Python Backend Tests**: Ran using the local `test_runner.py` fallback. 17 tests failed or errored during isolated video processing execution, while testing via full fallback run triggered multiple errors related to missing mock functionality (e.g. OpenCV / Numpy multi-dimensional comparisons). `make run_tests` native execution fails on the host due to a Docker BuildKit `overlayfs` mount error (`invalid argument`).
+- **Web Frontend Tests**: Ran using `npm ci && npm run test -- --run src/` in the `web/` directory. All 137 unit tests across 13 files passed successfully in isolation. The tests still output `DEP0040` deprecation warnings for the `punycode` module.
+- **Rust Component Tests**: Ran `cargo test` in all four Rust component directories (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). All tests passed successfully without any errors or failures. (Noted a minor warning regarding an unused enum variant `Shutdown` in `frigate-detector-rs`).
+
+### 2. Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend Testing Environment
+- **Docker Mount Fix**: The `make run_tests` native testing is entirely blocked by the host's Docker BuildKit `overlayfs` mount error. A structural fix is required (e.g., using `DOCKER_BUILDKIT=0` or updating the Docker daemon configuration) to allow true native tests. This will bypass the need for brittle `test_runner.py` mocks.
+- **Mock Fallback Improvements**: If `test_runner.py` is kept as a local fallback, it requires deep integration logic for libraries like `numpy` and `cv2` (e.g., proper tuple comparisons, `np.int32` casting, multi-dimensional boolean masks) and better Pydantic v2 nesting behavior, as tests frequently crash trying to validate nested configuration schemas or calculate detection intersections.
+
+#### B. Video Detection Logic Fixes
+- **Overlap & Cluster Reductions**: `test_video.py` shows multiple failures inside `reduce_detections` and `get_cluster_candidates`. The logic is incorrectly filtering out or combining non-overlapping, stacked, or different-sized bounding boxes. This requires algorithmic review.
+- **Path Validation Module**: `test_util_path.py` demonstrates failures with `sanitize_filename` (from the `pathvalidate` package) failing to reject traversal markers like `.` or `..`. Custom containment validation logic inside `frigate/util/path.py` should be tightened.
+
+#### C. Frontend Modernization
+- **Deprecation Updates**: The Vitest suite consistently logs Node deprecation warnings for `punycode`. Core frontend dependencies (like `tr46` or `whatwg-url`) must be bumped to stable modern versions or replaced with userland equivalents to keep CI logs clean and secure.
+
+#### D. Rust Optimization
+- **Code Warning Cleanups**: Fix minor compiler warnings across the Rust workspace, specifically addressing unused logic such as the `Shutdown` variant in `frigate-detector-rs` to ensure the codebase remains warning-free.
