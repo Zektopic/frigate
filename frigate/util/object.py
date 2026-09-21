@@ -4,7 +4,7 @@ import datetime
 import logging
 import math
 from collections import defaultdict
-from typing import Any
+from typing import Any, Sequence
 
 import cv2
 import numpy as np
@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 GRID_SIZE = 8
 
 
+def create_empty_regions_grid() -> list[list[dict[str, Any]]]:
+    """Create a region grid with no learned sizes."""
+    return [[{"sizes": []} for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+
+
 def get_camera_regions_grid(
     name: str,
     detect: DetectConfig,
@@ -47,12 +52,7 @@ def get_camera_regions_grid(
         grid = regions.grid
         last_update = regions.last_update
     except DoesNotExist:
-        grid = []
-        for x in range(GRID_SIZE):
-            row = []
-            for y in range(GRID_SIZE):
-                row.append({"sizes": []})
-            grid.append(row)
+        grid = create_empty_regions_grid()
         last_update = 0
 
     # get events for timeline entries
@@ -332,18 +332,20 @@ def reduce_boxes(boxes, iou_threshold=0.0):
     return [tuple(c) for c in clusters]
 
 
-def average_boxes(boxes: list[list[int] | tuple[int, ...]]) -> list[float]:
+def average_boxes(boxes: Sequence[list[int] | tuple[int, ...]]) -> list[float]:
     """Return a box that is the average of a list of boxes."""
     n = len(boxes)
     return [
-        sum(box[0] for box in boxes) / n,
-        sum(box[1] for box in boxes) / n,
-        sum(box[2] for box in boxes) / n,
-        sum(box[3] for box in boxes) / n,
+        sum(x[0] for x in boxes) / n,
+        sum(x[1] for x in boxes) / n,
+        sum(x[2] for x in boxes) / n,
+        sum(x[3] for x in boxes) / n,
     ]
 
 
-def median_of_boxes(boxes: list[list[int] | tuple[int, ...]]) -> list[int] | tuple[int, ...]:
+def median_of_boxes(
+    boxes: Sequence[list[int] | tuple[int, ...]],
+) -> list[int] | tuple[int, ...]:
     """Return a box that is the median of a list of boxes."""
     sorted_boxes = sorted(boxes, key=lambda x: area(x))
     return sorted_boxes[int(len(sorted_boxes) / 2.0)]
@@ -532,7 +534,7 @@ def reduce_detections(
 
             # add objects
             for index in indices:
-                index = index if isinstance(index, np.int32) else index[0]
+                index = index if isinstance(index, (int, np.integer)) else index[0]
                 obj = group[index]
                 selected_objects.append(obj)
 

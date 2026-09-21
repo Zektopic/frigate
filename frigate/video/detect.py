@@ -3,7 +3,7 @@
 import logging
 import queue
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from multiprocessing import Queue
 from multiprocessing.synchronize import Event as MpEvent
 from typing import Any
@@ -273,7 +273,7 @@ def process_frames(
             time.sleep(0.1)
             continue
 
-        if datetime.now().astimezone(timezone.utc) > next_region_update:
+        if datetime.now().astimezone(UTC) > next_region_update:
             region_grid = requestor.send_data(REQUEST_REGION_GRID, camera_config.name)
             next_region_update = get_tomorrow_at_time(2)
 
@@ -358,12 +358,17 @@ def process_frames(
             ]
 
             # only add in the motion boxes when not calibrating and a ptz is not moving via autotracking
-            # ptz_moving_at_frame_time() always returns False for non-autotracking cameras
-            if not motion_detector.is_calibrating() and not ptz_moving_at_frame_time(
-                frame_time,
-                ptz_metrics.start_time.value,
-                ptz_metrics.stop_time.value,
-            ):
+            # the ptz timestamps are only maintained while autotracking is on, so gate
+            # on the metric rather than trusting them to be reset otherwise
+            ptz_moving = ptz_metrics.autotracker_enabled.value and (
+                ptz_moving_at_frame_time(
+                    frame_time,
+                    ptz_metrics.start_time.value,
+                    ptz_metrics.stop_time.value,
+                )
+            )
+
+            if not motion_detector.is_calibrating() and not ptz_moving:
                 # find motion boxes that are not inside tracked object regions
                 standalone_motion_boxes = [
                     b for b in motion_boxes if not inside_any(b, regions)

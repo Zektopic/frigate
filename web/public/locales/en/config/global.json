@@ -322,7 +322,7 @@
       },
       "model_type": {
         "label": "Object Detection Model Type",
-        "description": "Detector model architecture type (ssd, yolox, yolonas) used by some detectors for optimization."
+        "description": "Detector model architecture type (ssd, yolox, yolonas, yolo-generic, rfdetr, dfine) used by some detectors for optimization."
       }
     },
     "model_path": {
@@ -357,22 +357,6 @@
         "description": "Optional API key for authenticated DeepStack services."
       }
     },
-    "degirum": {
-      "label": "DeGirum",
-      "description": "DeGirum detector for running models via DeGirum cloud or local inference services.",
-      "location": {
-        "label": "Inference Location",
-        "description": "Location of the DeGirim inference engine (e.g. '@cloud', '127.0.0.1')."
-      },
-      "zoo": {
-        "label": "Model Zoo",
-        "description": "Path or URL to the DeGirum model zoo."
-      },
-      "token": {
-        "label": "DeGirum Cloud Token",
-        "description": "Token for DeGirum Cloud access."
-      }
-    },
     "edgetpu": {
       "label": "EdgeTPU",
       "description": "EdgeTPU detector that runs TensorFlow Lite models compiled for Coral EdgeTPU using the EdgeTPU delegate.",
@@ -395,6 +379,27 @@
       "device": {
         "label": "Device Path",
         "description": "The device to use for MemryX inference (e.g. 'PCIe')."
+      }
+    },
+    "migraphx": {
+      "label": "migraphxDetectorConfig",
+      "device": {
+        "label": "Device Type (gpu or cpu)"
+      },
+      "conserve_cpu": {
+        "label": "Conserve CPU at the expense of latency"
+      },
+      "fast_math": {
+        "label": "Optimize math functions to use faster approximate versions"
+      },
+      "exhaustive_tune": {
+        "label": "Use exhaustive search to find the fastest generated kernels"
+      }
+    },
+    "ncnn": {
+      "label": "NCNNDetectorConfig",
+      "device": {
+        "label": "Device Type"
       }
     },
     "onnx": {
@@ -435,6 +440,18 @@
       "device": {
         "label": "GPU Device Index",
         "description": "The GPU device index to use."
+      },
+      "conf_th": {
+        "label": "Confidence Threshold",
+        "description": "Confidence threshold for the TensorRT detector."
+      }
+    },
+    "xdnpu": {
+      "label": "XdNPUDetectorConfig",
+      "description": "XDNA NPU detector configuration for AMD AIE-ML NPU.",
+      "device": {
+        "label": "Device Type",
+        "description": "Device for inference: 'NPU' (AMD XDNA AIE-ML) or 'GPU' (fallback)."
       }
     },
     "zmq": {
@@ -495,7 +512,7 @@
     },
     "model_type": {
       "label": "Object Detection Model Type",
-      "description": "Detector model architecture type (ssd, yolox, yolonas) used by some detectors for optimization."
+      "description": "Detector model architecture type (ssd, yolox, yolonas, yolo-generic, rfdetr, dfine) used by some detectors for optimization."
     }
   },
   "genai": {
@@ -1244,6 +1261,10 @@
       "label": "Model size",
       "description": "Model size to use for offline audio event transcription."
     },
+    "vad_threshold": {
+      "label": "Voice Activity Detection Threshold",
+      "description": "Threshold (0.0 to 1.0) for Voice Activity Detection; higher means fewer false positives but more missed speech. Replaces the hardcoded value (previously 0.8 or 0.9 depending on the model)."
+    },
     "live_enabled": {
       "label": "Live transcription",
       "description": "Enable streaming live transcription for audio as it is received."
@@ -1543,8 +1564,8 @@
       "description": "Numeric order used to sort the camera in the UI (default dashboard and lists); larger numbers appear later."
     },
     "dashboard": {
-      "label": "Show in UI",
-      "description": "Toggle whether this camera is visible everywhere in the Frigate UI. Disabling this will require manually editing the config to view this camera in the UI again."
+      "label": "Show on Live dashboard",
+      "description": "Toggle whether this camera is visible on the default All Cameras live dashboard. The camera remains available everywhere else in the UI, including camera groups and settings."
     },
     "review": {
       "label": "Show in review",

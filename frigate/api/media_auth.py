@@ -12,7 +12,6 @@ per-camera authorization the regular API enforces via `require_camera_access`.
 import logging
 import os
 from enum import Enum
-from typing import Optional
 from urllib.parse import unquote, urlparse
 
 from peewee import DoesNotExist
@@ -40,7 +39,7 @@ class MediaAuthResolution(str, Enum):
     UNKNOWN = "unknown"
 
 
-def extract_path(original_url: Optional[str]) -> Optional[str]:
+def extract_path(original_url: str | None) -> str | None:
     """Return the decoded path component of nginx's `X-Original-URL` header.
 
     nginx forwards the *raw* request URI (with `..` segments intact) via
@@ -70,8 +69,8 @@ def extract_path(original_url: Optional[str]) -> Optional[str]:
 
 
 def resolve_media_uri(
-    uri: str, frigate_config: Optional[FrigateConfig] = None
-) -> tuple[MediaAuthResolution, Optional[str]]:
+    uri: str, frigate_config: FrigateConfig | None = None
+) -> tuple[MediaAuthResolution, str | None]:
     """Classify a URI and return the owning camera if applicable.
 
     `frigate_config` is used to disambiguate clip/review filenames whose
@@ -98,7 +97,7 @@ def resolve_media_uri(
 
 def _resolve_recording(
     parts: list[str],
-) -> tuple[MediaAuthResolution, Optional[str]]:
+) -> tuple[MediaAuthResolution, str | None]:
     # /recordings                          → neutral
     # /recordings/{date}                   → neutral
     # /recordings/{date}/{hour}            → multi-camera listing
@@ -111,8 +110,8 @@ def _resolve_recording(
 
 
 def _resolve_clip(
-    parts: list[str], frigate_config: Optional[FrigateConfig]
-) -> tuple[MediaAuthResolution, Optional[str]]:
+    parts: list[str], frigate_config: FrigateConfig | None
+) -> tuple[MediaAuthResolution, str | None]:
     # /clips                                          → multi-camera listing
     # /clips/thumbs/{cam}/...                         → camera
     # /clips/previews/{cam}/...                       → camera
@@ -157,8 +156,8 @@ def _resolve_clip(
 
 
 def _longest_prefix_camera(
-    stem: str, frigate_config: Optional[FrigateConfig]
-) -> Optional[str]:
+    stem: str, frigate_config: FrigateConfig | None
+) -> str | None:
     if frigate_config is None:
         return None
     for cam in sorted(frigate_config.cameras.keys(), key=len, reverse=True):
@@ -168,8 +167,8 @@ def _longest_prefix_camera(
 
 
 def _camera_from_clip_filename(
-    filename: str, frigate_config: Optional[FrigateConfig]
-) -> Optional[str]:
+    filename: str, frigate_config: FrigateConfig | None
+) -> str | None:
     """Match a flat clip filename `{camera}-{event_id}[-clean].{ext}` against
     configured camera names. Longest-prefix wins so camera names containing
     hyphens (e.g. `front-door`) resolve correctly.
@@ -180,8 +179,8 @@ def _camera_from_clip_filename(
 
 
 def _camera_from_thumb_filename(
-    filename: str, frigate_config: Optional[FrigateConfig]
-) -> Optional[str]:
+    filename: str, frigate_config: FrigateConfig | None
+) -> str | None:
     """Match a review thumbnail filename `thumb-{camera}-{review_id}.webp`."""
     if not filename.startswith("thumb-"):
         return None
@@ -192,7 +191,7 @@ def _camera_from_thumb_filename(
 
 def _resolve_export(
     parts: list[str],
-) -> tuple[MediaAuthResolution, Optional[str]]:
+) -> tuple[MediaAuthResolution, str | None]:
     # /exports                  → multi-camera listing
     # /exports/{filename}.mp4   → camera (DB lookup by exact path)
     if len(parts) == 1:
@@ -238,8 +237,8 @@ def is_role_restricted(role: str, frigate_config: FrigateConfig) -> bool:
 
 
 def deny_response_for_media_uri(
-    original_url: Optional[str], role: Optional[str], frigate_config: FrigateConfig
-) -> Optional[int]:
+    original_url: str | None, role: str | None, frigate_config: FrigateConfig
+) -> int | None:
     """Decide whether the current role should be blocked from `original_url`.
 
     Returns an HTTP status code (403) when access should be denied, or `None`

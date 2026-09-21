@@ -9,15 +9,14 @@ The shared library is at ``/opt/frigate/libfrigate_motion_rs.so``.
 import ctypes
 import logging
 import os
-from typing import Optional
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 _LIB_NAME = "libfrigate_motion_rs.so"
-_lib: Optional[ctypes.CDLL] = None
-_available: Optional[bool] = None
+_lib: ctypes.CDLL | None = None
+_available: bool | None = None
 
 
 class MotionBox(ctypes.Structure):
@@ -29,7 +28,7 @@ class MotionBox(ctypes.Structure):
     ]
 
 
-def _load_lib() -> Optional[ctypes.CDLL]:
+def _load_lib() -> ctypes.CDLL | None:
     global _lib, _available
     if _available is False:
         return None

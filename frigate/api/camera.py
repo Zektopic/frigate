@@ -25,6 +25,7 @@ from frigate.api.auth import (
     require_go2rtc_stream_access,
     require_role,
 )
+from frigate.api.config_util import swap_runtime_config
 from frigate.api.defs.request.app_body import CameraSetBody
 from frigate.api.defs.tags import Tags
 from frigate.config import FrigateConfig
@@ -1160,14 +1161,14 @@ def _remove_camera_from_config(config_file: str, camera_name: str) -> dict:
 
     try:
         with lock:
-            with open(config_file, "r") as f:
+            with open(config_file) as f:
                 old_raw_config = f.read()
 
             try:
                 yaml = YAML(typ="rt")
                 yaml.indent(mapping=2, sequence=4, offset=2)
 
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     data = yaml.load(f)  # nosec
 
                 # Remove camera from config
@@ -1196,7 +1197,7 @@ def _remove_camera_from_config(config_file: str, camera_name: str) -> dict:
                 with open(config_file, "w") as f:
                     yaml.dump(data, f)
 
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     new_raw_config = f.read()
 
                 try:
@@ -1279,9 +1280,17 @@ async def delete_camera(
 
     config = result["config"]
 
-    # Update runtime config
-    request.app.frigate_config = config
-    request.app.genai_manager.update_config(config)
+    # Rebind every collaborator to the new config and re-layer runtime
+    # toggles for the surviving cameras, same as /api/config/set. Setting
+    # frigate_config and genai_manager by hand (as this did before)
+    # leaves config_holder, profile_manager and stats_emitter pointing at
+    # the old object, so the API and the dispatcher drift apart.
+    swap_runtime_config(request.app, config)
+
+    # Drop the deleted camera's persisted overrides so a camera later
+    # added under the same name doesn't inherit them.
+    if request.app.dispatcher is not None:
+        request.app.dispatcher.clear_runtime_state_for_camera(camera_name)
 
     # Publish removal to stop ffmpeg processes and clean up runtime state
     request.app.config_publisher.publish_update(
@@ -1338,7 +1347,45 @@ def camera_set(
     body: CameraSetBody,
     sub_command: str | None = None,
 ):
-    """Set a camera feature state. Use camera_name='*' to target all cameras."""
+    """Set a camera feature state. Use camera_name='*' to target all cameras.
+
+    The value to set is sent in the request body as `{"value": "<value>"}`.
+
+    | Feature | Accepted values |
+    | --- | --- |
+    | `enabled` | `ON`, `OFF` |
+    | `detect` | `ON`, `OFF` |
+    | `motion` | `ON`, `OFF` |
+    | `recordings` | `ON`, `OFF` |
+    | `snapshots` | `ON`, `OFF` |
+    | `audio` | `ON`, `OFF` |
+    | `audio_transcription` | `ON`, `OFF` |
+    | `notifications` | `ON`, `OFF` |
+    | `review_alerts` | `ON`, `OFF` |
+    | `review_detections` | `ON`, `OFF` |
+    | `object_descriptions` | `ON`, `OFF` |
+    | `review_descriptions` | `ON`, `OFF` |
+    | `improve_contrast` | `ON`, `OFF` |
+    | `ptz_autotracker` | `ON`, `OFF` |
+    | `birdseye` | `ON`, `OFF` |
+    | `birdseye_mode` | `CONTINUOUS`, `MOTION`, `OBJECTS` |
+    | `motion_contour_area` | integer |
+    | `motion_threshold` | integer |
+    | `motion_mask` | `ON`, `OFF` |
+    | `object_mask` | `ON`, `OFF` |
+    | `zone` | `ON`, `OFF` |
+    | `profile` | a profile name, or `none` to deactivate |
+
+    `motion_mask`, `object_mask`, and `zone` require the `sub_command` path
+    parameter to be set to the name of the mask or zone. All other features
+    reject a sub-command.
+
+    `profile` applies globally rather than per camera, so it requires
+    `camera_name` to be `*`.
+
+    These features map to the equivalent MQTT topics, which document the
+    behavior of each value in more detail.
+    """
     dispatcher = request.app.dispatcher
     frigate_config: FrigateConfig = request.app.frigate_config
 

@@ -8,7 +8,7 @@ import sys
 import threading
 from json.decoder import JSONDecodeError
 from multiprocessing.synchronize import Event as MpEvent
-from typing import Any, Union
+from typing import Any
 
 import regex
 from pathvalidate import ValidationError, sanitize_filename
@@ -34,7 +34,7 @@ class EmbeddingProcess(FrigateProcess):
     def __init__(
         self,
         config: FrigateConfig,
-        metrics: DataProcessorMetrics | None,
+        metrics: DataProcessorMetrics,
         stop_event: MpEvent,
     ) -> None:
         super().__init__(
@@ -74,7 +74,7 @@ class EmbeddingsContext:
         # load stats from disk
         stats_file = os.path.join(CONFIG_DIR, ".search_stats.json")
         try:
-            with open(stats_file, "r") as f:
+            with open(stats_file) as f:
                 data = json.loads(f.read())
                 self.thumb_stats.from_dict(data["thumb_stats"])
                 self.desc_stats.from_dict(data["desc_stats"])
@@ -99,7 +99,7 @@ class EmbeddingsContext:
         self.requestor.stop()
 
     def search_thumbnail(
-        self, query: Union[Event, str], event_ids: list[str] = None
+        self, query: Event | str, event_ids: list[str] = None
     ) -> list[tuple[str, float]]:
         if query.__class__ == Event:
             cursor = self.db.execute_sql(
@@ -261,7 +261,7 @@ class EmbeddingsContext:
             sanitized_old_name = sanitize_filename(old_name, replacement_text="_")
             sanitized_new_name = sanitize_filename(new_name, replacement_text="_")
         except ValidationError as e:
-            raise ValueError(f"Invalid face name: {str(e)}")
+            raise ValueError(f"Invalid face name: {str(e)}") from e
 
         if not regex.match(valid_name_pattern, old_name):
             raise ValueError(f"Invalid old face name: {old_name}")

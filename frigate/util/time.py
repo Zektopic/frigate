@@ -26,24 +26,18 @@ def get_tomorrow_at_time(hour: int) -> datetime.datetime:
     try:
         tomorrow = datetime.datetime.now(get_localzone()) + datetime.timedelta(days=1)
     except ZoneInfoNotFoundError:
-        tomorrow = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
-            days=1
-        )
+        tomorrow = datetime.datetime.now(datetime.UTC) + datetime.timedelta(days=1)
         logger.warning(
             "Using utc for maintenance due to missing or incorrect timezone set"
         )
 
-    return tomorrow.replace(hour=hour, minute=0, second=0).astimezone(
-        datetime.timezone.utc
-    )
+    return tomorrow.replace(hour=hour, minute=0, second=0).astimezone(datetime.UTC)
 
 
 def is_current_hour(timestamp: int) -> bool:
     """Returns if timestamp is in the current UTC hour."""
     start_of_next_hour = (
-        datetime.datetime.now(datetime.timezone.utc).replace(
-            minute=0, second=0, microsecond=0
-        )
+        datetime.datetime.now(datetime.UTC).replace(minute=0, second=0, microsecond=0)
         + datetime.timedelta(hours=1)
     ).timestamp()
     return timestamp < start_of_next_hour
@@ -74,14 +68,14 @@ def get_dst_transitions(
     current = start_time
 
     # Get initial offset
-    dt = datetime.datetime.fromtimestamp(current, tz=datetime.timezone.utc)
+    dt = datetime.datetime.fromtimestamp(current, tz=datetime.UTC)
     local_dt = dt.astimezone(tz)
     prev_offset = local_dt.utcoffset().total_seconds()
     period_start = start_time
 
     # Check each day for offset changes
     while current <= end_time:
-        dt = datetime.datetime.fromtimestamp(current, tz=datetime.timezone.utc)
+        dt = datetime.datetime.fromtimestamp(current, tz=datetime.UTC)
         local_dt = dt.astimezone(tz)
         current_offset = local_dt.utcoffset().total_seconds()
 

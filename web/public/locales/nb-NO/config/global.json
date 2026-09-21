@@ -81,7 +81,7 @@
     },
     "go2rtc": {
         "label": "go2rtc",
-        "description": "Innstillinger for den integrerte go2rtc-tjenesten for videreformidling og oversettelse av direktestrømmer."
+        "description": "Innstillinger for den integrerte go2rtc-tjenesten for viderestrømming og oversettelse av direktestrømmer."
     },
     "mqtt": {
         "label": "MQTT",
@@ -212,7 +212,7 @@
         },
         "default_role": {
             "label": "Standardrolle",
-            "description": "Standardrolle tildelt proxy-autentiserte brukere når ingen rolletilordning gjelder (admin eller viewer)."
+            "description": "Standardrolle tildelt proxy-autentiserte brukere når ingen rolletilordning gjelder."
         },
         "separator": {
             "label": "Skilletegn",
@@ -330,7 +330,7 @@
             },
             "model_type": {
                 "label": "Type objektdeteksjonsmodell",
-                "description": "Arkitekturtype for detektormodellen (ssd, yolox, yolonas) brukt av enkelte detektorer for optimalisering."
+                "description": "Arkitekturtype for detektormodellen (ssd, yolox, yolonas, yolo-generic, rfdetr, dfine) brukt av enkelte detektorer for optimalisering."
             }
         },
         "model_path": {
@@ -503,7 +503,7 @@
         },
         "model_type": {
             "label": "Type objektdeteksjonsmodell",
-            "description": "Arkitekturtype for detektormodellen (ssd, yolox, yolonas) brukt av enkelte detektorer for optimalisering."
+            "description": "Arkitekturtype for detektormodellen (ssd, yolox, yolonas, yolo-generic, rfdetr, dfine) brukt av enkelte detektorer for optimalisering."
         }
     },
     "genai": {
@@ -555,7 +555,7 @@
         },
         "listen": {
             "label": "Lyttetyper",
-            "description": "Liste over typer lydhendelser som skal detekteres (f.eks. bjeff, brannalarm, skrik, tale, rop)."
+            "description": "Liste over typer lydhendelser som skal detekteres (f.eks. bjeff, brannalarm, tale, rop)."
         },
         "filters": {
             "label": "Lydfiltre",
@@ -586,7 +586,7 @@
             "description": "Modus for å inkludere kameraer i Fugleperspektiv: 'objects', 'motion' eller 'continuous'."
         },
         "restream": {
-            "label": "Videreformidle RTSP",
+            "label": "Viderestrøm RTSP",
             "description": "Videreformidle Fugleperspektiv-utdataen som en RTSP-strøm; aktivering av dette vil holde Fugleperspektiv kjørende kontinuerlig."
         },
         "width": {
@@ -691,7 +691,7 @@
         "description": "FFmpeg-innstillinger, inkludert sti til binærfil, argumenter, alternativer for maskinvareakselerasjon og utdata-argumenter per rolle.",
         "path": {
             "label": "FFmpeg-sti",
-            "description": "Sti til FFmpeg-binærfilen som skal brukes, eller et versjonsalias (\"5.0\" eller \"7.0\")."
+            "description": "Sti til FFmpeg-binærfilen som skal brukes, eller et versjonsalias (\"7.0\" eller \"8.0\")."
         },
         "global_args": {
             "label": "Globale FFmpeg-argumenter",
@@ -756,10 +756,10 @@
     },
     "live": {
         "label": "Direkteavspilling",
-        "description": "Innstillinger for å kontrollere oppløsning og kvalitet på jsmpeg-direktestrømmer. Dette påvirker ikke kameraer som bruker go2rtc for direktevisning.",
+        "description": "Innstillinger for å kontrollere oppløsning og kvalitet på jsmpeg-direktestrømmer. Dette påvirker ikke vderestrømmede kameraer som bruker go2rtc for direktevisning.",
         "streams": {
             "label": "Navn på direktestrømmer",
-            "description": "Kobling mellom konfigurerte strøm-navn og restream/go2rtc-navn brukt for direkteavspilling."
+            "description": "Kobling mellom konfigurerte strøm-navn og viderestrøm/go2rtc-navn brukt for direkteavspilling."
         },
         "height": {
             "label": "Direktevisningshøyde",
@@ -1043,6 +1043,9 @@
             "max_concurrent": {
                 "description": "Maksimalt antall eksportjobber som kan behandles samtidig.",
                 "label": "Maksimalt antall samtidige eksporter"
+            },
+            "chapters": {
+                "label": "Kapittelmetadata som skal bygges inn i eksporterte opptak"
             }
         },
         "preview": {
@@ -1459,7 +1462,7 @@
         },
         "enhancement": {
             "label": "Forbedringsnivå",
-            "description": "Forbedringsnivå (0-10) som brukes på kjennemerkebeskjæringer før OCR; høyere verdier forbedrer ikke alltid resultatet, nivåer over 5 fungerer ofte kun på nattbilder og bør brukes med forsiktighet."
+            "description": "Forbedringsnivå (0-10) som brukes på beskjærte kjennemerker før OCR; høyere verdier forbedrer ikke alltid resultatet, nivåer over 5 fungerer ofte kun på nattbilder og bør brukes med forsiktighet."
         },
         "debug_save_plates": {
             "label": "Lagre feilsøkingsbilder",
@@ -1549,11 +1552,15 @@
         "description": "Sortering og synlighet for dette kameraet i grensesnittet. Sortering påvirker standard dashbord. For mer detaljert kontroll, bruk kameragrupper.",
         "order": {
             "label": "Rekkefølge i UI",
-            "description": "Numerisk rekkefølge for sortering av kameraet i grensesnittet; høyere tall vises senere."
+            "description": "Numerisk rekkefølge for sortering av kameraet i grensesnittet (standard dashbord og lister); høyere tall vises senere."
         },
         "dashboard": {
-            "label": "Vis i grensesnitt",
-            "description": "Velg om dette kameraet skal være synlig i Frigate-grensesnittet. Deaktivering krever manuell redigering av konfigurasjonen for å vise kameraet igjen."
+            "label": "Vis i Direkte-dashbord",
+            "description": "Velg om dette kameraet skal være synlig på standard direktedashbord for alle kameraer. Kameraet vil fortsatt være tilgjengelig alle andre steder i brukergrensesnittet, inkludert i kameragrupper og innstillinger."
+        },
+        "review": {
+            "label": "Vis i inspeksjon",
+            "description": "Velg om dette kameraet skal være synlig i inspeksjon (inspeksjonssiden og dens kamerafilter, bevegelsesinspeksjon og historikkvisning)."
         }
     },
     "onvif": {
