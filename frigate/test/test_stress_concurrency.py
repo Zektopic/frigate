@@ -9,13 +9,11 @@ import tempfile
 import threading
 import time
 import unittest
-import numpy as np
 
-from frigate.db.sqlitevecq import SqliteVecQueueDatabase
 from frigate.util.frame_rs import (
-    frame_rs_available,
     batch_track_distance_matrix_rust,
     fast_shm_copy_rust,
+    frame_rs_available,
 )
 
 
@@ -30,6 +28,7 @@ class TestStressConcurrency(unittest.TestCase):
 
     def _init_schema(self):
         import sqlite3
+
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
@@ -51,6 +50,7 @@ class TestStressConcurrency(unittest.TestCase):
     def test_sqlite_concurrent_writers_stress(self):
         """Stress test SQLite database with 30 concurrent threads performing rapid inserts."""
         import sqlite3
+
         num_threads = 30
         inserts_per_thread = 50
         errors = []
@@ -73,8 +73,7 @@ class TestStressConcurrency(unittest.TestCase):
                 errors.append((thread_idx, e))
 
         threads = [
-            threading.Thread(target=worker, args=(t,))
-            for t in range(num_threads)
+            threading.Thread(target=worker, args=(t,)) for t in range(num_threads)
         ]
         for t in threads:
             t.start()
@@ -98,10 +97,7 @@ class TestStressConcurrency(unittest.TestCase):
         n_dets = 100
         n_ests = 100
 
-        dets = [
-            (i * 5.0, i * 5.0, (i + 2) * 5.0, (i + 2) * 5.0)
-            for i in range(n_dets)
-        ]
+        dets = [(i * 5.0, i * 5.0, (i + 2) * 5.0, (i + 2) * 5.0) for i in range(n_dets)]
         ests = [
             (j * 5.0 + 1.0, j * 5.0 + 1.0, (j + 2) * 5.0 + 1.0, (j + 2) * 5.0 + 1.0)
             for j in range(n_ests)
@@ -115,7 +111,9 @@ class TestStressConcurrency(unittest.TestCase):
         elapsed = time.perf_counter() - t0
 
         # 50 runs of 10,000 comparisons (500,000 total) should execute in < 150ms in Rust
-        self.assertLess(elapsed, 0.5, f"Vectorized tracker distance exceeded budget: {elapsed:.3f}s")
+        self.assertLess(
+            elapsed, 0.5, f"Vectorized tracker distance exceeded budget: {elapsed:.3f}s"
+        )
 
     def test_sustained_zero_copy_simd_throughput(self):
         """Benchmark and stress test fast_shm_copy with 1,000 1080p frame copies."""
@@ -123,6 +121,7 @@ class TestStressConcurrency(unittest.TestCase):
             self.skipTest("Rust frame engine not available")
 
         import ctypes
+
         # 1080p RGB frame size = 1920 * 1080 * 3 = 6,220,800 bytes (~6.2 MB)
         frame_size = 1920 * 1080 * 3
         src_data = bytearray(frame_size)
@@ -137,10 +136,14 @@ class TestStressConcurrency(unittest.TestCase):
             fast_shm_copy_rust(dst_buf, src_buf, frame_size)
         elapsed = time.perf_counter() - t0
 
-        total_gb = (frame_size * iterations) / (1024 ** 3)
+        total_gb = (frame_size * iterations) / (1024**3)
         throughput_gbps = total_gb / elapsed
         # Assert throughput is high-performance (> 5 GB/s)
-        self.assertGreater(throughput_gbps, 1.0, f"SIMD throughput too slow: {throughput_gbps:.2f} GB/s")
+        self.assertGreater(
+            throughput_gbps,
+            1.0,
+            f"SIMD throughput too slow: {throughput_gbps:.2f} GB/s",
+        )
 
 
 if __name__ == "__main__":

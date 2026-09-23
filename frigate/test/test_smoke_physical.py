@@ -6,6 +6,7 @@ and validates physical Vulkan GPU compute pipelines.
 
 import os
 import unittest
+
 import numpy as np
 
 
@@ -22,7 +23,7 @@ class TestSmokePhysical(unittest.TestCase):
 
         # Test Net initialization with Vulkan options
         net = ncnn.Net()
-        net.opt.use_vulkan_compute = (gpu_count > 0)
+        net.opt.use_vulkan_compute = gpu_count > 0
         net.opt.use_fp16_arithmetic = True
         net.opt.use_fp16_packed = True
         net.opt.use_fp16_storage = True
@@ -31,7 +32,9 @@ class TestSmokePhysical(unittest.TestCase):
         bin_path = "/config/model_cache/yolo26n.bin"
 
         if not os.path.exists(param_path) or not os.path.exists(bin_path):
-            self.skipTest(f"Model files {param_path} / {bin_path} not found in test environment")
+            self.skipTest(
+                f"Model files {param_path} / {bin_path} not found in test environment"
+            )
 
         net.load_param(param_path)
         net.load_model(bin_path)
@@ -54,6 +57,7 @@ class TestSmokePhysical(unittest.TestCase):
         """Smoke test API route handlers in isolation without binding production port 5000."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+
         from frigate.version import VERSION
 
         test_app = FastAPI()
