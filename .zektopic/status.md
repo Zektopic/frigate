@@ -221,7 +221,7 @@ Based on the full-codebase testing evaluation, here are specific features and op
 - **Mock Enhancements**: If `test_runner.py` is maintained, the `MockNumpy`, `MockPydanticValidationError`, and `MockBaseModel` classes need significant upgrades to accurately replicate complex C-extension behaviors (like array shape comparisons and multi-dimensional indexing) and Pydantic v2 nested schema validation.
 
 #### B. Video Processing & Path Validation Fixes
-- **Video Detection Logic**: The tests in `test_video.py` reveal failures in `reduce_detections` and `get_cluster_candidates`. The logic needs to be reviewed to handle different size overlapping objects and vertical stacking without incorrectly reducing detections. Ensure robust type handling (e.g., `isinstance(index, (int, np.integer))`) when iterating through `cv2.dnn.NMSBoxes` results.
+- **Video Detection Logic**: The tests in `test_video.py` reveal failures in `reduce_detections` and `get_cluster_candidates`. The logic needs to be reviewed to handle different size overlapping objects and vertical stacking without incorrectly reducing detections. (Fixed: `cv2.dnn.NMSBoxes` results iteration type handling).
 - **Path Validation**: The `sanitize_path_component` function in `frigate/util/path.py` (which relies on `pathvalidate`) fails when testing for relative markers (e.g., `.` or `..`). The custom sanitization logic should be reviewed to ensure it correctly identifies and rejects these traversal markers.
 
 #### C. Frontend Modernization
@@ -229,3 +229,7 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 #### D. Rust Optimization
 - **Code Cleanup**: Address the unused variable, unused function, and unnecessary `mut` binding warnings highlighted during the Rust `cargo test` runs.
+
+
+## Ad-Hoc Testing Limitations
+The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` currently fail natively via `test_runner.py` due to limited support for numpy array comparisons on Mock objects in the ad-hoc test runner, which is currently unavoidable outside Docker unless tests are heavily modified or a full integration environment is spun up. Same goes for missing modules like `peewee` or `cv2`.

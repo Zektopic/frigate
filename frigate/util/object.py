@@ -532,7 +532,7 @@ def reduce_detections(
 
             # add objects
             for index in indices:
-                index = index if isinstance(index, np.int32) else index[0]
+                index = index if isinstance(index, (int, np.integer)) else index[0]
                 obj = group[index]
                 selected_objects.append(obj)
 
