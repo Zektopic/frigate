@@ -4,7 +4,6 @@ import datetime
 import logging
 import math
 from collections import defaultdict
-import typing
 from typing import Any, Sequence
 
 import cv2
