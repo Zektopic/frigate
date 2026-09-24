@@ -233,3 +233,8 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Ad-Hoc Testing Limitations
 The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` currently fail natively via `test_runner.py` due to limited support for numpy array comparisons on Mock objects in the ad-hoc test runner, which is currently unavoidable outside Docker unless tests are heavily modified or a full integration environment is spun up. Same goes for missing modules like `peewee` or `cv2`.
+
+## Test Env Update
+- Fixed `test_util_path.py` missing `pathvalidate` dependency by installing it.
+- Identified that `test_object_detector.py` requires a better mock for `test_cfg.model` to prevent `AttributeError`.
+- Documented issue in `Jules/improvements.md`.
