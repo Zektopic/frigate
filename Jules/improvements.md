@@ -266,3 +266,43 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+## Test Results and Future Implementations Roadmap (Current Iteration)
+
+### Frontend Tests
+- Executed `cd web && npm ci && npm run test -- --run src/`.
+- All 137 unit tests across 13 files passed successfully.
+- Deprecation warnings (`DEP0040`) for `punycode` continue to be logged.
+- Executed `cd web && npm run e2e`.
+- Tests run successfully.
+
+### Rust Backend Tests
+- Executed `cargo test` against `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`.
+- All standard and pixel pipeline tests pass completely (47 tests total). No errors or failures.
+
+### Python Backend Tests (Native Docker)
+- Attempted to run the backend test suite via `make run_tests`.
+- The build process using `docker buildx build` continues to fail entirely due to a host-level BuildKit `overlayfs` mount error (`invalid argument`). Native execution remains impossible on this environment until the storage driver is fixed or BuildKit is bypassed.
+
+### Python Backend Tests (Local Fallback)
+- Executed `python3 test_runner.py` outside of Docker.
+- The script executes the 758 tests but generates significant false negatives (89 failures, 201 errors).
+- Pathvalidate dependency was missing. Installed `pathvalidate` and verified it fixed some path tests, but some failures still occur natively outside Docker.
+- Video and region tests fail natively via `test_runner.py` due to limited support for numpy array comparisons on Mock objects in the ad-hoc test runner, which is currently unavoidable outside Docker unless tests are heavily modified or a full integration environment is spun up. Same goes for missing modules like `peewee` or `cv2`.
+
+### Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend & Testing Environment
+- **Docker BuildKit Fix**: The local Docker execution (`make run_tests`) must be configured to bypass the `overlayfs` mount error (e.g., using `DOCKER_BUILDKIT=0` or a different storage driver). This is critical to run the backend tests natively and eliminate the need for the brittle `test_runner.py` mocks.
+- **Dependency Management**: Missing dependencies like `pathvalidate`, `numpy`, and `opencv-python-headless` cause failures in the local fallback test runner. A dedicated `requirements-test.txt` or a `tox.ini` setup should be created to manage dependencies for local testing outside of Docker.
+- **Mock Enhancements**: If `test_runner.py` is maintained, the `MockNumpy`, `MockPydanticValidationError`, and `MockBaseModel` classes need significant upgrades to accurately replicate complex C-extension behaviors (like array shape comparisons and multi-dimensional indexing) and Pydantic v2 nested schema validation.
+
+#### B. Video Processing & Path Validation Fixes
+- **Video Detection Logic**: The tests in `test_video.py` reveal failures in `reduce_detections` and `get_cluster_candidates`. The logic needs to be reviewed to handle different size overlapping objects and vertical stacking without incorrectly reducing detections. (Fixed: `cv2.dnn.NMSBoxes` results iteration type handling).
+- **Path Validation**: The `sanitize_path_component` function in `frigate/util/path.py` (which relies on `pathvalidate`) fails when testing for relative markers (e.g., `.` or `..`). The custom sanitization logic should be reviewed to ensure it correctly identifies and rejects these traversal markers.
+
+#### C. Frontend Modernization
+- **Punycode Replacement**: Update the frontend dependencies (`tr46`, `whatwg-url`) to replace the deprecated `punycode` module. This will silence the `DEP0040` warnings during test runs and improve future compatibility.
+
+#### D. Rust Optimization
+- **Code Cleanup**: Address the unused variable, unused function, and unnecessary `mut` binding warnings highlighted during the Rust `cargo test` runs.

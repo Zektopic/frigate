@@ -23,17 +23,18 @@ Some examples (model - class or model name)::
 
 import peewee as pw
 
-from frigate.models import Event
+
 
 SQL = pw.SQL
 
 
 def migrate(migrator, database, fake=False, **kwargs):
     migrator.add_fields(
-        Event,
+        'event',
         ratio=pw.FloatField(default=1.0),  # Assume that existing detections are square
     )
 
 
 def rollback(migrator, database, fake=False, **kwargs):
-    migrator.remove_fields(Event, ["ratio"])
+    migrator.remove_fields(
+        'event', ["ratio"])

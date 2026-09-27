@@ -23,14 +23,14 @@ Some examples (model - class or model name)::
 
 import peewee as pw
 
-from frigate.models import Recordings
+
 
 SQL = pw.SQL
 
 
 def migrate(migrator, database, fake=False, **kwargs):
     migrator.add_fields(
-        Recordings,
+        'recordings',
         objects=pw.IntegerField(null=True),
         motion=pw.IntegerField(null=True),
     )

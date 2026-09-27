@@ -23,13 +23,14 @@ Some examples (model - class or model name)::
 
 import peewee as pw
 
-from frigate.models import Event
+
 
 SQL = pw.SQL
 
 
 def migrate(migrator, database, fake=False, **kwargs):
-    migrator.drop_not_null(Event, "thumbnail")
+    migrator.drop_not_null(
+        'event', "thumbnail")
 
 
 def rollback(migrator, database, fake=False, **kwargs):

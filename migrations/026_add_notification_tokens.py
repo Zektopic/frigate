@@ -24,14 +24,14 @@ Some examples (model - class or model name)::
 import peewee as pw
 from playhouse.sqlite_ext import JSONField
 
-from frigate.models import User
+
 
 SQL = pw.SQL
 
 
 def migrate(migrator, database, fake=False, **kwargs):
     migrator.add_fields(
-        User,
+        'user',
         notification_tokens=JSONField(default=[]),
     )
 

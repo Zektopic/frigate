@@ -23,18 +23,19 @@ Some examples (model - class or model name)::
 
 import peewee as pw
 
-from frigate.models import Event
+
 
 SQL = pw.SQL
 
 
 def migrate(migrator, database, fake=False, **kwargs):
     migrator.add_fields(
-        Event,
+        'event',
         has_clip=pw.BooleanField(default=True),
         has_snapshot=pw.BooleanField(default=True),
     )
 
 
 def rollback(migrator, database, fake=False, **kwargs):
-    migrator.remove_fields(Event, ["has_clip", "has_snapshot"])
+    migrator.remove_fields(
+        'event', ["has_clip", "has_snapshot"])
