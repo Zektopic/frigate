@@ -434,6 +434,8 @@ def setup_mocks():
 
 
     MockPydantic.ValidationError = MockPydanticValidationError
+    sys.modules['pydantic_core'] = ModuleMock()
+    sys.modules['pydantic_core'].ValidationError = MockPydanticValidationError
 
 if __name__ == "__main__":
     setup_mocks()

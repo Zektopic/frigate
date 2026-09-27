@@ -23,21 +23,22 @@ Some examples (model - class or model name)::
 
 import peewee as pw
 
-from frigate.models import Event
+
 
 SQL = pw.SQL
 
 
 def migrate(migrator, database, fake=False, **kwargs):
     migrator.add_fields(
-        Event,
+        'event',
         score=pw.FloatField(null=True),
         model_hash=pw.CharField(max_length=32, null=True),
         detector_type=pw.CharField(max_length=32, null=True),
         model_type=pw.CharField(max_length=32, null=True),
     )
 
-    migrator.drop_not_null(Event, "area", "false_positive")
+    migrator.drop_not_null(
+        'event', "area", "false_positive")
     migrator.add_default(Event, "false_positive", 0)
 
 

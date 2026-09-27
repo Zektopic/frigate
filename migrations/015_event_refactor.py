@@ -24,17 +24,17 @@ Some examples (model - class or model name)::
 import peewee as pw
 from playhouse.sqlite_ext import JSONField
 
-from frigate.models import Event
+
 
 SQL = pw.SQL
 
 
 def migrate(migrator, database, fake=False, **kwargs):
     migrator.drop_not_null(
-        Event, "top_score", "score", "region", "box", "area", "ratio"
+        'event', "top_score", "score", "region", "box", "area", "ratio"
     )
     migrator.add_fields(
-        Event,
+        'event',
         data=JSONField(default={}),
     )
 
