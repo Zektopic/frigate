@@ -238,3 +238,7 @@ The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` curr
 - Fixed `test_util_path.py` missing `pathvalidate` dependency by installing it.
 - Identified that `test_object_detector.py` requires a better mock for `test_cfg.model` to prevent `AttributeError`.
 - Documented issue in `Jules/improvements.md`.
+
+## Latest Test Status
+- Frontend tests (Vitest) successfully passed when isolated to src/.
+- Backend tests natively via test_runner.py fail primarily due to incomplete sys.modules mocking (e.g., OpenCV, Numpy, and Pydantic schema generation).

@@ -266,3 +266,7 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+## Mock Improvements Roadmap
+- Implement proper __ge__, __le__ magic methods for MockNumpy array comparisons in test_runner.py to fix test_video.py bounding box assertion failures.
+- Install lightweight dependencies like pathvalidate natively instead of mocking them to prevent logic assertion failures.
