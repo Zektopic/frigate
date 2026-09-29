@@ -2,8 +2,8 @@ import datetime
 import logging
 import os
 import tempfile
+import threading
 import unittest
-from unittest.mock import MagicMock
 
 from peewee import DoesNotExist
 from peewee_migrate import Router
@@ -89,7 +89,7 @@ class TestHttp(unittest.TestCase):
     def test_segment_calculations(self):
         """Test that the segment calculations are correct."""
         config = FrigateConfig(**self.double_cam_config)
-        storage = StorageMaintainer(config, MagicMock())
+        storage = StorageMaintainer(config, threading.Event())
 
         time_keep = datetime.datetime.now().timestamp()
         rec_fd_id = "1234567.frontdoor"
@@ -121,7 +121,7 @@ class TestHttp(unittest.TestCase):
     def test_segment_calculations_with_zero_segments(self):
         """Ensure segment calculation does not fail when migrating from previous version."""
         config = FrigateConfig(**self.minimal_config)
-        storage = StorageMaintainer(config, MagicMock())
+        storage = StorageMaintainer(config, threading.Event())
 
         time_keep = datetime.datetime.now().timestamp()
         rec_fd_id = "1234567.frontdoor"
@@ -142,7 +142,7 @@ class TestHttp(unittest.TestCase):
     def test_storage_cleanup(self):
         """Ensure that all recordings are cleaned up when necessary."""
         config = FrigateConfig(**self.minimal_config)
-        storage = StorageMaintainer(config, MagicMock())
+        storage = StorageMaintainer(config, threading.Event())
 
         id = "123456.keep"
         time_keep = datetime.datetime.now().timestamp()
@@ -212,7 +212,7 @@ class TestHttp(unittest.TestCase):
     def test_storage_cleanup_keeps_retained(self):
         """Ensure that all recordings are cleaned up when necessary."""
         config = FrigateConfig(**self.minimal_config)
-        storage = StorageMaintainer(config, MagicMock())
+        storage = StorageMaintainer(config, threading.Event())
 
         id = "123456.keep"
         time_keep = datetime.datetime.now().timestamp()

@@ -3,6 +3,13 @@ import types
 import unittest
 from unittest.mock import MagicMock
 
+if __name__ != "__main__":
+    # `python3 -m unittest` discovery matches this file (pattern test*.py) and
+    # imports it after loading frigate/test but before running anything. The
+    # sys.modules mocks below would then replace numpy, pydantic, peewee, cv2,
+    # etc. for every real test in the run, so refuse to be imported as a test.
+    raise unittest.SkipTest("test_runner.py is a standalone mock runner script")
+
 
 class MockBaseModel:
     __pydantic_core_schema__ = MagicMock()
