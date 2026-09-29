@@ -136,3 +136,25 @@ class TestLocalObjectDetector(unittest.TestCase):
             == np.zeros((1, 32, 32, 3)).shape
         )
         assert test_result == TEST_DETECT_RESULT
+
+
+class TestWriteDetections(unittest.TestCase):
+    def setUp(self):
+        self.out = np.full((20, 6), 7.0, dtype=np.float32)
+
+    def test_empty_result_clears_buffer(self):
+        frigate.object_detection.base.write_detections(
+            self.out, np.zeros((0, 6), np.float32)
+        )
+        assert not self.out.any()
+
+    def test_short_result_is_zero_padded(self):
+        dets = np.ones((3, 6), np.float32)
+        frigate.object_detection.base.write_detections(self.out, dets)
+        assert (self.out[:3] == 1).all()
+        assert not self.out[3:].any()
+
+    def test_long_result_is_truncated(self):
+        dets = np.ones((25, 6), np.float32)
+        frigate.object_detection.base.write_detections(self.out, dets)
+        assert (self.out == 1).all()
