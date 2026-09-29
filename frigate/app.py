@@ -651,6 +651,15 @@ class FrigateApp:
                 host="127.0.0.1",
                 port=5001,
                 log_level="error",
+                # nginx keeps idle upstream connections to this server in its
+                # keepalive pool for up to 60s (the upstream keepalive_timeout
+                # default). uvicorn's own default is 5s, so it closes them
+                # first, and a request nginx sends on a connection uvicorn is
+                # closing at that moment fails with "upstream prematurely
+                # closed connection" -- a 502 that nginx does not retry for
+                # POST/PATCH. Outliving nginx's timeout means nginx always
+                # closes idle connections first.
+                timeout_keep_alive=75,
             )
         finally:
             self.stop()
