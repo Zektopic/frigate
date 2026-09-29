@@ -197,3 +197,37 @@ def pixel_pipeline(
     )
     result = [(boxes[i].x1, boxes[i].y1, boxes[i].x2, boxes[i].y2) for i in range(n)]
     return result, float(total_area.value), frame
+
+
+def accumulate_weighted(
+    src: np.ndarray,
+    avg: np.ndarray,
+    alpha: float,
+) -> None:
+    """SIMD-accelerated background frame running average.
+
+    Updates ``avg`` in-place: avg = (1 - alpha) * avg + alpha * src.
+    """
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust motion engine not available")
+
+    src = np.ascontiguousarray(src, dtype=np.uint8)
+    if avg.dtype != np.float32 or not avg.flags.c_contiguous:
+        avg = np.ascontiguousarray(avg, dtype=np.float32)
+
+    lib.motion_accumulate_weighted.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_float,
+        ctypes.c_uint32,
+    ]
+    lib.motion_accumulate_weighted.restype = None
+
+    lib.motion_accumulate_weighted(
+        src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        avg.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        ctypes.c_float(alpha),
+        src.size,
+    )
+
