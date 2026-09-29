@@ -164,7 +164,9 @@ export function detectCameraAudioFeatures(
   metadata: LiveStreamMetadata | null | undefined,
   requireSecureContext: boolean = true,
 ): CameraAudioFeatures {
-  if (!metadata) {
+  // Also guard the shape: this runs during render with no error boundary
+  // above it, so a 200 without a producers array would blank the whole app
+  if (!metadata || !Array.isArray(metadata.producers)) {
     return {
       twoWayAudio: false,
       audioOutput: false,
