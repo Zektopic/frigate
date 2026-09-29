@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import path, { resolve } from "path";
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
 import monacoEditorPlugin from "vite-plugin-monaco-editor";
 
@@ -69,6 +70,9 @@ export default defineConfig({
       ),
     },
     setupFiles: ["./__test__/test-setup.ts"],
+    // e2e/ holds Playwright specs; loading them under vitest fails with
+    // "Playwright Test did not expect test.describe() to be called here"
+    exclude: [...configDefaults.exclude, "e2e/**"],
     includeSource: ["src/**/*.{js,jsx,ts,tsx}"],
     coverage: {
       reporter: ["text-summary", "text"],
