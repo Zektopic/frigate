@@ -14,9 +14,6 @@ from frigate.util.image import grab_cv2_contours
 # skip_motion, calibration, accumulateWeighted) stays in Python below.
 try:
     from frigate.motion.rust_engine import (
-        accumulate_weighted as _rust_accumulate_weighted,
-    )
-    from frigate.motion.rust_engine import (
         motion_available as _rust_motion_available,
     )
     from frigate.motion.rust_engine import (
@@ -287,22 +284,19 @@ class ImprovedMotionDetector(MotionDetector):
                 ),
             )
 
+        # cv2.accumulateWeighted is already vectorized and updates in place;
+        # the Rust accumulator only added an FFI hop, with no speed or
+        # memory win even after its SIMD kernel was fixed.
         if len(motion_boxes) > 0:
             self.motion_frame_count += 1
             if self.motion_frame_count >= 10:
                 # only average in the current frame if the difference persists for a bit
                 alpha = 0.2 if self.calibrating else self.config.frame_alpha
-                if _HAS_RUST_MOTION:
-                    _rust_accumulate_weighted(resized_frame, self.avg_frame, alpha)
-                else:
-                    cv2.accumulateWeighted(resized_frame, self.avg_frame, alpha)
+                cv2.accumulateWeighted(resized_frame, self.avg_frame, alpha)
         else:
             # when no motion, just keep averaging the frames together
             alpha = 0.2 if self.calibrating else self.config.frame_alpha
-            if _HAS_RUST_MOTION:
-                _rust_accumulate_weighted(resized_frame, self.avg_frame, alpha)
-            else:
-                cv2.accumulateWeighted(resized_frame, self.avg_frame, alpha)
+            cv2.accumulateWeighted(resized_frame, self.avg_frame, alpha)
             self.motion_frame_count = 0
 
         return motion_boxes
