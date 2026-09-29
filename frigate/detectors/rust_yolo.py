@@ -68,22 +68,36 @@ def yolo_post_process(
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
 
-    # Build array of output pointers
+    if len(outputs) != 3:
+        raise ValueError(f"expected 3 YOLO output scales, got {len(outputs)}")
+
+    # The Rust decoder reads each scale as [anchor][y][x][85] (channels
+    # last) with exactly 3 * ny * nx * 85 floats.  Detectors hand us the
+    # NCHW tensor (1, 255, ny, nx), so:
+    #   * take ny/nx from the ORIGINAL 4-D shape (after ravel() every
+    #     array is 1-D and the dims all read as 0, which made Rust skip
+    #     every scale and return no detections at all);
+    #   * reorder to channels-last, matching __post_process_multipart_yolo;
+    #   * keep every converted array referenced in `keep_alive` until the
+    #     call returns.  Storing `arr.ctypes.data_as(...)` into a ctypes
+    #     pointer array copies only the address, so a temporary rebound on
+    #     the next loop iteration is freed while Rust still reads it.
+    keep_alive: list[np.ndarray] = []
     output_ptrs = (ctypes.POINTER(ctypes.c_float) * 3)()
     ny_nx = (ctypes.c_uint32 * 6)()
 
     for i, out in enumerate(outputs):
-        out = np.ascontiguousarray(out.ravel().astype(np.float32))
-        output_ptrs[i] = out.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-        # Infer ny, nx from shape: (bs, ny, nx, ch) for each scale
-        ny_nx[i * 2] = out.shape[-3] if out.ndim >= 3 else 0
-        # Shape is actually (1, 255, ny, nx) → we need ny, nx
-        if out.ndim >= 4:
-            ny_nx[i * 2] = out.shape[2]
-            ny_nx[i * 2 + 1] = out.shape[3]
-        elif out.ndim >= 3:
-            ny_nx[i * 2] = out.shape[1]
-            ny_nx[i * 2 + 1] = out.shape[2]
+        if out.ndim != 4 or out.shape[0] != 1 or out.shape[1] != 3 * 85:
+            raise ValueError(f"unexpected YOLO output shape {out.shape}")
+        _, _, ny, nx = out.shape
+        arr = np.ascontiguousarray(
+            out.reshape(1, 3, 85, ny, nx).transpose(0, 1, 3, 4, 2),
+            dtype=np.float32,
+        )
+        keep_alive.append(arr)
+        output_ptrs[i] = arr.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        ny_nx[i * 2] = ny
+        ny_nx[i * 2 + 1] = nx
 
     dets = (Detection * max_dets)()
 
@@ -110,6 +124,9 @@ def yolo_post_process(
         ctypes.c_uint32(max_dets),
     )
 
+    # keep_alive must outlive the FFI call above.
+    del keep_alive
+
     result = np.zeros((20, 6), dtype=np.float32)
     for i in range(min(n, 20)):
         result[i] = [
@@ -134,9 +151,15 @@ def nms_boxes(
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
 
-    boxes = np.ascontiguousarray(boxes.ravel().astype(np.float32))
-    scores = np.ascontiguousarray(scores.ravel().astype(np.float32))
+    boxes = np.ascontiguousarray(boxes, dtype=np.float32).ravel()
+    scores = np.ascontiguousarray(scores, dtype=np.float32).ravel()
     n = len(scores)
+    # Rust reads n * 4 box coordinates; a shorter box array is a heap
+    # over-read.
+    if boxes.size != n * 4:
+        raise ValueError(f"expected {n * 4} box coordinates, got {boxes.size}")
+    if n == 0 or max_indices <= 0:
+        return np.zeros(0, dtype=np.int32)
     out_indices = (ctypes.c_uint32 * max_indices)()
 
     lib.nms_boxes.argtypes = [
@@ -180,7 +203,9 @@ def yolo26_post_process(
         raise RuntimeError("Rust YOLO engine not available")
     import numpy as np
 
-    raw = np.ascontiguousarray(raw.T.ravel().astype(np.float32))
+    if raw.ndim != 2 or raw.shape[0] != 84:
+        raise ValueError(f"expected a (84, N) YOLO26 tensor, got {raw.shape}")
+    raw = np.ascontiguousarray(raw.T, dtype=np.float32).ravel()
     n = raw.size // 84
     out = np.zeros((20, 6), dtype=np.float32)
 
@@ -224,9 +249,16 @@ def anchor_free_post_process(
         raise RuntimeError("Rust YOLO engine not available")
     import numpy as np
 
-    raw = np.ascontiguousarray(raw.ravel().astype(np.float32))
-    pts = np.ascontiguousarray(all_pts.ravel().astype(np.float32))
+    raw = np.ascontiguousarray(raw, dtype=np.float32).ravel()
+    pts = np.ascontiguousarray(all_pts, dtype=np.float32).ravel()
     out = np.zeros((20, 6), dtype=np.float32)
+    # Rust reads (raw.size // 144) cells and two grid coordinates per
+    # cell; anything shorter is an out-of-bounds read.
+    n_cells = raw.size // 144
+    if raw.size != n_cells * 144 or pts.size < n_cells * 2:
+        raise ValueError(
+            f"anchor-free tensors mismatch: raw={raw.size} floats, pts={pts.size}"
+        )
 
     lib.yolo_anchor_free_post_process.argtypes = [
         ctypes.POINTER(ctypes.c_float),
@@ -243,7 +275,7 @@ def anchor_free_post_process(
 
     lib.yolo_anchor_free_post_process(
         raw.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        raw.size // 144,
+        n_cells,
         pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         ctypes.c_float(model_size),
         ctypes.c_float(frame_w),

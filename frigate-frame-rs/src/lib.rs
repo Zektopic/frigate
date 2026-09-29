@@ -32,7 +32,14 @@ pub unsafe extern "C" fn yuv420_to_rgb(
     // Guard the FFI boundary: from_raw_parts on a null pointer is
     // UB even at zero length, and zero dimensions underflow the
     // `- 1` index clamps below.
-    if y.is_null() || u.is_null() || v.is_null() || rgb.is_null() || w == 0 || h == 0 {
+    //
+    // Odd dimensions are rejected too: the chroma planes are sized
+    // (w/2)*(h/2) (floor), but the last odd column/row indexes chroma
+    // element w/2 / h/2, one past the end.  That bounds-checked index
+    // panics, and with panic = "abort" the process dies (SIGABRT).
+    if y.is_null() || u.is_null() || v.is_null() || rgb.is_null()
+        || w == 0 || h == 0 || !w.is_multiple_of(2) || !h.is_multiple_of(2)
+    {
         return;
     }
 
@@ -409,7 +416,11 @@ pub unsafe extern "C" fn yuv420_to_3channel(
 ) {
     let w = w as usize;
     let h = h as usize;
-    if y.is_null() || u.is_null() || v.is_null() || out.is_null() || w == 0 || h == 0 {
+    // Odd sizes index one past the (w/2)*(h/2) chroma planes and abort;
+    // see yuv420_to_rgb.
+    if y.is_null() || u.is_null() || v.is_null() || out.is_null()
+        || w == 0 || h == 0 || !w.is_multiple_of(2) || !h.is_multiple_of(2)
+    {
         return;
     }
 
@@ -673,7 +684,48 @@ pub unsafe extern "C" fn polygon_box_overlap(
         }
     }
 
+    // Neither contains a vertex of the other, but an edge can still cross
+    // the box (e.g. a thin zone band running straight through it).
+    let box_edges = [
+        ((bx1, by1), (bx2, by1)),
+        ((bx2, by1), (bx2, by2)),
+        ((bx2, by2), (bx1, by2)),
+        ((bx1, by2), (bx1, by1)),
+    ];
+    let mut j = num_pts - 1;
+    for i in 0..num_pts {
+        let a = (slice[j * 2], slice[j * 2 + 1]);
+        let b = (slice[i * 2], slice[i * 2 + 1]);
+        if box_edges.iter().any(|&(c, d)| segments_intersect(a, b, c, d)) {
+            return 1;
+        }
+        j = i;
+    }
+
     0
+}
+
+/// Proper or touching intersection of segments `ab` and `cd`.
+fn segments_intersect(a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64, f64)) -> bool {
+    let orient = |p: (f64, f64), q: (f64, f64), r: (f64, f64)| {
+        (q.0 - p.0) * (r.1 - p.1) - (q.1 - p.1) * (r.0 - p.0)
+    };
+    let on_seg = |p: (f64, f64), q: (f64, f64), r: (f64, f64)| {
+        r.0 >= p.0.min(q.0) && r.0 <= p.0.max(q.0) && r.1 >= p.1.min(q.1) && r.1 <= p.1.max(q.1)
+    };
+    let d1 = orient(c, d, a);
+    let d2 = orient(c, d, b);
+    let d3 = orient(a, b, c);
+    let d4 = orient(a, b, d);
+    if ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
+        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
+    {
+        return true;
+    }
+    (d1 == 0.0 && on_seg(c, d, a))
+        || (d2 == 0.0 && on_seg(c, d, b))
+        || (d3 == 0.0 && on_seg(a, b, c))
+        || (d4 == 0.0 && on_seg(a, b, d))
 }
 
 /// Vectorized NxM pairwise tracker distance matrix.
@@ -698,7 +750,18 @@ pub unsafe extern "C" fn batch_track_distance_matrix(
     }
 }
 
-/// Non-temporal SIMD memory copy for shared memory frame transfers.
+/// Copy `len` bytes from `src` to `dst` (shared-memory frame transfers).
+///
+/// This is a plain `memmove`.  The previous AVX2 loop called
+/// `_mm256_loadu_si256` / `_mm256_storeu_si256` from a function without
+/// `#[target_feature]`, so neither intrinsic could inline (two calls per 32
+/// bytes) and it was slower than libc; it also built two slices over the
+/// same memory, which is UB when the ranges overlap.  glibc's memmove
+/// already picks the best vector width for the running CPU.
+///
+/// # Safety
+/// `src` must be valid for `len` bytes of reads and `dst` for `len` bytes
+/// of writes.  The ranges may overlap.
 #[no_mangle]
 pub unsafe extern "C" fn fast_shm_copy(
     dst: *mut u8,
@@ -708,30 +771,7 @@ pub unsafe extern "C" fn fast_shm_copy(
     if dst.is_null() || src.is_null() || len == 0 {
         return;
     }
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            let chunks = len / 32;
-            let src_ptr = src as *const __m256i;
-            let dst_ptr = dst as *mut __m256i;
-
-            for i in 0..chunks {
-                let val = _mm256_loadu_si256(src_ptr.add(i));
-                _mm256_storeu_si256(dst_ptr.add(i), val);
-            }
-
-            let remainder_start = chunks * 32;
-            let rem_src = std::slice::from_raw_parts(src.add(remainder_start), len - remainder_start);
-            let rem_dst = std::slice::from_raw_parts_mut(dst.add(remainder_start), len - remainder_start);
-            rem_dst.copy_from_slice(rem_src);
-            return;
-        }
-    }
-
-    let src_slice = std::slice::from_raw_parts(src, len);
-    let dst_slice = std::slice::from_raw_parts_mut(dst, len);
-    dst_slice.copy_from_slice(src_slice);
+    std::ptr::copy(src, dst, len);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -976,6 +1016,61 @@ mod ffi_guard_tests {
         let mut dst = vec![0u8; 16];
         unsafe { bilinear_resize_u8(src.as_ptr(), dst.as_mut_ptr(), 4, 0, 4, 4, 1) };
         assert!(dst.iter().all(|&v| v == 0));
+    }
+
+    /// Odd dimensions used to index one past the chroma planes and abort.
+    #[test]
+    fn yuv_converters_reject_odd_dimensions() {
+        let y = [0u8; 15];
+        let uv = [0u8; 2];
+        let mut out = [0xABu8; 45];
+        unsafe { yuv420_to_rgb(y.as_ptr(), uv.as_ptr(), uv.as_ptr(), out.as_mut_ptr(), 5, 3) };
+        unsafe { yuv420_to_3channel(y.as_ptr(), uv.as_ptr(), uv.as_ptr(), 5, 3, out.as_mut_ptr()) };
+        assert!(out.iter().all(|&v| v == 0xAB));
+    }
+
+    #[test]
+    fn fast_shm_copy_handles_overlap_and_odd_lengths() {
+        for len in [1usize, 31, 32, 33, 4097] {
+            let src: Vec<u8> = (0..len).map(|i| (i * 7) as u8).collect();
+            let mut dst = vec![0u8; len];
+            unsafe { fast_shm_copy(dst.as_mut_ptr(), src.as_ptr(), len) };
+            assert_eq!(src, dst);
+        }
+        let mut buf: Vec<u8> = (0..64u8).collect();
+        unsafe { fast_shm_copy(buf.as_mut_ptr().add(1), buf.as_ptr(), 32) };
+        assert_eq!(&buf[1..33], &(0..32u8).collect::<Vec<_>>()[..]);
+    }
+
+    // Vectors from origin/feat/rust-zone-geometry-engine, on dev's f64 API.
+    #[test]
+    fn point_in_polygon_triangle() {
+        let tri = [0.0f64, 0.0, 10.0, 0.0, 5.0, 10.0];
+        unsafe {
+            assert_eq!(point_in_polygon(5.0, 3.0, tri.as_ptr(), 3), 1);
+            assert_eq!(point_in_polygon(0.0, 10.0, tri.as_ptr(), 3), 0);
+            assert_eq!(point_in_polygon(12.0, 2.0, tri.as_ptr(), 3), 0);
+            assert_eq!(point_in_polygon(5.0, -2.0, tri.as_ptr(), 3), 0);
+            // Horizontal edge at the query height: no division by zero.
+            let flat = [0.0f64, 1.0, 5.0, 1.0, 9.0, 1.0];
+            assert_eq!(point_in_polygon(3.0, 1.0, flat.as_ptr(), 3), 0);
+            assert_eq!(point_in_polygon(f64::NAN, 3.0, tri.as_ptr(), 3), 0);
+        }
+    }
+
+    #[test]
+    fn polygon_box_overlap_cases() {
+        let square = [0.0f64, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0];
+        let inside = [2.0f64, 2.0, 8.0, 8.0];
+        let outside = [20.0f64, 20.0, 30.0, 30.0];
+        // A thin band crossing the box with no vertex/corner containment.
+        let band = [-5.0f64, 1.0, 15.0, 1.0, 15.0, 2.0, -5.0, 2.0];
+        let unit = [0.0f64, 0.0, 10.0, 10.0];
+        unsafe {
+            assert_eq!(polygon_box_overlap(square.as_ptr(), 4, inside.as_ptr()), 1);
+            assert_eq!(polygon_box_overlap(square.as_ptr(), 4, outside.as_ptr()), 0);
+            assert_eq!(polygon_box_overlap(band.as_ptr(), 4, unit.as_ptr()), 1);
+        }
     }
 
     /// A crop window must be fully contained in the source plane.

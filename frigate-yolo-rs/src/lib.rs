@@ -82,7 +82,9 @@ fn decode_yolo_scale(
                 }
 
                 let conf = best_score * obj_conf;
-                if conf < score_thresh {
+                // Reject NaN explicitly (e.g. 0 * inf, or a NaN
+                // objectness from an fp16 overflow): `conf < t` alone keeps it.
+                if conf.is_nan() || conf < score_thresh {
                     continue;
                 }
 
@@ -112,6 +114,20 @@ fn decode_yolo_scale(
 
 // ── Greedy NMS ─────────────────────────────────────────────────────
 
+/// Descending score order that is a *total* order even with NaN.
+///
+/// `partial_cmp(..).unwrap_or(Equal)` is not a total order once a NaN is
+/// present, and since Rust 1.81 `sort_unstable_by` may panic ("user-provided
+/// comparison function does not correctly implement a total order") when it
+/// detects that.  These crates are cdylibs with `panic = "abort"`, so a
+/// single NaN score from a model aborted the whole detector process.  NaN is
+/// mapped to -inf so it sorts last and never survives NMS ahead of a real box.
+#[inline]
+fn score_desc(a: f32, b: f32) -> std::cmp::Ordering {
+    let key = |s: f32| if s.is_nan() { f32::NEG_INFINITY } else { s };
+    key(b).total_cmp(&key(a))
+}
+
 fn greedy_nms(
     boxes: &[(f32, f32, f32, f32)],
     scores: &[f32],
@@ -124,9 +140,7 @@ fn greedy_nms(
     }
 
     let mut indices: Vec<usize> = (0..n).collect();
-    indices.sort_unstable_by(|&a, &b| {
-        scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    indices.sort_unstable_by(|&a, &b| score_desc(scores[a], scores[b]));
 
     let areas: Vec<f32> = boxes
         .iter()
@@ -249,7 +263,10 @@ pub unsafe extern "C" fn nms_boxes(
     let boxes_vec: Vec<(f32, f32, f32, f32)> = (0..n)
         .map(|i| (b[i*4], b[i*4+1], b[i*4+2], b[i*4+3]))
         .collect();
-    let keep = greedy_nms(&boxes_vec, s, iou_threshold, max_indices);
+    let keep: Vec<usize> = greedy_nms(&boxes_vec, s, iou_threshold, max_indices)
+        .into_iter()
+        .filter(|&i| !s[i].is_nan())
+        .collect();
     // Clamp to the caller's buffer rather than trusting greedy_nms to
     // have honoured max_indices — the write must be bounded by the
     // capacity we were actually given.
@@ -339,7 +356,7 @@ pub unsafe extern "C" fn yolo26_post_process(
     // Step 2: NMS (greedy, same algorithm as Python worker)
     let areas: Vec<f32> = boxes.iter().map(|(x1,y1,x2,y2)| (x2-x1)*(y2-y1)).collect();
     let mut order: Vec<usize> = (0..boxes.len()).collect();
-    order.sort_unstable_by(|&a, &b| best_scores[b].partial_cmp(&best_scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+    order.sort_unstable_by(|&a, &b| score_desc(best_scores[a], best_scores[b]));
 
     let mut keep: Vec<usize> = Vec::with_capacity(20);
     let sx = frame_w / model_size;
@@ -543,7 +560,7 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
     let n_boxes = boxes.len();
     let areas: Vec<f32> = boxes.iter().map(|(x1,y1,x2,y2)| (x2-x1)*(y2-y1)).collect();
     let mut order: Vec<usize> = (0..n_boxes).collect();
-    order.sort_unstable_by(|&a, &b| final_scores[b].partial_cmp(&final_scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+    order.sort_unstable_by(|&a, &b| score_desc(final_scores[a], final_scores[b]));
 
     // Top-K (max 1000)
     let order = if order.len() > 1000 { order[..1000].to_vec() } else { order };
@@ -631,6 +648,36 @@ mod ffi_guard_tests {
             unsafe { nms_boxes(boxes.as_ptr(), scores.as_ptr(), 4, 0.5, std::ptr::null_mut(), 8) },
             0
         );
+    }
+
+    /// A NaN score must not abort the process.  Before `score_desc` this
+    /// panicked inside sort_unstable_by for ~60% of seeds at n >= 21.
+    #[test]
+    fn nms_boxes_survives_nan_scores() {
+        let mut state = 0x1234_5678_u64;
+        let mut rnd = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (state >> 40) as f32 / (1u64 << 24) as f32
+        };
+        for n in [21usize, 25, 32, 33, 50, 64, 100, 1000] {
+            for _ in 0..40 {
+                let mut boxes = Vec::with_capacity(n * 4);
+                let mut scores = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let x = rnd() * 600.0;
+                    let y = rnd() * 600.0;
+                    boxes.extend_from_slice(&[x, y, x + 10.0, y + 10.0]);
+                    scores.push(if rnd() < 0.3 { f32::NAN } else { rnd() });
+                }
+                let mut out = vec![u32::MAX; 100];
+                let k = unsafe {
+                    nms_boxes(boxes.as_ptr(), scores.as_ptr(), n as u32, 0.5, out.as_mut_ptr(), 100)
+                };
+                for &idx in &out[..k as usize] {
+                    assert!(!scores[idx as usize].is_nan(), "NaN-scored box was kept");
+                }
+            }
+        }
     }
 
     /// The write must be bounded by the caller's capacity, and the

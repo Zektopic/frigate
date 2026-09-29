@@ -45,15 +45,31 @@ def frame_rs_available() -> bool:
     return _load_lib() is not None
 
 
-def read_ffmpeg_frame_to_ptr(fd: int, ptr_addr: int, frame_size: int) -> int:
+def read_ffmpeg_frame_to_ptr(
+    fd: int, ptr_addr: int, frame_size: int, buffer_size: int
+) -> int:
     """Reads exactly `frame_size` bytes from FFmpeg raw stdout descriptor `fd`
     directly into memory location `ptr_addr`.
+
+    ``buffer_size`` is the capacity of the destination.  Rust trusts
+    ``frame_size`` blindly, so a destination smaller than one frame (e.g. a
+    stale /dev/shm segment left over from a different detect resolution)
+    would be overrun: adjacent mappings are silently corrupted, or read(2)
+    fails with EFAULT.  The Python path raised a ValueError in that case, so
+    this keeps the failure recoverable.
 
     Returns 1 on success, 0 on EOF, and -1 on error.
     """
     lib = _load_lib()
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
+    if ptr_addr == 0 or frame_size <= 0 or frame_size > 0xFFFFFFFF:
+        return -1
+    if buffer_size < frame_size:
+        logger.error(
+            "Frame buffer too small for frame: %d < %d bytes", buffer_size, frame_size
+        )
+        return -1
 
     lib.read_ffmpeg_frame.argtypes = [
         ctypes.c_int32,
@@ -78,6 +94,10 @@ def intersection_over_union_rust(box_a, box_b) -> float:
     ]
     lib.intersection_over_union.restype = ctypes.c_float
 
+    # A ctypes array initializer rejects >4 values but silently zero-fills
+    # fewer, which would turn a malformed box into a wrong answer.
+    if len(box_a) != 4 or len(box_b) != 4:
+        raise ValueError("boxes must have exactly 4 coordinates")
     arr_a = (ctypes.c_float * 4)(*box_a)
     arr_b = (ctypes.c_float * 4)(*box_b)
 
@@ -177,17 +197,21 @@ def batch_track_distance_matrix_rust(detections: list, estimates: list):
     ]
     lib.batch_track_distance_matrix.restype = None
 
-    flat_dets = [float(v) for b in detections for v in b]
-    flat_ests = [float(v) for b in estimates for v in b]
-
-    c_dets = (ctypes.c_double * len(flat_dets))(*flat_dets)
-    c_ests = (ctypes.c_double * len(flat_ests))(*flat_ests)
+    # Rust reads exactly 4 doubles per box.  reshape() raises on anything
+    # else (a 3-value box used to make Rust read past the end of the array)
+    # and also accepts norfair's (2, 2) point arrays.
+    dets = np.ascontiguousarray(
+        np.asarray(detections, dtype=np.float64).reshape(n_dets, 4)
+    )
+    ests = np.ascontiguousarray(
+        np.asarray(estimates, dtype=np.float64).reshape(n_ests, 4)
+    )
     out = np.zeros((n_dets, n_ests), dtype=np.float64)
 
     lib.batch_track_distance_matrix(
-        c_dets,
+        dets.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
         ctypes.c_size_t(n_dets),
-        c_ests,
+        ests.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
         ctypes.c_size_t(n_ests),
         out.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
     )
@@ -207,6 +231,17 @@ def fast_shm_copy_rust(dst_buf, src_buf, length: int) -> None:
     ]
     lib.fast_shm_copy.restype = None
 
+    # Bound the copy by what both buffers actually hold; Rust trusts
+    # `length` and would read/write past either end.
+    if (
+        length < 0
+        or length > memoryview(dst_buf).nbytes
+        or length > memoryview(src_buf).nbytes
+    ):
+        raise ValueError("fast_shm_copy length exceeds a buffer")
+    if length == 0:
+        return
+
     dst_ptr = ctypes.addressof(ctypes.c_char.from_buffer(dst_buf))
     src_ptr = ctypes.addressof(ctypes.c_char.from_buffer(src_buf))
 
@@ -221,13 +256,20 @@ def preprocess_detect_input_rust(
     dst_h: int,
     channels: int = 3,
 ) -> ctypes.Array:
-    """Zero-copy SIMD preprocess detection input (bilinear resize + normalize + NHWC->NCHW)."""
+    """Bilinear resize + /255 normalize + NHWC->NCHW in one Rust call.
+
+    Returns a ``c_float`` array of ``channels * dst_h * dst_w`` values.
+    """
     lib = _load_lib()
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
-
-    out_size = channels * dst_w * dst_h
-    out_buf = (ctypes.c_float * out_size)()
+    if min(src_w, src_h, dst_w, dst_h, channels) <= 0:
+        raise ValueError("dimensions must be positive")
+    # Rust reads src_w * src_h * channels bytes from src.
+    if len(src_bytes) < src_w * src_h * channels:
+        raise ValueError(
+            f"source holds {len(src_bytes)} bytes, need {src_w * src_h * channels}"
+        )
 
     lib.preprocess_detect_input.argtypes = [
         ctypes.POINTER(ctypes.c_uint8),
@@ -240,15 +282,7 @@ def preprocess_detect_input_rust(
     ]
     lib.preprocess_detect_input.restype = None
 
+    out_buf = (ctypes.c_float * (channels * dst_w * dst_h))()
     src_arr = (ctypes.c_uint8 * len(src_bytes)).from_buffer_copy(src_bytes)
-
-    lib.preprocess_detect_input(
-        src_arr,
-        out_buf,
-        src_w,
-        src_h,
-        dst_w,
-        dst_h,
-        channels,
-    )
+    lib.preprocess_detect_input(src_arr, out_buf, src_w, src_h, dst_w, dst_h, channels)
     return out_buf

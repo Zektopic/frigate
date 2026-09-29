@@ -86,9 +86,13 @@ while True:
         let mut buf = vec![0u8; n];
         self.stdout.get_mut().read_exact(&mut buf)?;
 
-        let floats: Vec<f32> = unsafe {
-            std::slice::from_raw_parts(buf.as_ptr() as *const f32, n/4).to_vec()
-        };
+        // Vec<u8> is only 1-byte aligned, so viewing it as &[f32] is UB
+        // (and for n == 0 the dangling pointer is misaligned).  Decode the
+        // native-endian floats written by numpy's tobytes() instead.
+        let floats: Vec<f32> = buf
+            .chunks_exact(4)
+            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
         Ok(floats)
     }
 }
@@ -142,15 +146,15 @@ fn process_rayon(raw: &[f32], n_cells: usize, model_size: f32,
             let s=raw[(4+c)*n_cells + j];
             if s>bs { bs=s; bc=c as i32; }
         }
-        if bs<score_thresh { return None; }
+        if bs.is_nan() || bs < score_thresh { return None; }
         Some((x1,y1,x2,y2,bs,bc))
     }).collect();
 
     if candidates.is_empty() { return 0; }
 
     let mut sorted: Vec<usize> = (0..candidates.len()).collect();
-    sorted.par_sort_unstable_by(|&a,&b|
-        candidates[b].4.partial_cmp(&candidates[a].4).unwrap_or(std::cmp::Ordering::Equal));
+    // total_cmp: a NaN-tolerant total order (partial_cmp + Equal is not one).
+    sorted.par_sort_unstable_by(|&a,&b| candidates[b].4.total_cmp(&candidates[a].4));
 
     let areas: Vec<f32> = candidates.iter().map(|(x1,y1,x2,y2,_,_)| (x2-x1)*(y2-y1)).collect();
     let mut keep: Vec<usize> = Vec::with_capacity(20);
@@ -166,7 +170,7 @@ fn process_rayon(raw: &[f32], n_cells: usize, model_size: f32,
         keep.push(i);
     }
     // Sort keep by score descending (Frigate expects this for early-break)
-    keep.sort_unstable_by(|&a, &b| candidates[b].4.partial_cmp(&candidates[a].4).unwrap_or(std::cmp::Ordering::Equal));
+    keep.sort_unstable_by(|&a, &b| candidates[b].4.total_cmp(&candidates[a].4));
     for (k,&idx) in keep.iter().enumerate() {
         let (x1,y1,x2,y2,s,c) = candidates[idx];
         let o=k*6; out[o]=c as f32;out[o+1]=s;out[o+2]=x1;out[o+3]=y1;out[o+4]=x2;out[o+5]=y2;

@@ -100,7 +100,9 @@ def capture_frames(
                 if _use_rust_reader:
                     addr = ctypes.addressof(ctypes.c_char.from_buffer(frame_buffer))
                     fd = ffmpeg_process.stdout.fileno()
-                    rc = read_ffmpeg_frame_to_ptr(fd, addr, frame_size)
+                    rc = read_ffmpeg_frame_to_ptr(
+                        fd, addr, frame_size, len(frame_buffer)
+                    )
                     if rc <= 0:
                         raise OSError("Rust frame reader failed or EOF")
                 else:
