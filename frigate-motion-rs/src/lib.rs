@@ -705,8 +705,8 @@ pub unsafe extern "C" fn motion_init_average(
     }
 }
 
-/// `avg = (1 - alpha) * avg + alpha * src` over `len` pixels, in place —
-/// the same update as `cv2.accumulateWeighted(src, avg, alpha)`.
+/// `avg = (1 - alpha) * avg + alpha * src` over `len` pixels, in place.
+/// This is the same update as `cv2.accumulateWeighted(src, avg, alpha)`.
 ///
 /// # Safety
 /// `src` must be valid for `len` bytes and `avg` for `len` f32 values; the
