@@ -14,7 +14,7 @@ import numpy as np
 from pydantic import Field
 
 from frigate.detectors.detection_api import DetectionApi
-from frigate.detectors.detector_config import BaseDetectorConfig
+from frigate.detectors.detector_config import BaseDetectorConfig, InputDTypeEnum
 
 logger = logging.getLogger(__name__)
 
@@ -88,25 +88,34 @@ class NCNNDetector(DetectionApi):
 
     def detect_raw(self, tensor_input: np.ndarray):
         """Inference via ncnn Vulkan, supporting both YOLO26/11 decoded and YOLOv5s multipart."""
-        sq = tensor_input.squeeze(0)
-        if sq.dtype == np.uint8:
-            img = np.ascontiguousarray(sq)
-        else:
-            img = np.ascontiguousarray((sq * 255.0).clip(0, 255).astype(np.uint8))
+        # Frigate hands over whatever layout/dtype model.input_tensor and
+        # model.input_dtype select. from_pixels needs packed HWC uint8 whose
+        # size matches the w/h passed in -- it reads w*h*3 bytes regardless of
+        # the buffer it is given.
+        img = tensor_input.squeeze(0)
+        if img.ndim == 3 and img.shape[0] == 3 and img.shape[-1] != 3:
+            img = img.transpose(1, 2, 0)  # CHW -> HWC
 
-        mat_in = self.ncnn.Mat.from_pixels(
-            img,
-            self.ncnn.Mat.PixelType.PIXEL_RGB,
-            self.model_input_size,
-            self.model_input_size,
-        )
+        if img.dtype != np.uint8:
+            if self.detector_config.model.input_dtype == InputDTypeEnum.float:
+                img = img * 255.0
+            img = img.clip(0, 255).astype(np.uint8)
+
+        img = np.ascontiguousarray(img)
+
+        if img.ndim != 3 or img.shape[2] != 3:
+            logger.error("NCNN: unsupported input tensor shape %s", tensor_input.shape)
+            return np.zeros((20, 6), np.float32)
+
+        h, w = img.shape[:2]
+        mat_in = self.ncnn.Mat.from_pixels(img, self.ncnn.Mat.PixelType.PIXEL_RGB, w, h)
         mat_in.substract_mean_normalize([], [1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0])
 
         with self.net.create_extractor() as ex:
             ex.input("in0", mat_in)
             ret0, out0_raw = ex.extract("out0")
             if ret0 != 0:
-                return np.zeros((0, 6), np.float32)
+                return np.zeros((20, 6), np.float32)
 
             arr0 = np.array(out0_raw)
             # Check if this is a single-output YOLO26/11 tensor (e.g. 84x8400 or 8400x84)
@@ -132,7 +141,7 @@ class NCNNDetector(DetectionApi):
             ret1, out1_raw = ex.extract("out1")
             ret2, out2_raw = ex.extract("out2")
             if ret1 != 0 or ret2 != 0:
-                return np.zeros((0, 6), np.float32)
+                return np.zeros((20, 6), np.float32)
 
         # Convert multipart YOLOv5s outputs: apply sigmoid
         outputs = []

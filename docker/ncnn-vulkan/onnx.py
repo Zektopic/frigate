@@ -22,6 +22,7 @@ import select
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 import numpy as np
@@ -711,6 +712,41 @@ while True:
             raise RuntimeError("NCNN worker did not become ready within 30s")
         logger.info("NCNN: Vulkan inference worker ready (pid=%d)", self._worker.pid)
         self._use_worker = True
+
+        # The worker keeps writing to stderr after READY -- the Rust worker
+        # prints a STATS line every 100 frames, and ncnn/Vulkan errors land
+        # there too. Nothing else reads this pipe, so once its 64 KiB buffer
+        # fills the worker blocks on that write, stops reading stdin, and
+        # _detect_worker() hangs in os.write() until the watchdog declares
+        # detection stuck and kills this process. Drain it for the worker's
+        # whole lifetime.
+        threading.Thread(
+            target=self._drain_worker_stderr,
+            args=(stderr_fd,),
+            name="ncnn_worker_stderr",
+            daemon=True,
+        ).start()
+
+    @staticmethod
+    def _drain_worker_stderr(stderr_fd: int) -> None:
+        """Consume the worker's stderr until it exits, logging what it says."""
+        while True:
+            try:
+                chunk = os.read(stderr_fd, 4096)
+            except OSError:
+                return
+
+            if not chunk:
+                return
+
+            for line in chunk.decode(errors="replace").splitlines():
+                if not line:
+                    continue
+
+                if line.startswith("STATS "):
+                    logger.debug("NCNN worker stderr: %s", line)
+                else:
+                    logger.warning("NCNN worker stderr: %s", line)
 
     # ------------------------------------------------------------------
     def detect_raw(self, tensor_input: np.ndarray) -> np.ndarray:

@@ -33,6 +33,20 @@ from .util import tensor_transform
 logger = logging.getLogger(__name__)
 
 
+def write_detections(out: np.ndarray, detections: np.ndarray) -> None:
+    """Copy a detector result into the fixed-size (20, 6) output buffer.
+
+    Plugins are expected to return exactly 20 rows, but one that returns
+    fewer or more (e.g. an empty (0, 6) array on an inference error) would
+    raise a broadcast ValueError on a plain slice assignment. That exception
+    kills the detection process, and the watchdog used to answer a dead
+    detector by restarting all of Frigate.
+    """
+    rows = min(len(detections), out.shape[0])
+    out[:rows] = detections[:rows]
+    out[rows:] = 0
+
+
 class ObjectDetector(ABC):
     @abstractmethod
     def detect(self, tensor_input: np.ndarray, threshold: float = 0.4) -> list:
@@ -175,7 +189,7 @@ class DetectorRunner(FrigateProcess):
             if connection_id not in self.outputs:
                 self.create_output_shm(connection_id)
 
-            self.outputs[connection_id]["np"][:] = detections[:]
+            write_detections(self.outputs[connection_id]["np"], detections)
             detector_publisher.publish(connection_id)
             self.start_time.value = 0.0
 
@@ -269,7 +283,7 @@ class AsyncDetectorRunner(FrigateProcess):
 
             # write results and publish
             if detections is not None:
-                self.outputs[connection_id]["np"][:] = detections[:]
+                write_detections(self.outputs[connection_id]["np"], detections)
             assert self._publisher is not None
             self._publisher.publish(connection_id)
 
