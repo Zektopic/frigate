@@ -4,6 +4,7 @@ import { WsProvider } from "./WsProvider";
 import axios from "axios";
 import { ReactNode } from "react";
 import { isRedirectingToLogin, setRedirectingToLogin } from "./auth-redirect";
+import { swrErrorRetry } from "./swr-retry";
 
 axios.defaults.baseURL = `${baseUrl}api/`;
 
@@ -38,6 +39,7 @@ export function ApiProvider({ children, options }: ApiProviderType) {
             }
           }
         },
+        onErrorRetry: swrErrorRetry,
         ...options,
       }}
     >

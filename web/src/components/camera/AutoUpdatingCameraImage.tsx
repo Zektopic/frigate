@@ -12,6 +12,9 @@ type AutoUpdatingCameraImageProps = {
 };
 
 const MIN_LOAD_TIMEOUT_MS = 200;
+// Delay before retrying a frame that failed to load, e.g. while Frigate is
+// restarting and the API answers 502/500 or not at all.
+const ERROR_RETRY_MS = 2500;
 
 export default function AutoUpdatingCameraImage({
   camera,
@@ -70,6 +73,30 @@ export default function AutoUpdatingCameraImage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, setFps]);
 
+  // The next frame is only scheduled from onLoad, so without this a single
+  // failed request (the backend restarting, a transient 502) froze the
+  // image until the component remounted or the page was reloaded.
+  const handleError = useCallback(() => {
+    if (reloadInterval == -1) {
+      return;
+    }
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
+    // a retry within the same periodic-cache window would request the
+    // identical URL and never reach the network again
+    setIsCached(true);
+
+    timeoutRef.current = setTimeout(
+      () => {
+        setKey(Date.now());
+      },
+      Math.max(reloadInterval, ERROR_RETRY_MS),
+    );
+  }, [reloadInterval]);
+
   // periodic cache to reduce loading indicator
 
   const [isCached, setIsCached] = useState(false);
@@ -94,6 +121,7 @@ export default function AutoUpdatingCameraImage({
       <CameraImage
         camera={camera}
         onload={handleLoad}
+        onerror={handleError}
         searchParams={cacheKey}
         className={cameraClasses}
       />
