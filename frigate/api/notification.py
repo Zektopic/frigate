@@ -158,7 +158,13 @@ def register_notifications(request: Request, body: dict = None):
     # remote-user is injected by the /auth subrequest in nginx (auth_request.conf)
     # and cannot be spoofed by the client. allow_any_authenticated() guarantees it
     # is present unless the request arrived on the trusted internal port.
-    username = request.headers.get("remote-user")
+    if request.app.frigate_config.auth.enabled:
+        username = request.headers.get("remote-user")
+    else:
+        # With auth disabled /auth reports "viewer" (or a proxy-supplied name),
+        # neither of which has a users row, so the update below would match
+        # nothing. Keep the upstream behavior of storing these on admin.
+        username = "admin"
 
     if not username or username == "anonymous":
         return JSONResponse(

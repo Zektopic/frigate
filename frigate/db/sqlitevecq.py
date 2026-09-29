@@ -23,9 +23,13 @@ class SqliteVecQueueDatabase(SqliteQueueDatabase):
         conn: sqlite3.Connection = super()._connect(*args, **kwargs)  # type: ignore[misc]
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute(
-            "PRAGMA busy_timeout=30000;"
-        )  # 30-sec busy timeout prevents "database is locked" errors
+        # Raise, never lower, the busy timeout. peewee has already applied
+        # the `timeout` constructor argument (Frigate passes
+        # max(60, 10 * cameras) seconds); an unconditional 30 s pragma would
+        # silently shorten it and make "database is locked" more likely.
+        busy_timeout_ms = conn.execute("PRAGMA busy_timeout;").fetchone()[0]
+        if busy_timeout_ms < 30000:
+            conn.execute("PRAGMA busy_timeout=30000;")
         conn.execute("PRAGMA temp_store=MEMORY;")
         conn.execute("PRAGMA mmap_size=268435456;")  # 256 MB — reduces read() syscalls
         conn.execute("PRAGMA wal_autocheckpoint=1000;")

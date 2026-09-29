@@ -36,6 +36,7 @@ from frigate.util.image import (
     draw_box_with_label,
 )
 from frigate.util.object import (
+    GRID_SIZE,
     create_tensor_input,
     get_cluster_candidates,
     get_cluster_region,
@@ -274,8 +275,19 @@ def process_frames(
             continue
 
         if datetime.now().astimezone(UTC) > next_region_update:
-            region_grid = requestor.send_data(REQUEST_REGION_GRID, camera_config.name)
+            new_grid = requestor.send_data(REQUEST_REGION_GRID, camera_config.name)
             next_region_update = get_tomorrow_at_time(2)
+
+            # send_data returns "" on timeout and the dispatcher replies [] when
+            # its handler fails; indexing either in get_region_from_grid raises
+            # IndexError and kills this process. Keep the previous grid instead.
+            if isinstance(new_grid, list) and len(new_grid) == GRID_SIZE:
+                region_grid = new_grid
+            else:
+                logger.warning(
+                    "%s: region grid update failed, keeping previous grid",
+                    camera_config.name,
+                )
 
         try:
             if exit_on_empty:

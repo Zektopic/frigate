@@ -548,6 +548,12 @@ def delete_reviews(body: ReviewModifyMultipleBody):
         start_time = review["start_time"]
         end_time = review["end_time"]
 
+        # An in-progress segment has no end_time yet. The old per-review
+        # BETWEEN query matched no recordings for it (NULL bound), so keep
+        # that behavior -- and min()/max() below cannot compare None.
+        if end_time is None:
+            continue
+
         if camera not in camera_ranges:
             camera_ranges[camera] = {
                 "min_start": start_time,
