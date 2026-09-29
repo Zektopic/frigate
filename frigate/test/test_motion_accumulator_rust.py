@@ -1,8 +1,9 @@
 import unittest
-import numpy as np
-import cv2
 
-from frigate.motion.rust_engine import motion_available, accumulate_weighted
+import cv2
+import numpy as np
+
+from frigate.motion.rust_engine import accumulate_weighted, motion_available
 
 
 class TestMotionAccumulatorRust(unittest.TestCase):

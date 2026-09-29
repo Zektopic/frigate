@@ -10,6 +10,13 @@ sys.modules.setdefault("frigate.version", MagicMock())
 
 from frigate.api.notification import register_notifications  # noqa: E402
 
+# register_notifications validates the push subscription before touching the
+# database, so tests that exercise the user lookup need a well-formed one
+VALID_SUB = {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/abc123",
+    "keys": {"p256dh": "p256dh-key", "auth": "auth-secret"},
+}
+
 
 class TestNotificationApi(unittest.TestCase):
     def test_register_notifications_missing_sub(self):
@@ -37,7 +44,7 @@ class TestNotificationApi(unittest.TestCase):
         req = MagicMock()
         req.headers = {"remote-user": "nonexistent"}
         mock_user.update.return_value.where.return_value.execute.return_value = 0
-        res = register_notifications(req, body={"sub": "token123"})
+        res = register_notifications(req, body={"sub": VALID_SUB})
         self.assertEqual(res.status_code, 404)
         self.assertIn(b"Could not find user", res.body)
 
@@ -46,7 +53,7 @@ class TestNotificationApi(unittest.TestCase):
         req = MagicMock()
         req.headers = {"remote-user": "test_user"}
         mock_user.update.return_value.where.return_value.execute.return_value = 1
-        res = register_notifications(req, body={"sub": "token123"})
+        res = register_notifications(req, body={"sub": VALID_SUB})
         self.assertEqual(res.status_code, 200)
         self.assertIn(b"Successfully saved token", res.body)
 

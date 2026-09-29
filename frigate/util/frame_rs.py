@@ -212,6 +212,7 @@ def fast_shm_copy_rust(dst_buf, src_buf, length: int) -> None:
 
     lib.fast_shm_copy(dst_ptr, src_ptr, ctypes.c_size_t(length))
 
+
 def preprocess_detect_input_rust(
     src_bytes: bytes,
     src_w: int,

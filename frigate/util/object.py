@@ -4,7 +4,8 @@ import datetime
 import logging
 import math
 from collections import defaultdict
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import cv2
 import numpy as np
@@ -70,7 +71,7 @@ def get_camera_regions_grid(
     if event_count == 0:
         return grid
 
-    new_update = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    new_update = datetime.datetime.now(datetime.UTC).timestamp()
     timeline = (
         Timeline.select(
             *[
