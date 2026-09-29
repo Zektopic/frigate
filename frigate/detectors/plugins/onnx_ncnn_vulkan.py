@@ -87,11 +87,20 @@ class NCNNDetector(DetectionApi):
         )
 
     def detect_raw(self, tensor_input: np.ndarray):
-        """YOLOv5s inference via ncnn Vulkan, using Frigate's existing YOLO postprocessing."""
+        """Inference via ncnn Vulkan, supporting both YOLO26/11 decoded and YOLOv5s multipart."""
+        sq = tensor_input.squeeze(0)
+        if sq.dtype == np.uint8:
+            img = np.ascontiguousarray(sq)
+        else:
+            img = np.ascontiguousarray((sq * 255.0).clip(0, 255).astype(np.uint8))
 
-        _, _, h, w = tensor_input.shape
-        # ncnn YOLOv5s expects 0-255 range, Frigate normalizes to 0-1
-        mat_in = self.ncnn.Mat((tensor_input.squeeze(0) * 255.0).astype(np.float32))
+        mat_in = self.ncnn.Mat.from_pixels(
+            img,
+            self.ncnn.Mat.PixelType.PIXEL_RGB,
+            self.model_input_size,
+            self.model_input_size,
+        )
+        mat_in.substract_mean_normalize([], [1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0])
 
         with self.net.create_extractor() as ex:
             ex.input("in0", mat_in)
