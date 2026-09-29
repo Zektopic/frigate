@@ -1,6 +1,7 @@
 import axios from "axios";
 import { createContext, useEffect, useState } from "react";
 import useSWR from "swr";
+import { swrErrorRetry } from "@/api/swr-retry";
 
 interface AuthState {
   user: { username: string; role: string | null } | null;
@@ -37,6 +38,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { data: profile, error } = useSWR("/profile", {
     revalidateOnFocus: false,
     revalidateOnReconnect: true,
+    // AuthProvider sits outside ApiProvider's SWRConfig, so it does not
+    // inherit the retry policy from there. While this request is failing
+    // every protected route shows a spinner.
+    onErrorRetry: swrErrorRetry,
     fetcher: (url) =>
       axios.get(url, { withCredentials: true }).then((res) => res.data),
   });

@@ -320,5 +320,11 @@
   "validation_errors": "Validation Errors",
   "credentialField": {
     "savedPlaceholder": "Saved — leave blank to keep current"
+  },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "description": "This page ran into an error and could not be displayed.",
+    "chunkDescription": "Frigate was restarted or updated while this page was open. The page will reload automatically once Frigate is reachable again.",
+    "reload": "Reload page"
   }
 }

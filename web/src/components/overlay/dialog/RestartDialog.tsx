@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import axios from "axios";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +23,9 @@ import { baseUrl } from "@/api/baseUrl";
 
 import { useTranslation } from "react-i18next";
 
+// How often to probe the backend while it restarts.
+const RESTART_POLL_MS = 2000;
+
 type RestartDialogProps = {
   isOpen: boolean;
   onClose: () => void;
@@ -37,17 +41,22 @@ export default function RestartDialog({
   const [restartDialogOpen, setRestartDialogOpen] = useState(isOpen);
   const [restartingSheetOpen, setRestartingSheetOpen] = useState(false);
   const [countdown, setCountdown] = useState(60);
+  const countdownRef = useRef(countdown);
 
   useEffect(() => {
     setRestartDialogOpen(isOpen);
   }, [isOpen]);
 
   useEffect(() => {
+    countdownRef.current = countdown;
+  }, [countdown]);
+
+  useEffect(() => {
     let countdownInterval: NodeJS.Timeout;
 
     if (restartingSheetOpen) {
       countdownInterval = setInterval(() => {
-        setCountdown((prevCountdown) => prevCountdown - 1);
+        setCountdown((prevCountdown) => Math.max(prevCountdown - 1, 0));
       }, 1000);
     }
 
@@ -56,11 +65,33 @@ export default function RestartDialog({
     };
   }, [restartingSheetOpen]);
 
+  // Reload once the backend is answering again rather than after a fixed
+  // 60s: a slow restart used to reload onto a dead server (the browser's
+  // own error page, or an app whose first requests all failed and then sat
+  // in SWR's error backoff), which is what left users reloading by hand.
   useEffect(() => {
-    if (countdown === 0) {
-      window.location.href = baseUrl;
+    if (!restartingSheetOpen) {
+      return;
     }
-  }, [countdown]);
+
+    let sawBackendDown = false;
+    const pollInterval = setInterval(async () => {
+      try {
+        await axios.get("version", { timeout: RESTART_POLL_MS });
+      } catch {
+        sawBackendDown = true;
+        return;
+      }
+
+      if (sawBackendDown || countdownRef.current <= 0) {
+        window.location.href = baseUrl;
+      }
+    }, RESTART_POLL_MS);
+
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [restartingSheetOpen]);
 
   const handleRestart = () => {
     setRestartingSheetOpen(true);
@@ -117,9 +148,11 @@ export default function RestartDialog({
               </SheetTitle>
               <SheetDescription className="text-center">
                 <div>
-                  {t("restart.restarting.content", {
-                    countdown,
-                  })}
+                  {countdown > 0
+                    ? t("restart.restarting.content", {
+                        countdown,
+                      })
+                    : t("restart.restarting.waiting")}
                 </div>
               </SheetDescription>
             </SheetHeader>

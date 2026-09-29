@@ -1,5 +1,6 @@
 import { baseUrl } from "./baseUrl";
 import { ReactNode, useCallback, useEffect, useRef } from "react";
+import { useSWRConfig } from "swr";
 import { WsSendContext } from "./wsContext";
 import type { Update } from "./wsContext";
 import {
@@ -33,6 +34,14 @@ export function WsProvider({ children }: { children: ReactNode }) {
   const pendingSends = useRef<Map<string, unknown>>(new Map());
   const lastMessageAt = useRef(0);
   const livenessTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Kept in a ref so a new mutate identity can never re-run the connect
+  // effect below, whose cleanup tears down the socket and the ws store
+  const { mutate } = useSWRConfig();
+  const mutateRef = useRef(mutate);
+
+  useEffect(() => {
+    mutateRef.current = mutate;
+  }, [mutate]);
 
   const sendJsonMessage = useCallback((msg: unknown) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -56,6 +65,12 @@ export function WsProvider({ children }: { children: ReactNode }) {
       lastMessageAt.current = Date.now();
 
       ws.onopen = () => {
+        // Any failed attempt or dropped socket since the last open means
+        // the backend may have restarted. HTTP data (config, profile,
+        // reviews, ...) is then stale or parked in SWR's error backoff,
+        // which can take many minutes to clear without a manual reload,
+        // so refresh every mounted SWR hook as a reload would.
+        const recovered = reconnectAttempt.current > 0;
         reconnectAttempt.current = 0;
         lastMessageAt.current = Date.now();
         // events may have been missed while disconnected — the snapshot
@@ -68,6 +83,10 @@ export function WsProvider({ children }: { children: ReactNode }) {
           ws.send(JSON.stringify(queued));
         }
         queue.clear();
+
+        if (recovered) {
+          mutateRef.current(() => true);
+        }
       };
 
       ws.onmessage = (event: MessageEvent) => {
@@ -78,10 +97,7 @@ export function WsProvider({ children }: { children: ReactNode }) {
 
       ws.onclose = () => {
         stopLivenessCheck();
-        if (unmounted.current) return;
-        const delay = Math.min(1000 * 2 ** reconnectAttempt.current, 30000);
-        reconnectAttempt.current++;
-        reconnectTimer.current = setTimeout(connect, delay);
+        scheduleReconnect();
       };
 
       ws.onerror = () => {
@@ -89,6 +105,13 @@ export function WsProvider({ children }: { children: ReactNode }) {
       };
 
       startLivenessCheck(ws);
+    }
+
+    function scheduleReconnect() {
+      if (unmounted.current) return;
+      const delay = Math.min(1000 * 2 ** reconnectAttempt.current, 30000);
+      reconnectAttempt.current++;
+      reconnectTimer.current = setTimeout(connect, delay);
     }
 
     function startLivenessCheck(ws: WebSocket) {
@@ -100,10 +123,17 @@ export function WsProvider({ children }: { children: ReactNode }) {
 
         if (Date.now() - lastMessageAt.current > WS_IDLE_TIMEOUT_MS) {
           // Nothing has arrived in far longer than the ping interval:
-          // the connection is half-open. Force it closed so onclose
-          // fires and the existing backoff reconnect takes over.
+          // the connection is half-open. close() on it waits for a
+          // closing handshake the peer will never answer (up to 60s in
+          // Chromium) before onclose fires, so detach the socket and
+          // reconnect right away instead of waiting on it.
           stopLivenessCheck();
+          ws.onopen = null;
+          ws.onmessage = null;
+          ws.onclose = null;
+          ws.onerror = null;
           ws.close();
+          scheduleReconnect();
           return;
         }
 
