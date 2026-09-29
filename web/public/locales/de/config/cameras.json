@@ -20,7 +20,7 @@
             "description": "Mindest-RMS-Lautstärkeschwelle, die für die Audioerkennung erforderlich ist; niedrigere Werte erhöhen die Empfindlichkeit (z. B. 200 hoch, 500 mittel, 1000 niedrig)."
         },
         "listen": {
-            "description": "Liste der zu erkennenden Audioereignisse (z.B: bellen, Feueralarm, schreien, sprechen, rufen).",
+            "description": "Liste der zu erkennenden Audioereignisse (z.B: bellen, Feueralarm, Gespräche, Rufen).",
             "label": "Hörtypen"
         },
         "filters": {
@@ -204,11 +204,11 @@
         "description": "Einstellungen zum Aktivieren und Verwalten von Benachrichtigungen für diese Kamera."
     },
     "ffmpeg": {
-        "label": "FFmpeg",
-        "description": "FFmpeg-Einstellungen, einschließlich Binärpfad, Argumente, hwaccel-Optionen und rollenspezifische Ausgabeargumente.",
+        "label": "Streams (FFmpeg)",
+        "description": "Kamera-Stream-Eingaben und FFmpeg-Optionen, einschließlich Binärpfad, Argumente, hwaccel und rollenspezifische Ausgabeargumente.",
         "path": {
             "label": "FFmpeg-Pfad",
-            "description": "Pfad zur zu verwendenden FFmpeg-Binärdatei oder ein Versionsalias („5.0” oder „7.0”)."
+            "description": "Pfad zur zu verwendenden FFmpeg-Binärdatei oder ein Versionsalias („7.0” oder „8.0”)."
         },
         "global_args": {
             "label": "Globale Argumente von FFmpeg",
@@ -545,6 +545,9 @@
             "max_concurrent": {
                 "label": "Maximale Anzahl gleichzeitiger Exporte",
                 "description": "Maximale Anzahl der gleichzeitig zu verarbeitenden Exportaufträge."
+            },
+            "chapters": {
+                "label": "Kapitel-Metadaten, die in exportierte Aufzeichnungen eingebettet werden sollen"
             }
         },
         "preview": {
@@ -768,8 +771,12 @@
             "description": "Numerische Reihenfolge, nach der die Kamera in der Benutzeroberfläche sortiert wird (Standard-Dashboard und Listen); höhere Zahlen erscheinen später."
         },
         "dashboard": {
-            "label": "In der Benutzeroberfläche anzeigen",
-            "description": "Schalte ein, ob diese Kamera überall in der Benutzeroberfläche von „Frigate“ sichtbar ist. Wenn du diese Option deaktivierst, musst du die Konfiguration manuell bearbeiten, um diese Kamera wieder in der Benutzeroberfläche anzuzeigen."
+            "label": "Im Live-Dashboard anzeigen",
+            "description": "Legt fest, ob diese Kamera im Standard-Live-Dashboard „Alle Kameras“ angezeigt wird. Die Kamera bleibt in allen anderen Bereichen der Benutzeroberfläche verfügbar, einschließlich Kameragruppen und Einstellungen."
+        },
+        "review": {
+            "label": "In der Überprüfung anzeigen",
+            "description": "Legen Sie fest, ob diese Kamera in der Übersicht angezeigt wird (auf der Übersichtsseite sowie im Kamerafilter, in der Bewegungsübersicht und in der Verlaufsansicht)."
         }
     },
     "snapshots": {

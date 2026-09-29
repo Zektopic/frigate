@@ -32,6 +32,9 @@
           "ask_a": "这个目标/物体是 <code>{{label}}</code> 吗？",
           "ask_an": "这个目标/物体是 <code>{{label}}</code> 吗？",
           "ask_full": "这个目标/物体是 <code>{{untranslatedLabel}}</code> ({{translatedLabel}}) 吗？"
+        },
+        "toast": {
+          "error": "提交至 Frigate+ 失败，请检查您的网络连接并重试。"
         }
       }
     },
@@ -64,14 +67,15 @@
       "error": {
         "failed": "未能加入导出队列：{{error}}",
         "endTimeMustAfterStartTime": "结束时间必须在开始时间之后",
-        "noVaildTimeSelected": "未选择有效的时间范围"
+        "noVaildTimeSelected": "未选择有效的时间范围",
+        "noValidTimeSelected": "未选择有效的时间范围"
       },
       "view": "查看",
       "queued": "导出已加入队列。请在导出页面查看进度。",
       "batchSuccess_other": "已开始 {{count}} 个导出，正在打开合集。",
       "batchPartial": "已开始 {{total}} 个导出中的 {{successful}} 个。失败的摄像头：{{failedCameras}}",
       "batchFailed": "启动导出失败（共 {{total}} 个）。失败的摄像头：{{failedCameras}}",
-      "batchQueuedSuccess_other": "已排队 {{count}} 个导出，正在打开合集。",
+      "batchQueuedSuccess_other": "已排队 {{count}} 个导出。",
       "batchQueuedPartial": "已将 {{total}} 个导出中的 {{successful}} 个加入队列。失败的摄像头：{{failedCameras}}",
       "batchQueueFailed": "未能将 {{total}} 个导出加入队列。失败的摄像头：{{failedCameras}}"
     },
@@ -105,7 +109,14 @@
       "nameLabel": "导出名称",
       "namePlaceholder": "这些导出文件的可选基础名称",
       "queueingButton": "正在加入导出队列…",
-      "exportButton_other": "导出 {{count}} 个摄像头"
+      "exportButton_other": "导出 {{count}} 个摄像头",
+      "searchOrSelectGroup": "搜索或选择摄像头组…",
+      "selectAll": "选择所有摄像头",
+      "clearSelection": "清空选择",
+      "selectWithActivity": "包含追踪目标的摄像头",
+      "selectGroup": "选择组",
+      "noMatchingCameras": "没有匹配搜索的摄像头",
+      "selectedCount": "{{selected}} / {{total}} 个"
     },
     "multi": {
       "title_other": "导出 {{count}} 个核查",
@@ -115,7 +126,7 @@
       "exportButton_other": "导出 {{count}} 个核查",
       "exportingButton": "导出中…",
       "toast": {
-        "started_other": "已开始 {{count}} 个导出。正在打开合集。",
+        "started_other": "已开始 {{count}} 个导出。",
         "startedNoCase_other": "已开始 {{count}} 个导出。",
         "partial": "已启动 {{total}} 个导出，其中 {{successful}} 个成功。失败项：{{failedItems}}",
         "failed": "启动导出失败（共 {{total}} 个）。失败项：{{failedItems}}"

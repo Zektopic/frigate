@@ -8,7 +8,7 @@ no chat feature is active) are never initialized.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from frigate.config import FrigateConfig
 from frigate.config.camera.genai import GenAIConfig, GenAIRoleEnum
@@ -61,7 +61,7 @@ class GenAIClientManager:
             for role in genai_cfg.roles:
                 self._role_map[role] = name
 
-    def _get_client(self, name: str | None) -> Optional[GenAIClient]:
+    def _get_client(self, name: str | None) -> GenAIClient | None:
         if name is None:
             return None
 
@@ -98,19 +98,19 @@ class GenAIClientManager:
         return new_client
 
     @property
-    def chat_client(self) -> Optional[GenAIClient]:
+    def chat_client(self) -> GenAIClient | None:
         """Client configured for the chat role (e.g. chat with function calling)."""
         name = self._role_map.get(GenAIRoleEnum.chat)
         return self._get_client(name) if name else None
 
     @property
-    def description_client(self) -> Optional[GenAIClient]:
+    def description_client(self) -> GenAIClient | None:
         """Client configured for the descriptions role (e.g. review descriptions, object descriptions)."""
         name = self._role_map.get(GenAIRoleEnum.descriptions)
         return self._get_client(name) if name else None
 
     @property
-    def embeddings_client(self) -> Optional[GenAIClient]:
+    def embeddings_client(self) -> GenAIClient | None:
         """Client configured for the embeddings role."""
         name = self._role_map.get(GenAIRoleEnum.embeddings)
         return self._get_client(name) if name else None
@@ -126,5 +126,6 @@ class GenAIClientManager:
                 "models": iter_client.list_models(),
                 "roles": [r.value for r in genai_cfg.roles],
                 "supports_toggleable_thinking": iter_client.supports_toggleable_thinking,
+                "supports_embeddings": iter_client.supports_embeddings,
             }
         return result

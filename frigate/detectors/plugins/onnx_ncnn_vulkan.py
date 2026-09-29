@@ -8,10 +8,10 @@ Tested with: AMD Radeon 760M (gfx1103) via RADV GFX1103_R1
 
 import logging
 import os
+from typing import Literal
 
 import numpy as np
 from pydantic import Field
-from typing_extensions import Literal
 
 from frigate.detectors.detection_api import DetectionApi
 from frigate.detectors.detector_config import BaseDetectorConfig

@@ -7,7 +7,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import cv2
 import numpy as np
@@ -220,7 +220,7 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
                 logger.debug("Not processing due to hitting max rec attempts.")
                 return
 
-        face: Optional[dict[str, Any]] = None
+        face: dict[str, Any] | None = None
 
         if self.requires_face_detection:
             logger.debug("Running manual face detection.")
@@ -288,6 +288,10 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
                 max(0, face_box[1]) : min(frame.shape[0], face_box[3]),
                 max(0, face_box[0]) : min(frame.shape[1], face_box[2]),
             ]
+
+        if face_frame.size == 0:
+            logger.debug(f"Empty face crop for {id}")
+            return
 
         res = self.recognizer.classify(face_frame)
 
