@@ -238,3 +238,14 @@ The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` curr
 - Fixed `test_util_path.py` missing `pathvalidate` dependency by installing it.
 - Identified that `test_object_detector.py` requires a better mock for `test_cfg.model` to prevent `AttributeError`.
 - Documented issue in `Jules/improvements.md`.
+
+## Latest Full Test Run Summary
+
+### Backend Tests
+Tested natively using `python3 test_runner.py` because `make run_tests` (via Docker buildx) failed with an `overlayfs` mount error (`invalid argument`).
+**Results:** Ran 758 tests. FAILED (failures=89, errors=201, skipped=12).
+*Note:* The high failure/error count is primarily due to incomplete mock implementations in `test_runner.py` for dependencies like `cv2`, `peewee`, and `numpy` arrays.
+
+### Frontend Tests
+Tested in isolation by running `npm ci` and `npx vitest run src/` in the `web/` directory to avoid collisions with Playwright `e2e` specs.
+**Results:** 137 tests passed across 13 files. Test run completed successfully with no failures. Deprecation warnings for `punycode` (DEP0040) were observed.

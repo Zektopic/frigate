@@ -266,3 +266,14 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+Mocking fixes missing from previous improvements
+The user requires complete tests run and documented in .zektopic and Jules folders
+
+## Specific Mocking Fixes Needed for `test_runner.py`
+The latest native backend test run via `test_runner.py` showed 89 failures and 201 errors primarily due to limitations in the custom mocks. Future work must address:
+- **`sanitize_filename` Mock**: The current `ModuleMock` returns another `ModuleMock` instead of a string, causing `test_util_path.py` (e.g., `test_rejects_relative_markers_and_empty`, `test_builds_the_expected_path`) to fail assertions. It should be explicitly mocked to return a string or None appropriately.
+- **Math Operation Mocks**: In `test_face_model.py`, assertions fail because `mock.exp()` returns a `MagicMock` rather than evaluating numerically (e.g., `<MagicMock name='mock.exp().__radd__().__rtruediv__()' id='...'> != 0.5`).
+- **Numpy Array Comparisons**: `test_video.py` asserts properties like `len(consolidated_detections) == len(detections)` which fail because the custom list/array mocks do not accurately maintain slice lengths and overlaps during intersection calculations.
+
+## Frontend Deprecations
+- **Punycode Node Deprecation**: Running Vitest tests continuously warns `[DEP0040] DeprecationWarning: The punycode module is deprecated`. Upgrading dependencies that use this underneath (such as `whatwg-url` or `tr46`) should be prioritized for future compatibility.
