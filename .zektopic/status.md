@@ -238,3 +238,10 @@ The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` curr
 - Fixed `test_util_path.py` missing `pathvalidate` dependency by installing it.
 - Identified that `test_object_detector.py` requires a better mock for `test_cfg.model` to prevent `AttributeError`.
 - Documented issue in `Jules/improvements.md`.
+
+
+## Backend Test Results (frigate/test/test_video.py)
+* **Status:** Local testing complete. The tests fail when running outside of Docker via test_runner.py because test_runner.py uses simple MagicMocks for cv2 and numpy, which cause TypeError when evaluating numpy array >= operators and assertion failures in reduce_detections.
+* **Actionable Roadmap:**
+  1. Replace global sys.modules injection in test_runner.py with more robust mocks for cv2.dnn.NMSBoxes (must return an iterable of indices) and numpy arrays (must support magic comparison methods).
+  2. Resolve Docker BuildKit failures (err: invalid argument on overlayfs) locally to allow make run_tests to evaluate native dependencies.
