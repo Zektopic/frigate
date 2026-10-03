@@ -257,3 +257,10 @@ The backend test runner (`test_runner.py`) uses a large number of mocked imports
 3.  **Refine Object Detection Reduction**: Review and correct the logic in `frigate.util.object.reduce_detections` and `get_cluster_candidates` to accurately process object clusters, especially focusing on edge cases with varying sizes and stacked bounding boxes.
 4.  **Frontend Dependency Upgrade**: Proactively upgrade underlying Node dependencies (e.g., `whatwg-url`, `tr46`) or integrate userland alternatives to completely replace the deprecated `punycode` module, ensuring long-term stability and clean CI output.
 5.  **Rust Component Cleanup**: Clean up minor compiler warnings (unused variants, variables, or functions) in the `frigate-yolo-rs` and `frigate-motion-rs` codebases to maintain pristine code health.
+
+
+## Backend Test Results (frigate/test/test_video.py)
+* **Status:** Local testing complete. The tests fail when running outside of Docker via test_runner.py because test_runner.py uses simple MagicMocks for cv2 and numpy, which cause TypeError when evaluating numpy array >= operators and assertion failures in reduce_detections.
+* **Actionable Roadmap:**
+  1. Replace global sys.modules injection in test_runner.py with more robust mocks for cv2.dnn.NMSBoxes (must return an iterable of indices) and numpy arrays (must support magic comparison methods).
+  2. Resolve Docker BuildKit failures (err: invalid argument on overlayfs) locally to allow make run_tests to evaluate native dependencies.

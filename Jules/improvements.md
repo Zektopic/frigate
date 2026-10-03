@@ -266,3 +266,10 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+
+## Backend Test Results (frigate/test/test_video.py)
+* **Status:** Local testing complete. The tests fail when running outside of Docker via test_runner.py because test_runner.py uses simple MagicMocks for cv2 and numpy, which cause TypeError when evaluating numpy array >= operators and assertion failures in reduce_detections.
+* **Actionable Roadmap:**
+  1. Replace global sys.modules injection in test_runner.py with more robust mocks for cv2.dnn.NMSBoxes (must return an iterable of indices) and numpy arrays (must support magic comparison methods).
+  2. Resolve Docker BuildKit failures (err: invalid argument on overlayfs) locally to allow make run_tests to evaluate native dependencies.
