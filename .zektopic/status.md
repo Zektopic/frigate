@@ -238,3 +238,12 @@ The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` curr
 - Fixed `test_util_path.py` missing `pathvalidate` dependency by installing it.
 - Identified that `test_object_detector.py` requires a better mock for `test_cfg.model` to prevent `AttributeError`.
 - Documented issue in `Jules/improvements.md`.
+
+## Testing Status and Roadmap (Update 4)
+
+### 1. Test Results Summary
+- **Python Backend Tests**: Ran using the local `test_runner.py` fallback. The latest run showed 89 failures and 201 errors in the local fallback environment. This continues to be primarily driven by `os.makedirs` path issues and mocked C-extension limitations.
+- **Web Frontend Tests**: Ran using `npm run test --prefix web -- --run src/`. All 137 unit tests passed successfully, confirming isolation from E2E files. The `DEP0040` deprecation warning for `punycode` is still logged.
+- **Rust Component Tests**: Executed `cargo test` against `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`. All tests successfully compiled and passed with no errors.
+- **Static Analysis**: Executed `python3 -m mypy --config-file frigate/mypy.ini frigate` natively after installing `mypy` and typing stubs. Produced 137 errors in 33 files, largely due to unused `type: ignore` comments, invalid dictionary index types, and missing dependencies.
+- **Docker Tests**: Running `make run_tests` natively continues to fail entirely due to the host-level BuildKit `overlayfs` mount error (`invalid argument`).

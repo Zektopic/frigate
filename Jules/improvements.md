@@ -266,3 +266,15 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+## Actionable Roadmap of Future Implementations and Improvements (Update 4)
+
+#### A. Backend Code Quality & Type Safety
+- **Resolve Mypy Strictness**: Systematically fix the remaining 137 mypy errors highlighted during local testing. A large portion of these are unused `type: ignore` comments that should be cleaned up. Others involve invalid dictionary index typing (e.g. `dict[str, CameraConfig]` expected `str` index but given `dict[str, Any] | Any`) which need stricter type bounds in `LicensePlateProcessingMixin`.
+- **Update Sanitize Path Logic**: Refactor the custom path validation logic inside `sanitize_path_component` in `frigate/util/path.py` to correctly identify and handle `..` relative path markers natively, as highlighted by `test_util_path.py` unit failures.
+
+#### B. Mock Testing Fallbacks
+- **Formalize Local Fallback Env**: Since `make run_tests` native docker testing is broken for host machines with incompatible `overlayfs` configs, formalize a proper python virtual environment (using a `tox.ini` or dedicated local `requirements-test.txt`). This will dramatically reduce the 201 ad-hoc errors in `test_runner.py` associated with lightweight dependencies missing locally.
+
+#### C. Frontend Modernization
+- **Replace Deprecated Punycode**: Modernize the Vitest dependencies to replace modules relying on `punycode`. Bump the `whatwg-url` or `tr46` packages to their latest versions to prevent `DEP0040` logs from clustering frontend tests in the CI pipeline.
