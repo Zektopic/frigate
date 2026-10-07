@@ -238,3 +238,24 @@ The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` curr
 - Fixed `test_util_path.py` missing `pathvalidate` dependency by installing it.
 - Identified that `test_object_detector.py` requires a better mock for `test_cfg.model` to prevent `AttributeError`.
 - Documented issue in `Jules/improvements.md`.
+
+## Testing Status and Test Runner Improvements (Update 2)
+
+**1. Frontend Tests (`web/`)**:
+Ran `npm ci` and executed `npm run test --prefix web -- --run src/`. All 13 test suites and 137 individual tests successfully passed. The DeprecationWarning for `punycode` is still present.
+
+**2. Rust Tests (`frigate-*-rs`)**:
+Ran chained cargo tests for `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`. All 47 tests passed flawlessly without regressions.
+
+**3. Backend Tests (`frigate/`)**:
+Discovered multiple failures resulting strictly from deficiencies and ad-hoc limitations in the `test_runner.py` mockup framework, which attempts to run heavy C/C++ extensions without building them:
+- `cv2.error: OpenCV(5.0.0) :-1: error: (-5:Bad argument) in function 'rectangle'` caused by mocking `np.array` inadequately for `img`.
+- `TypeError: '>=' not supported between instances of 'MagicMock' and 'int'` resulting from Pydantic fields or Array slices returning MagicMocks.
+- `AssertionError: MockPydanticValidationError not raised` in profile tests due to `test_runner.py` not properly emulating Pydantic v2 recursive schema evaluations.
+- Missing dependencies for `pathvalidate`.
+
+**Future Actionable Roadmap for Backend Tests (Outside Docker)**:
+Instead of trying to hack `test_runner.py` further and polluting the codebase with false-positives:
+1. Ensure developers consistently use `make run_tests` to run backend tests inside the isolated, fully-equipped Docker container rather than native environments.
+2. Consider removing the `test_runner.py` fallback file entirely in the future to force containerized test executions, saving engineering time currently spent on maintaining fragile system mocks.
+3. If native tests must be supported, replace `MagicMock` global injections with standard Python `unittest.mock.patch` applied *per-test* using fixtures, which is much more stable.

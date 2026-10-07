@@ -266,3 +266,15 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+## Testing Status and Test Runner Improvements (Update 2)
+
+### Test Run Metrics
+- **Frontend Tests (`web/`)**: Clean execution via `npm run test --prefix web -- --run src/`. All 13 test suites / 137 tests passed.
+- **Rust Tests (`frigate-*-rs`)**: Clean execution via `cargo test`. All 47 tests passed.
+- **Backend Tests (`test_runner.py`)**: Failing locally outside of Docker due to brittle MagicMocks.
+
+### Actionable Roadmap for Backend Testing Improvements
+1. **Deprecate `test_runner.py` Global Mocks**: The practice of overriding `sys.modules` for complex dependencies like `cv2`, `numpy`, and Pydantic v2 has proven unscalable. `cv2.error: OpenCV(5.0.0)` for bad array types and `TypeError: '>=' not supported between instances of 'MagicMock' and 'int'` indicate the mocks fail to mimic real API contracts.
+2. **Mandate Docker Testing (`make run_tests`)**: The official Frigate development process should enforce `make run_tests` for testing. Native fallbacks (like `test_runner.py`) create a false sense of failure and should be removed.
+3. **If Native Testing is Kept**: Shift to `pytest` with `pytest-mock` and utilize granular `patch` decorators per test case, rather than global module poisoning in a runner script.
