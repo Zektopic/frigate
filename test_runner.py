@@ -379,7 +379,7 @@ sys.modules["sherpa_onnx"] = ModuleMock()
 sys.modules["zeep"] = ModuleMock()
 sys.modules["zeep.exceptions"] = ModuleMock()
 sys.modules["zeep.transports"] = ModuleMock()
-sys.modules["pathvalidate"] = ModuleMock()
+# sys.modules["pathvalidate"] = ModuleMock()
 
 sys.modules["joserfc"] = ModuleMock()
 sys.modules["joserfc.jwt"] = ModuleMock()
@@ -423,8 +423,8 @@ sys.modules["shapely.geometry.polygon"] = ModuleMock()
 sys.modules["ai_edge_litert"] = ModuleMock()
 sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
 sys.modules["tflite_runtime"] = ModuleMock()
-sys.modules["cv2"] = MagicMock()
-sys.modules["numpy"] = MagicMock()
+# sys.modules["cv2"] = MagicMock()
+# sys.modules["numpy"] = MagicMock()
 
 
 class MockPydanticValidationError(Exception):
