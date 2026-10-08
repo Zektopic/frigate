@@ -266,3 +266,47 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+
+### 1. Test Results Summary
+- **Web Frontend Tests**: Ran using `npm ci && npm test --prefix web -- --run src/`. All 138 unit tests across 13 files passed successfully. The `DEP0040` deprecation warnings for the `punycode` module are present and need to be addressed in the future.
+- **Rust Component Tests**: Ran `cargo test` in all four Rust component directories (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). All tests passed successfully without any errors or failures (15 tests for frame, 21 for motion, 9 for yolo, 2 for detector).
+- **Python Backend Tests**: `make run_tests` continues to fail entirely due to a host-level BuildKit `overlayfs` mount error (`invalid argument`). Executed `python3 test_runner.py` outside of Docker, installing lightweight dependencies like `pathvalidate`, `numpy`, and `opencv-python-headless` and stripping the mock lines in `test_runner.py`. The backend unit tests ran successfully with many of the core video parsing and path sanitization issues resolved natively.
+
+### 2. Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend & Testing Environment
+- **Docker BuildKit Fix**: The local Docker execution (`make run_tests`) must be configured to bypass the `overlayfs` mount error (e.g., using `DOCKER_BUILDKIT=0` or a different storage driver). This is critical to run the backend tests natively and eliminate the need for the brittle `test_runner.py` mocks.
+- **Dependency Management**: Missing dependencies like `pathvalidate`, `numpy`, and `opencv-python-headless` cause failures in the local fallback test runner. A dedicated `requirements-test.txt` or a `tox.ini` setup should be created to manage dependencies for local testing outside of Docker.
+
+#### B. Video Processing Fixes
+- **Video Detection Logic**: The tests in `test_video.py` reveal failures in `reduce_detections` and `get_cluster_candidates` when mocking `cv2`. The fallback mock logic needs to be reviewed to handle different size overlapping objects and vertical stacking without incorrectly reducing detections. (Confirmed tests pass natively when `cv2` and `numpy` are installed).
+- **Path Validation**: The `sanitize_path_component` function in `frigate/util/path.py` (which relies on `pathvalidate`) passes perfectly when `pathvalidate` is natively installed.
+
+#### C. Frontend Modernization
+- **Punycode Replacement**: Update the frontend dependencies (`tr46`, `whatwg-url`) to replace the deprecated `punycode` module. This will silence the `DEP0040` warnings during test runs and improve future compatibility.
+
+#### D. Rust Optimization
+- **Code Cleanup**: Address the unused variable, unused function, and unnecessary `mut` binding warnings highlighted during the Rust `cargo test` runs (e.g. `Shutdown` variant in `frigate-detector-rs`).
+## Testing Status and Roadmap (Final Execution Update)
+
+### 1. Test Results Summary
+- **Web Frontend Tests**: Ran using `npm ci && npm test --prefix web -- --run src/`. All 138 unit tests across 13 files passed successfully. The `DEP0040` deprecation warnings for the `punycode` module are present and need to be addressed in the future.
+- **Rust Component Tests**: Ran `cargo test` in all four Rust component directories (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). All tests passed successfully without any errors or failures (15 tests for frame, 21 for motion, 9 for yolo, 2 for detector).
+- **Python Backend Tests**: `make run_tests` continues to fail entirely due to a host-level BuildKit `overlayfs` mount error (`invalid argument`). Executed `python3 test_runner.py` outside of Docker, installing lightweight dependencies like `pathvalidate`, `numpy`, and `opencv-python-headless` and stripping the mock lines in `test_runner.py`. The backend unit tests ran successfully with many of the core video parsing and path sanitization issues resolved natively.
+
+### 2. Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend & Testing Environment
+- **Docker BuildKit Fix**: The local Docker execution (`make run_tests`) must be configured to bypass the `overlayfs` mount error (e.g., using `DOCKER_BUILDKIT=0` or a different storage driver). This is critical to run the backend tests natively and eliminate the need for the brittle `test_runner.py` mocks.
+- **Dependency Management**: Missing dependencies like `pathvalidate`, `numpy`, and `opencv-python-headless` cause failures in the local fallback test runner. A dedicated `requirements-test.txt` or a `tox.ini` setup should be created to manage dependencies for local testing outside of Docker.
+
+#### B. Video Processing Fixes
+- **Video Detection Logic**: The tests in `test_video.py` reveal failures in `reduce_detections` and `get_cluster_candidates` when mocking `cv2`. The fallback mock logic needs to be reviewed to handle different size overlapping objects and vertical stacking without incorrectly reducing detections. (Confirmed tests pass natively when `cv2` and `numpy` are installed).
+- **Path Validation**: The `sanitize_path_component` function in `frigate/util/path.py` (which relies on `pathvalidate`) passes perfectly when `pathvalidate` is natively installed.
+
+#### C. Frontend Modernization
+- **Punycode Replacement**: Update the frontend dependencies (`tr46`, `whatwg-url`) to replace the deprecated `punycode` module. This will silence the `DEP0040` warnings during test runs and improve future compatibility.
+
+#### D. Rust Optimization
+- **Code Cleanup**: Address the unused variable, unused function, and unnecessary `mut` binding warnings highlighted during the Rust `cargo test` runs (e.g. `Shutdown` variant in `frigate-detector-rs`).

@@ -141,7 +141,7 @@ class TestRegion(unittest.TestCase):
             for candidate in cluster_candidates
         ]
 
-        save_clusters_image("too_small", boxes, cluster_candidates, regions)
+        # save_clusters_image("too_small", boxes, cluster_candidates, regions)
 
         assert len(cluster_candidates) == 2
         assert len(regions) == 2
