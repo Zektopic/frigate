@@ -84,3 +84,10 @@ The mocks for `BaseModel` and `unidecode` were incomplete.
 3.  **Refine Object Detection Reduction**: Review and correct the logic in `frigate.util.object.reduce_detections` and `get_cluster_candidates` to accurately process object clusters, especially focusing on edge cases with varying sizes and stacked bounding boxes.
 4.  **Frontend Dependency Upgrade**: Proactively upgrade underlying Node dependencies (e.g., `whatwg-url`, `tr46`) or integrate userland alternatives to completely replace the deprecated `punycode` module, ensuring long-term stability and clean CI output.
 5.  **Rust Component Cleanup**: Clean up minor compiler warnings (unused variants, variables, or functions) in the `frigate-yolo-rs` and `frigate-motion-rs` codebases to maintain pristine code health.
+
+### Rust Testing Phase Outcomes (Update 4)
+Executed unit tests across all rust crates: `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs` using `cargo test`.
+- All tests passed without failures (total 47 tests passed).
+
+### Additional Proposed Optimizations
+6. **Rust Compilation Warning**: Suppress the minor dead-code warning in `frigate-detector-rs/src/main.rs` for the `Shutdown` variant of the `Msg` enum using `#[allow(dead_code)]` to clean up the compiler output.
