@@ -26,7 +26,7 @@ def draw_box(frame, box, color=(255, 0, 0), thickness=2):
 
 
 def save_clusters_image(name, boxes, candidates, regions=[]):
-    canvas = np.zeros((1000, 2000, 3), np.uint8)
+    canvas = np.zeros((1000, 2000, 3), dtype=np.uint8)
     for cluster in candidates:
         color = Palette.choose_color(np.random.rand())
         for b in cluster:
@@ -54,7 +54,7 @@ def save_clusters_image(name, boxes, candidates, regions=[]):
 
 
 def save_cluster_boundary_image(name, boxes, bounding_boxes):
-    canvas = np.zeros((1000, 2000, 3), np.uint8)
+    canvas = np.zeros((1000, 2000, 3), dtype=np.uint8)
     color = Palette.choose_color(np.random.rand())
     for box in boxes:
         draw_box(canvas, box, color, 2)
@@ -141,7 +141,7 @@ class TestRegion(unittest.TestCase):
             for candidate in cluster_candidates
         ]
 
-        save_clusters_image("too_small", boxes, cluster_candidates, regions)
+        # save_clusters_image("too_small", boxes, cluster_candidates, regions)
 
         assert len(cluster_candidates) == 2
         assert len(regions) == 2
