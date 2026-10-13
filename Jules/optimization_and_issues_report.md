@@ -84,3 +84,13 @@ The mocks for `BaseModel` and `unidecode` were incomplete.
 3.  **Refine Object Detection Reduction**: Review and correct the logic in `frigate.util.object.reduce_detections` and `get_cluster_candidates` to accurately process object clusters, especially focusing on edge cases with varying sizes and stacked bounding boxes.
 4.  **Frontend Dependency Upgrade**: Proactively upgrade underlying Node dependencies (e.g., `whatwg-url`, `tr46`) or integrate userland alternatives to completely replace the deprecated `punycode` module, ensuring long-term stability and clean CI output.
 5.  **Rust Component Cleanup**: Clean up minor compiler warnings (unused variants, variables, or functions) in the `frigate-yolo-rs` and `frigate-motion-rs` codebases to maintain pristine code health.
+
+### Update 4
+
+I successfully tested the codebase, identifying the following key areas for improvement:
+
+1. **Test Runner Reliability**: Our custom `test_runner.py` mocks out key libraries such as OpenCV (`cv2`) and NumPy. This causes major false-positive errors when running local backend tests outside of Docker (for example, failing boolean masks against `np.ndarray` and `TypeError` when checking integers vs MagicMocks in `reduce_detections`). These mocks should either be replaced with true structural mocks or we should transition local testing fully to a functioning Docker test container.
+2. **BuildKit Overlayfs Error**: Running tests in Docker via `make run_tests` currently fails with an `overlayfs` mount argument error (`invalid argument`). Reconfiguring the Docker Daemon storage driver or running with `DOCKER_BUILDKIT=0` might solve this.
+3. **Rust Type Saftey Check & Warnings**: Running `cargo test` in `frigate-detector-rs` revealed an unused variant warning (`Shutdown`) in `src/main.rs:180` which we should remove for cleanliness.
+4. **Util Path Sanitization**: Native tests fail heavily inside `test_util_path.py` (specifically `sanitize_path_component` returning mock objects instead of strings when testing ordinary names and relative markers) when running locally, indicating that the `pathvalidate` module isn't being mocked/resolved correctly by the custom runner.
+5. **NMSBoxes Handling**: The function `reduce_detections` correctly checks `isinstance(index, (int, np.integer))` to ensure broad compatibility with varying OpenCV/NumPy integer types when parsing `cv2.dnn.NMSBoxes` indices.

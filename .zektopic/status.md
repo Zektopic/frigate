@@ -238,3 +238,10 @@ The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` curr
 - Fixed `test_util_path.py` missing `pathvalidate` dependency by installing it.
 - Identified that `test_object_detector.py` requires a better mock for `test_cfg.model` to prevent `AttributeError`.
 - Documented issue in `Jules/improvements.md`.
+
+### Update 4 (Backend, Frontend, and Rust Testing)
+
+- **Backend testing:** Identified major limitations with local test runner (`test_runner.py`). The script heavily mocks essential components like `cv2` and `numpy`, leading to numerous false positive test failures (especially in `test_video.py` and `test_util_path.py`). Testing natively in Docker via `make run_tests` is blocked by a host BuildKit `overlayfs` mount error.
+- **Frontend testing:** All Vitest unittests execute perfectly via `npm run test --prefix web -- --run src/` (137 tests passed). There are multiple deprecation warnings related to the Node `punycode` module which need to be upgraded to userland alternatives in the future.
+- **Rust testing:** Successfully ran unittests for all Rust components (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) using `cargo test`. All 47 Rust unit tests passed. Minor compiler warning identified in `frigate-detector-rs` (unused variant).
+- Optimization ideas for fixing test runner limitations and resolving Docker host errors have been detailed in `Jules/optimization_and_issues_report.md` for future implementation.
