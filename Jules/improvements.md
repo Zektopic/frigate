@@ -266,3 +266,17 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+## Test Run Optimization Roadmap (New Iteration)
+
+1. **Docker Environment BuildKit Issue**:
+   The primary blocker for testing the backend is the `overlayfs` mount error on the local Docker daemon. Resolving this (e.g., by changing the Docker storage driver to `vfs` or disabling BuildKit) will allow `make run_tests` to execute properly, providing a true native test environment and bypassing the fragile `test_runner.py` mocks.
+
+2. **Test Runner Dependency Mocks (Fallback)**:
+   If native Python testing via `test_runner.py` is still desired, the `MockBaseModel` and `MockPydanticValidationError` classes must be heavily refactored to support deep nested dictionary validation and Pydantic v2 metadata requirements. Mocking complex libraries like `cv2` and `numpy` via `sys.modules` is extremely brittle and causes false negative assertion failures across multi-dimensional arrays logic inside video and motion tests.
+
+3. **Rust Dead Code Warning**:
+   In `frigate-detector-rs/src/main.rs:180:31`, there is an unused `Shutdown` variant in the `Msg` enum causing a `dead_code` warning during `cargo test`. This should be cleaned up.
+
+4. **Frontend Dependencies (Punycode)**:
+   Vitest runner emits Node deprecation warnings (e.g., `DEP0040` for the `punycode` module). The underlying dependencies (like `whatwg-url` or `tr46`) should be bumped to newer major versions, or userland alternatives should be integrated to clean up the test logs.
