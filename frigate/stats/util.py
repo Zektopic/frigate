@@ -336,6 +336,22 @@ async def set_npu_usages(config: FrigateConfig, all_stats: dict[str, Any]) -> No
             axcl_usage = get_axcl_npu_stats()
             stats["axengine"] = axcl_usage
 
+    # AMD XDNA NPU used through the npu-face service (face recognition)
+    from frigate.detectors.npu_service_runner import (
+        get_npu_service_stats,
+        parse_npu_device,
+    )
+
+    endpoint = (
+        parse_npu_device(config.face_recognition.device)
+        if config.face_recognition.enabled
+        else None
+    )
+    if endpoint is not None:
+        xdna_usage = await asyncio.to_thread(get_npu_service_stats, endpoint)
+        if xdna_usage:
+            stats["amd-xdna"] = xdna_usage
+
     if stats:
         all_stats["npu_usages"] = stats
 
