@@ -13,7 +13,11 @@ def _get_valid_ws_roles(ws: Any, config: FrigateConfig) -> list[str]:
         for role in role_header.split(config.proxy.separator)
         if role.strip()
     ]
-    return [role for role in roles if role == "admin" or role == "viewer" or role in config.auth.roles]
+    return [
+        role
+        for role in roles
+        if role == "admin" or role == "viewer" or role in config.auth.roles
+    ]
 
 
 def ws_has_camera_access(ws: Any, camera_name: str, config: FrigateConfig) -> bool:

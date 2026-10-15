@@ -6,7 +6,6 @@ import logging
 import math
 import os
 import subprocess as sp
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path as FilePath
 from typing import Any
@@ -91,6 +90,7 @@ async def mjpeg_feed(
         # return a multipart response
         return StreamingResponse(
             imagestream(
+                request,
                 request.app.detected_frames_processor,
                 camera_name,
                 params.fps,
@@ -106,28 +106,60 @@ async def mjpeg_feed(
         )
 
 
-def imagestream(
+def _encode_mjpeg_frame(
+    detected_frames_processor: TrackedObjectProcessor,
+    camera_name: str,
+    height: int,
+    draw_options: dict[str, Any],
+) -> bytes:
+    """Render and JPEG-encode one frame.
+
+    Runs in a worker thread — cv2.resize and cv2.imencode are CPU-bound
+    and would otherwise stall the event loop.
+    """
+    frame = detected_frames_processor.get_current_frame(camera_name, draw_options)
+
+    if frame is None:
+        frame = np.zeros((height, int(height * 16 / 9), 3), np.uint8)
+
+    width = int(height * frame.shape[1] / frame.shape[0])
+    frame = cv2.resize(frame, dsize=(width, height), interpolation=cv2.INTER_LINEAR)
+    _, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+    return jpg.tobytes()
+
+
+async def imagestream(
+    request: Request,
     detected_frames_processor: TrackedObjectProcessor,
     camera_name: str,
     fps: int,
     height: int,
     draw_options: dict[str, Any],
 ):
+    """Yield an endless MJPEG stream until the client goes away.
+
+    Must stay an async generator. A plain `def` generator is run by
+    Starlette via `iterate_in_threadpool`, on an anyio limiter capped
+    at 40 tokens process-wide; on client disconnect Starlette abandons
+    the iteration but cannot interrupt the OS thread, which stays
+    parked forever and permanently burns a token. Exhausting them
+    stalls every synchronous endpoint in the app.
+    """
     while True:
+        if await request.is_disconnected():
+            break
+
         # max out at specified FPS
-        time.sleep(1 / fps)
-        frame = detected_frames_processor.get_current_frame(camera_name, draw_options)
-        if frame is None:
-            frame = np.zeros((height, int(height * 16 / 9), 3), np.uint8)
+        await asyncio.sleep(1 / fps)
 
-        width = int(height * frame.shape[1] / frame.shape[0])
-        frame = cv2.resize(frame, dsize=(width, height), interpolation=cv2.INTER_LINEAR)
-
-        ret, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + bytearray(jpg.tobytes()) + b"\r\n\r\n"
+        jpg = await asyncio.to_thread(
+            _encode_mjpeg_frame,
+            detected_frames_processor,
+            camera_name,
+            height,
+            draw_options,
         )
+        yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n\r\n"
 
 
 def _resolve_snapshot_settings(
@@ -458,25 +490,45 @@ async def recording_clip(
     start_ts: float,
     end_ts: float,
 ):
-    def run_download(ffmpeg_cmd: list[str], file_path: str):
+    async def run_download(ffmpeg_cmd: list[str], file_path: str):
+        """Stream an ffmpeg-generated clip, stopping if the client leaves.
+
+        Must stay an async generator, for the same reason as
+        `imagestream` above: a cancelled download otherwise leaves a
+        threadpool thread blocked in `ffmpeg.stdout.read` forever, plus
+        the ffmpeg child it was reading from.
+        """
         with sp.Popen(
             ffmpeg_cmd,
             stderr=sp.PIPE,
             stdout=sp.PIPE,
             text=False,
         ) as ffmpeg:
-            while True:
-                data = ffmpeg.stdout.read(8192)
-                if data is not None and len(data) > 0:
-                    yield data
-                else:
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        logger.debug("Client disconnected, stopping clip download")
+                        break
+
+                    data = await asyncio.to_thread(ffmpeg.stdout.read, 8192)
+
+                    if data:
+                        yield data
+                        continue
+
                     if ffmpeg.returncode and ffmpeg.returncode != 0:
-                        logger.error(
-                            f"Failed to generate clip, ffmpeg logs: {ffmpeg.stderr.read()}"
-                        )
+                        stderr = await asyncio.to_thread(ffmpeg.stderr.read)
+                        logger.error("Failed to generate clip, ffmpeg logs: %s", stderr)
                     else:
                         FilePath(file_path).unlink(missing_ok=True)
                     break
+            finally:
+                # Reached on client disconnect (GeneratorExit) as well as
+                # normal completion. Popen's context manager only waits;
+                # without an explicit kill a cancelled download leaves
+                # ffmpeg running forever against a pipe nobody reads.
+                if ffmpeg.poll() is None:
+                    ffmpeg.kill()
 
     recordings = (
         Recordings.select(

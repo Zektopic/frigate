@@ -351,6 +351,52 @@ RUN npm run build \
     && mv dist/BASE_PATH/monacoeditorwork/* dist/assets/ \
     && rm -rf dist/BASE_PATH
 
+# Rust acceleration libraries.
+#
+# Derived from `base`, not from a stock rust image, for two reasons:
+#
+#  1. These are native shared objects, so they must be built for the
+#     TARGET platform (hence no --platform=$BUILDPLATFORM). The crates
+#     carry portable scalar fallbacks and select AVX2 at runtime, so
+#     they build and run correctly on arm64 as well as amd64.
+#  2. They must link against the same glibc as the image that will load
+#     them. BASE_IMAGE is overridden per variant -- the Jetson build
+#     uses an Ubuntu 22.04 nvidia image (glibc 2.35) while a stock
+#     rust:slim-bookworm builder would produce glibc 2.36 objects that
+#     fail to load there. The Python loaders would fall back silently,
+#     so this would show up only as a quiet loss of the acceleration.
+FROM base AS rust-build
+ARG DEBIAN_FRONTEND
+ARG TARGETARCH
+
+RUN apt-get -qq update \
+    && apt-get -qq install -y --no-install-recommends \
+    curl ca-certificates gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path
+
+WORKDIR /build
+COPY frigate-detector-rs/ frigate-detector-rs/
+COPY frigate-motion-rs/ frigate-motion-rs/
+COPY frigate-yolo-rs/ frigate-yolo-rs/
+COPY frigate-frame-rs/ frigate-frame-rs/
+
+RUN set -eux; \
+    for crate in frigate-detector-rs frigate-motion-rs frigate-yolo-rs frigate-frame-rs; do \
+        (cd "$crate" && cargo build --release); \
+    done; \
+    mkdir -p /rust-out; \
+    cp frigate-detector-rs/target/release/frigate-detector-rs /rust-out/; \
+    cp frigate-motion-rs/target/release/libfrigate_motion_rs.so /rust-out/; \
+    cp frigate-yolo-rs/target/release/libfrigate_yolo_rs.so /rust-out/; \
+    cp frigate-frame-rs/target/release/libfrigate_frame_rs.so /rust-out/
+
 # Collect final files in a single layer
 FROM scratch AS rootfs
 
@@ -358,6 +404,11 @@ WORKDIR /opt/frigate/
 COPY frigate frigate/
 COPY migrations migrations/
 COPY --from=web-build /work/dist/ web/
+# /opt/frigate is the first entry in every Python _load_lib() search
+# path (frigate/util/frame_rs.py, frigate/motion/rust_engine.py,
+# frigate/detectors/rust_yolo.py).  Without these the FFI calls all
+# fall back to their slower Python paths.
+COPY --from=rust-build /rust-out/ ./
 
 # Frigate final container
 FROM deps AS frigate

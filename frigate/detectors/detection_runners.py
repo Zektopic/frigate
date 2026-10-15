@@ -582,6 +582,12 @@ def get_optimized_runner(
     """Get an optimized runner for the hardware."""
     device = device or "AUTO"
 
+    # External NPU service (AMD XDNA); imported lazily to avoid a cycle
+    from frigate.detectors.npu_service_runner import NpuServiceRunner, parse_npu_device
+
+    if (npu_endpoint := parse_npu_device(device)) is not None:
+        return NpuServiceRunner(model_path, device, npu_endpoint, **kwargs)
+
     if device != "CPU" and is_rknn_compatible(model_path):
         rknn_path = auto_convert_model(model_path)
 

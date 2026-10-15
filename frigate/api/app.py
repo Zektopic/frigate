@@ -1056,11 +1056,10 @@ async def logs(
 ):
     """Get logs for the requested service (frigate/nginx/go2rtc)"""
 
-    def download_logs(service_location: str):
+    async def download_logs(service_location: str):
         try:
-            file = open(service_location, "r")
-            contents = file.read()
-            file.close()
+            async with aiofiles.open(service_location, "r") as file:
+                contents = await file.read()
             return JSONResponse(jsonable_encoder(contents))
         except FileNotFoundError as e:
             logger.error(e)
@@ -1104,7 +1103,7 @@ async def logs(
         )
 
     if download:
-        return download_logs(service_location)
+        return await download_logs(service_location)
 
     if stream:
         return StreamingResponse(stream_logs(service_location), media_type="text/plain")

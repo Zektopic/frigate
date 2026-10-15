@@ -57,6 +57,11 @@ import { BsFillCameraVideoOffFill } from "react-icons/bs";
 import { AuthContext } from "@/context/auth-context";
 import { useIsAdmin } from "@/hooks/use-is-admin";
 
+// How long to wait before retrying a better live mode after a
+// transient failure, and how many times to bother.
+const LIVE_MODE_RETRY_MS = 60_000;
+const LIVE_MODE_MAX_RETRIES = 3;
+
 type LiveDashboardViewProps = {
   cameras: CameraConfig[];
   cameraGroup: string;
@@ -282,6 +287,26 @@ export default function LiveDashboardView({
 
   const birdseyeConfig = useMemo(() => config?.birdseye, [config]);
 
+  // A live-mode downgrade used to be permanent for the session: any
+  // transient stall (a >=3s buffering gap is enough) pinned that camera
+  // to jsmpeg forever, moving its traffic to the single-threaded jsmpeg
+  // server and the MPEG1 encoders. Over hours every camera ratcheted
+  // down that way and CPU climbed, which made further stalls more
+  // likely — a decay curve that looks like "it was fine, then after a
+  // few hours it broke". Downgrade still happens immediately, but we
+  // retry the better mode after a cooldown, a bounded number of times.
+  const downgradeCountsRef = useRef<{ [camera: string]: number }>({});
+  const downgradeTimersRef = useRef<{ [camera: string]: number }>({});
+
+  // Cancel pending retries on unmount so they cannot fire against an
+  // unmounted tree.
+  useEffect(() => {
+    const timers = downgradeTimersRef.current;
+    return () => {
+      Object.values(timers).forEach((id) => window.clearTimeout(id));
+    };
+  }, []);
+
   const handleError = useCallback(
     (cameraName: string, error: LivePlayerError) => {
       setPreferredLiveModes((prevModes) => {
@@ -293,8 +318,27 @@ export default function LiveDashboardView({
         }
         return newModes;
       });
+
+      // "mse-decode" is a real codec incompatibility, so the switch to
+      // webrtc is a genuine capability decision and must stick. Every
+      // other error is transient by nature and earns a retry.
+      if (error === "mse-decode") {
+        return;
+      }
+
+      const attempts = downgradeCountsRef.current[cameraName] ?? 0;
+      if (attempts >= LIVE_MODE_MAX_RETRIES) {
+        return;
+      }
+      downgradeCountsRef.current[cameraName] = attempts + 1;
+
+      window.clearTimeout(downgradeTimersRef.current[cameraName]);
+      downgradeTimersRef.current[cameraName] = window.setTimeout(() => {
+        delete downgradeTimersRef.current[cameraName];
+        resetPreferredLiveMode(cameraName);
+      }, LIVE_MODE_RETRY_MS);
     },
-    [setPreferredLiveModes],
+    [setPreferredLiveModes, resetPreferredLiveMode],
   );
 
   // audio states

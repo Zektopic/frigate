@@ -62,6 +62,13 @@ export function processWsMessage(raw: string) {
 
   const { topic, payload } = data;
 
+  // Liveness reply only — it exists so WsProvider can tell a half-open
+  // connection from an idle one. It carries no state, so it must not
+  // land in wsState or wake the message subscribers.
+  if (topic === "pong") {
+    return;
+  }
+
   if (topic === "camera_activity") {
     applyCameraActivity(payload as string);
   } else {

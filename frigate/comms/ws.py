@@ -320,6 +320,8 @@ def _ws_role_header(ws: Any) -> str | None:
         return None
     value = environ.get("HTTP_REMOTE_ROLE")
     return value if isinstance(value, str) else None
+
+
 def _ws_valid_roles(ws: Any, config: FrigateConfig) -> list[str]:
     """Return the list of recognized roles for this connection."""
     header = _ws_role_header(ws)
@@ -327,6 +329,8 @@ def _ws_valid_roles(ws: Any, config: FrigateConfig) -> list[str]:
         return []
     roles = [r.strip() for r in header.split(config.proxy.separator) if r.strip()]
     return [r for r in roles if r == "admin" or r == "viewer" or r in config.auth.roles]
+
+
 def _ws_is_unrestricted(ws: Any, config: FrigateConfig) -> bool:
     """True when the connection has unrestricted camera access.
 
@@ -490,6 +494,24 @@ class WebSocketClient(Communicator):
                     return
 
                 topic = json_message["topic"]
+
+                # Liveness probe. Answered inline on this socket and
+                # never forwarded to the dispatcher: it carries no data,
+                # needs no privilege, and must not depend on the
+                # dispatcher thread being healthy — detecting that it is
+                # not is the whole point.
+                #
+                # Browsers cannot see protocol-level ping/pong frames
+                # from JS, so an application-level round trip is the
+                # only way a client can tell a silently half-open
+                # connection (NAT/conntrack expiry, Wi-Fi roam, VPN
+                # re-key) from an idle one.
+                if topic == "ping":
+                    try:
+                        self.send(json.dumps({"topic": "pong", "payload": ""}))
+                    except (ConnectionResetError, BrokenPipeError, ValueError):
+                        pass
+                    return
 
                 # Authorization check (skip when environ is None — direct internal connection)
                 role_header = (

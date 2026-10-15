@@ -4,7 +4,7 @@ import datetime
 import logging
 import math
 from collections import defaultdict
-from typing import Any
+from typing import Any, Sequence
 
 import cv2
 import numpy as np
@@ -70,7 +70,7 @@ def get_camera_regions_grid(
     if event_count == 0:
         return grid
 
-    new_update = datetime.datetime.now().timestamp()
+    new_update = datetime.datetime.now(datetime.timezone.utc).timestamp()
     timeline = (
         Timeline.select(
             *[
@@ -99,8 +99,8 @@ def get_camera_regions_grid(
         x = box[0] + (box[2] / 2)
         y = box[1] + (box[3] / 2)
 
-        x_pos = int(x * GRID_SIZE)
-        y_pos = int(y * GRID_SIZE)
+        x_pos = min(GRID_SIZE - 1, max(0, int(x * GRID_SIZE)))
+        y_pos = min(GRID_SIZE - 1, max(0, int(y * GRID_SIZE)))
 
         calculated_region = calculate_region(
             (height, width),
@@ -178,8 +178,8 @@ def get_region_from_grid(
         box[0] + (min(frame_shape[1], box[2]) - box[0]) / 2,
         box[1] + (min(frame_shape[0], box[3]) - box[1]) / 2,
     )
-    grid_x = int(centroid[0] / frame_shape[1] * GRID_SIZE)
-    grid_y = int(centroid[1] / frame_shape[0] * GRID_SIZE)
+    grid_x = min(GRID_SIZE - 1, max(0, int(centroid[0] / frame_shape[1] * GRID_SIZE)))
+    grid_y = min(GRID_SIZE - 1, max(0, int(centroid[1] / frame_shape[0] * GRID_SIZE)))
 
     cell = region_grid[grid_x][grid_y]
 
@@ -195,10 +195,7 @@ def get_region_from_grid(
         (cell["mean"] - cell["std_dev"])
         <= calc_size
         <= (cell["mean"] + cell["std_dev"])
-    ):
-        return box
-    # TODO not sure how to handle case where cluster is larger than expected region
-    elif calc_size > (cell["mean"] + cell["std_dev"]):
+    ) or calc_size > (cell["mean"] + cell["std_dev"]):
         return box
 
     size = cell["mean"] * frame_shape[1]
@@ -306,16 +303,14 @@ def create_tensor_input(frame, model_config: ModelConfig, region):
 
 
 def box_overlaps(b1, b2):
-    if b1[2] < b2[0] or b1[0] > b2[2] or b1[1] > b2[3] or b1[3] < b2[1]:
-        return False
-    return True
+    return not (b1[2] < b2[0] or b1[0] > b2[2] or b1[1] > b2[3] or b1[3] < b2[1])
 
 
 def box_inside(b1, b2):
     # check if b2 is inside b1
     if b2[0] >= b1[0] and b2[1] >= b1[1] and b2[2] <= b1[2] and b2[3] <= b1[3]:
         return True
-    return False
+    return b2[0] >= b1[0] and b2[1] >= b1[1] and b2[2] <= b1[2] and b2[3] <= b1[3]
 
 
 def reduce_boxes(boxes, iou_threshold=0.0):
@@ -337,7 +332,7 @@ def reduce_boxes(boxes, iou_threshold=0.0):
     return [tuple(c) for c in clusters]
 
 
-def average_boxes(boxes: list[list[int, int, int, int]]) -> list[int, int, int, int]:
+def average_boxes(boxes: Sequence[list[int] | tuple[int, ...]]) -> list[float]:
     """Return a box that is the average of a list of boxes."""
     n = len(boxes)
     return [
@@ -348,7 +343,9 @@ def average_boxes(boxes: list[list[int, int, int, int]]) -> list[int, int, int, 
     ]
 
 
-def median_of_boxes(boxes: list[list[int, int, int, int]]) -> list[int, int, int, int]:
+def median_of_boxes(
+    boxes: Sequence[list[int] | tuple[int, ...]],
+) -> list[int] | tuple[int, ...]:
     """Return a box that is the median of a list of boxes."""
     sorted_boxes = sorted(boxes, key=lambda x: area(x))
     return sorted_boxes[int(len(sorted_boxes) / 2.0)]
@@ -507,7 +504,7 @@ def reduce_detections(
 
     def reduce_overlapping_detections(detections: list[tuple[Any]]) -> list[tuple[Any]]:
         """apply non-maxima suppression to suppress weak, overlapping bounding boxes."""
-        detected_object_groups = defaultdict(lambda: [])
+        detected_object_groups = defaultdict(list)
         for detection in detections:
             detected_object_groups[detection[0]].append(detection)
 
@@ -537,7 +534,7 @@ def reduce_detections(
 
             # add objects
             for index in indices:
-                index = index if isinstance(index, np.int32) else index[0]
+                index = index if isinstance(index, (int, np.integer)) else index[0]
                 obj = group[index]
                 selected_objects.append(obj)
 
@@ -546,7 +543,7 @@ def reduce_detections(
 
     def get_consolidated_object_detections(detections: list[tuple[Any]]):
         """Drop detections that overlap too much."""
-        detected_object_groups = defaultdict(lambda: [])
+        detected_object_groups = defaultdict(list)
         for detection in detections:
             detected_object_groups[detection[0]].append(detection)
 
@@ -560,7 +557,7 @@ def reduce_detections(
             # sort smallest to largest by area
             sorted_by_area = sorted(group, key=lambda g: g[3])
 
-            for current_detection_idx in range(0, len(sorted_by_area)):
+            for current_detection_idx in range(len(sorted_by_area)):
                 current_detection = sorted_by_area[current_detection_idx]
                 current_label = current_detection[0]
                 current_box = current_detection[2]

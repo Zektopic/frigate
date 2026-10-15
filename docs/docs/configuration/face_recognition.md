@@ -197,6 +197,34 @@ You do not want to train images that are 90%+ as these are already being confide
 
 Once front-facing images are performing well, start choosing slightly off-angle images to include for training. It is important to still choose images where enough face detail is visible to recognize someone, and you still only want to train on images that score lower.
 
+### Step 3 - Automatic Enrollment (optional)
+
+Once each person has a solid foundation of images, Frigate can keep their training set up to date on its own. With `auto_enroll` enabled, the best face crop of a tracked person is added to that person's library when the tracked object ends, but only if every guardrail passes:
+
+- the person already exists in the library (unknown faces and new names are never enrolled),
+- at least `min_frames` frames scored `min_score` or higher, with a lead of at least `min_margin` over the second most likely person, on faces of at least `min_area` pixels,
+- the tracked object was never recognized as anyone else,
+- the person was not auto-enrolled in the last `cooldown_seconds`.
+
+Auto-enrolled images are named `<name>_auto_<timestamp>.webp`, appear in the Train tab like any other image, and can be deleted there. At most `max_images` auto-enrolled images are kept per person; the oldest are removed first. Images you added manually are never removed.
+
+```yaml
+face_recognition:
+  enabled: true
+  auto_enroll:
+    enabled: true
+    min_score: 0.95
+    min_margin: 0.15
+    min_frames: 3
+    min_area: 2500
+    max_images: 40
+    cooldown_seconds: 900
+```
+
+Because only very confident matches qualify, auto-enrollment mainly keeps profiles current as people's appearance gradually changes (haircuts, glasses, seasons, lighting). It does not replace Steps 1 and 2: manually training lower-scoring images is still what teaches Frigate new angles and conditions.
+
+Review the auto-enrolled images periodically. A wrong image slowly pulls a person's profile towards someone else; Frigate's outlier filtering limits this, but does not eliminate it.
+
 ## FAQ
 
 ### How do I debug Face Recognition issues?

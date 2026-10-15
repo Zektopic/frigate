@@ -107,9 +107,11 @@ class TestStoragePerformance(unittest.TestCase):
             rps = self._benchmark_batch_size(batch_size, total)
             print(f"  batch_size={batch_size:>4d}  {rps:,.0f} records/sec")
 
-        # Verify the largest batch is fastest (basic sanity check)
-        rps_1 = self._benchmark_batch_size(1, total)
-        rps_100 = self._benchmark_batch_size(100, total)
+        # Verify the largest batch is generally faster (basic sanity check)
+        # Using a much larger total to reduce variance on fast CI runners
+        variance_total = 2000
+        rps_1 = self._benchmark_batch_size(1, variance_total)
+        rps_100 = self._benchmark_batch_size(100, variance_total)
 
         self.assertGreater(
             rps_100,

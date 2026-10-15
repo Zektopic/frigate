@@ -1,8 +1,10 @@
-import re
 import sqlite3
 from typing import Any
 
+import regex
 from playhouse.sqliteq import SqliteQueueDatabase
+
+REGEXP_TIMEOUT_SECONDS = 1.0
 
 
 class SqliteVecQueueDatabase(SqliteQueueDatabase):
@@ -18,8 +20,12 @@ class SqliteVecQueueDatabase(SqliteQueueDatabase):
         conn: sqlite3.Connection = super()._connect(*args, **kwargs)  # type: ignore[misc]
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute(
+            "PRAGMA busy_timeout=30000;"
+        )  # 30-sec busy timeout prevents "database is locked" errors
         conn.execute("PRAGMA temp_store=MEMORY;")
         conn.execute("PRAGMA mmap_size=268435456;")  # 256 MB — reduces read() syscalls
+        conn.execute("PRAGMA wal_autocheckpoint=1000;")
         if self.load_vec_extension:
             self._load_vec_extension(conn)
 
@@ -38,8 +44,10 @@ class SqliteVecQueueDatabase(SqliteQueueDatabase):
             if item is None:
                 return False
             try:
-                return re.search(expr, item) is not None
-            except re.error:
+                return (
+                    regex.search(expr, item, timeout=REGEXP_TIMEOUT_SECONDS) is not None
+                )
+            except (regex.error, TimeoutError):
                 return False
 
         conn.create_function("REGEXP", 2, regexp)

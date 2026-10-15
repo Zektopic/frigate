@@ -20,6 +20,11 @@ from frigate.comms.event_metadata_updater import (
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.config import FrigateConfig
 from frigate.const import FACE_DIR, MODEL_CACHE_DIR
+from frigate.data_processing.common.face.auto_enroll import (
+    AutoEnroller,
+    AutoEnrollSettings,
+    DirFaceLibrary,
+)
 from frigate.data_processing.common.face.model import (
     ArcFaceRecognizer,
     FaceNetRecognizer,
@@ -28,6 +33,7 @@ from frigate.data_processing.common.face.model import (
 from frigate.types import TrackedObjectUpdateTypesEnum
 from frigate.util.builtin import EventsPerSecond, InferenceSpeed
 from frigate.util.image import area
+from frigate.util.path import safe_join, sanitize_path_component
 
 from ..types import DataProcessorMetrics
 from .api import RealTimeProcessorApi
@@ -94,6 +100,12 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             self.recognizer = ArcFaceRecognizer(self.config)
 
         self.recognizer.build()
+
+        self.auto_enroller = AutoEnroller(
+            AutoEnrollSettings(**self.face_config.auto_enroll.model_dump()),
+            DirFaceLibrary(FACE_DIR, lambda path, img: cv2.imwrite(path, img)),
+            on_enrolled=lambda _name: self.recognizer.clear(),
+        )
 
     CONFIG_UPDATE_TOPIC = "config/face_recognition"
 
@@ -304,6 +316,16 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             f"Detected best face for person as: {sub_label} with probability {score}"
         )
 
+        self.auto_enroller.observe(
+            id,
+            sub_label,
+            score,
+            self.recognizer.last_runner_up_score,
+            face_frame.shape[0] * face_frame.shape[1],
+            face_frame,
+            datetime.datetime.now().timestamp(),
+        )
+
         self.write_face_attempt(
             face_frame, id, datetime.datetime.now().timestamp(), sub_label, score
         )
@@ -405,9 +427,17 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
                 )
 
             # write face to library
-            folder = os.path.join(FACE_DIR, label)
+            sanitized_label = sanitize_path_component(label)
+            folder = safe_join(FACE_DIR, label)
+
+            if sanitized_label is None or folder is None:
+                return {
+                    "message": f"Invalid face name: {label}",
+                    "success": False,
+                }
+
             file = os.path.join(
-                folder, f"{label}_{datetime.datetime.now().timestamp()}.webp"
+                folder, f"{sanitized_label}_{datetime.datetime.now().timestamp()}.webp"
             )
             os.makedirs(folder, exist_ok=True)
 
@@ -470,6 +500,8 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
         return None
 
     def expire_object(self, object_id: str, camera: str) -> None:
+        self.auto_enroller.finish(object_id, datetime.datetime.now().timestamp())
+
         if object_id in self.person_face_history:
             self.person_face_history.pop(object_id)
 

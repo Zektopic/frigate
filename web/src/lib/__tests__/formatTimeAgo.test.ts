@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, afterEach, beforeEach } from "vitest";
+import { describe, test, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { formatTimeAgo } from "../formatTimeAgo";
 
 describe("formatTimeAgo", () => {

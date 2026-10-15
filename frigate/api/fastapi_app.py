@@ -40,7 +40,7 @@ from frigate.config.camera.updater import CameraConfigUpdatePublisher
 from frigate.config.profile_manager import ProfileManager
 from frigate.debug_replay import DebugReplayManager, debug_replay_auto_stop_watchdog
 from frigate.embeddings import EmbeddingsContext
-from frigate.genai import GenAIClientManager
+from frigate.genai.manager import GenAIClientManager
 from frigate.ptz.onvif import OnvifController
 from frigate.stats.emitter import StatsEmitter
 from frigate.storage import StorageMaintainer
@@ -152,6 +152,8 @@ def create_fastapi_app(
     app.include_router(debug_replay.router)
     # App Properties
     app.frigate_config = frigate_config
+    # snapshot the port nginx bound at startup, the live config can be swapped
+    app.auth_internal_port = frigate_config.networking.listen.internal_port
     app.genai_manager = GenAIClientManager(frigate_config)
     app.embeddings = embeddings
     app.detected_frames_processor = detected_frames_processor

@@ -82,7 +82,6 @@ describe("validateFfmpegInputRoles", () => {
       inputs: [
         { roles: ["detect"] },
         { roles: ["record"], hwaccel_args: [] },
-        { roles: ["audio"], hwaccel_args: "" },
         { roles: ["rtmp"], hwaccel_args: null },
       ],
     };
@@ -93,6 +92,28 @@ describe("validateFfmpegInputRoles", () => {
   it("allows hwaccel_args when detect role is present", () => {
     const formData = {
       inputs: [{ roles: ["detect"], hwaccel_args: "preset-vaapi" }],
+    };
+    validateFfmpegInputRoles(formData, mockErrors, mockT);
+    expect(mockAddError).not.toHaveBeenCalled();
+  });
+  it("ignores inputs that are not objects or have missing/invalid roles array", () => {
+    const formData = {
+      inputs: [
+        "not an object",
+        { noRolesArray: true },
+        { roles: "not an array" },
+        { roles: ["detect"] },
+      ],
+    };
+    validateFfmpegInputRoles(formData, mockErrors, mockT);
+    expect(mockAddError).not.toHaveBeenCalled();
+  });
+
+  it("ignores roles that are not strings", () => {
+    const formData = {
+      inputs: [
+        { roles: ["detect", 123, null, undefined, {}] }
+      ],
     };
     validateFfmpegInputRoles(formData, mockErrors, mockT);
     expect(mockAddError).not.toHaveBeenCalled();

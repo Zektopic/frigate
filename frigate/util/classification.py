@@ -303,52 +303,58 @@ def kickoff_model_training(
 ) -> None:
     model_name = model_name.strip()
     requestor = InterProcessRequestor()
-    requestor.send_data(
-        UPDATE_MODEL_STATE,
-        {
-            "model": model_name,
-            "state": ModelStatusTypesEnum.training,
-        },
-    )
 
-    # run training in sub process so that
-    # tensorflow will free CPU / GPU memory
-    # upon training completion
-    training_process = ClassificationTrainingProcess(model_name)
-    training_process.start()
-    training_process.join()
-
-    # check if training succeeded by examining the exit code
-    training_success = training_process.exitcode == 0
-
-    if training_success:
-        # reload model and mark training as complete
-        embeddingRequestor.send_data(
-            EmbeddingsRequestEnum.reload_classification_model.value,
-            {"model_name": model_name},
-        )
+    # Each requestor owns a zmq.Context (an I/O thread plus file
+    # descriptors). Releasing it only on the success path leaked one
+    # per failed training run.
+    try:
         requestor.send_data(
             UPDATE_MODEL_STATE,
             {
                 "model": model_name,
-                "state": ModelStatusTypesEnum.complete,
-            },
-        )
-    else:
-        logger.error(
-            f"Training subprocess failed for {model_name} (exit code: {training_process.exitcode})"
-        )
-        # mark training as failed so UI shows error state
-        # don't reload the model since it failed
-        requestor.send_data(
-            UPDATE_MODEL_STATE,
-            {
-                "model": model_name,
-                "state": ModelStatusTypesEnum.failed,
+                "state": ModelStatusTypesEnum.training,
             },
         )
 
-    requestor.stop()
+        # run training in sub process so that
+        # tensorflow will free CPU / GPU memory
+        # upon training completion
+        training_process = ClassificationTrainingProcess(model_name)
+        training_process.start()
+        training_process.join()
+
+        # check if training succeeded by examining the exit code
+        training_success = training_process.exitcode == 0
+
+        if training_success:
+            # reload model and mark training as complete
+            embeddingRequestor.send_data(
+                EmbeddingsRequestEnum.reload_classification_model.value,
+                {"model_name": model_name},
+            )
+            requestor.send_data(
+                UPDATE_MODEL_STATE,
+                {
+                    "model": model_name,
+                    "state": ModelStatusTypesEnum.complete,
+                },
+            )
+        else:
+            logger.error(
+                f"Training subprocess failed for {model_name} (exit code: {training_process.exitcode})"
+            )
+            # mark training as failed so UI shows error state
+            # don't reload the model since it failed
+            requestor.send_data(
+                UPDATE_MODEL_STATE,
+                {
+                    "model": model_name,
+                    "state": ModelStatusTypesEnum.failed,
+                },
+            )
+
+    finally:
+        requestor.stop()
 
 
 @staticmethod

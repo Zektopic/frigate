@@ -27,4 +27,3 @@ test-results
 *.sln
 *.sw?
 .env
-node_modules

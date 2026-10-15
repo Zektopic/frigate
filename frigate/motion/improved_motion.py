@@ -174,9 +174,7 @@ class ImprovedMotionDetector(MotionDetector):
             if self.save_images or self.calibrating:
                 self.frame_counter += 1
             # compare to average
-            frameDelta = cv2.absdiff(
-                resized_frame, cv2.convertScaleAbs(self.avg_frame)
-            )
+            frameDelta = cv2.absdiff(resized_frame, cv2.convertScaleAbs(self.avg_frame))
 
             # compute the threshold image for the current frame
             thresh = cv2.threshold(

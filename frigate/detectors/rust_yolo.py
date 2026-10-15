@@ -165,8 +165,8 @@ def nms_boxes(
 def yolo26_post_process(
     raw: "np.ndarray",
     model_size: int = 640,
-    frame_w: int = 640,
-    frame_h: int = 640,
+    frame_w: float = 1.0,
+    frame_h: float = 1.0,
     score_thresh: float = 0.05,
     nms_thresh: float = 0.45,
 ) -> "np.ndarray":

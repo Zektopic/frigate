@@ -30,6 +30,12 @@ const PLACEHOLDER_PNG = Buffer.from(
   "base64",
 );
 
+// 1x1 transparent WEBP
+const PLACEHOLDER_WEBP = Buffer.from(
+  "UklGRhIAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==",
+  "base64",
+);
+
 export interface ApiMockOverrides {
   config?: DeepPartial<typeof BASE_CONFIG>;
   profile?: UserProfile;
@@ -118,7 +124,6 @@ export class ApiMocker {
 
     // Sub-labels and attributes (for explore filters).
     // Use trailing ** so query-string variants (e.g. ?split_joined=1) match.
-    // This resolves the previous 500 error for /api/sub_labels?split_joined=1.
     await this.page.route("**/api/sub_labels**", (route) =>
       route.fulfill({ json: [] }),
     );
@@ -250,7 +255,7 @@ export class MediaMocker {
     await this.page.route("**/api/*/latest.webp**", (route) =>
       route.fulfill({
         contentType: "image/webp",
-        body: PLACEHOLDER_PNG,
+        body: PLACEHOLDER_WEBP,
       }),
     );
 

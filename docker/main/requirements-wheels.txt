@@ -10,6 +10,11 @@ slowapi == 0.1.*
 joserfc == 1.2.*
 cryptography == 44.0.*
 pathvalidate == 3.3.*
+# Bounded-time regex evaluation for the REGEXP SQL function; only the
+# `regex` module supports a per-match timeout. Previously present only
+# as a transitive dependency, so a resolver change could silently drop
+# it and break the ReDoS mitigation in frigate/db/sqlitevecq.py.
+regex == 2026.2.*
 markupsafe == 3.0.*
 python-multipart == 0.0.26
 # Classification Model Training

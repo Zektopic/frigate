@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Extension(str, Enum):
@@ -39,8 +39,11 @@ class MediaEventsSnapshotQueryParams(BaseModel):
 
 
 class MediaMjpegFeedQueryParams(BaseModel):
-    fps: int = 3
-    height: int = 360
+    # Lower bounds only: both values are divisors in the MJPEG stream
+    # loop, so 0 raised ZeroDivisionError mid-response. No upper bound,
+    # so existing callers requesting a high frame rate are unaffected.
+    fps: int = Field(default=3, ge=1)
+    height: int = Field(default=360, ge=1)
     bbox: Optional[int] = None
     timestamp: Optional[int] = None
     zones: Optional[int] = None

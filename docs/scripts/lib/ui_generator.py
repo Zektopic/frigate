@@ -4,7 +4,7 @@ from typing import Any
 
 from .i18n_loader import get_field_description, get_field_label, get_value_label
 from .nav_map import ALL_CONFIG_SECTIONS, detect_level, get_nav_path
-from .schema_loader import is_boolean_field, is_object_field
+from .schema_loader import is_boolean_field
 from .section_config_parser import get_hidden_fields
 from .yaml_extractor import YamlBlock, get_leaf_paths
 

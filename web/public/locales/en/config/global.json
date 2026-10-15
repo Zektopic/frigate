@@ -1407,6 +1407,38 @@
     "device": {
       "label": "Device",
       "description": "This is an override, to target a specific device. See https://onnxruntime.ai/docs/execution-providers/ for more information"
+    },
+    "auto_enroll": {
+      "label": "Auto-enrollment",
+      "description": "Guarded automatic enrollment of recognized faces into the face library.",
+      "enabled": {
+        "label": "Enable face auto-enrollment",
+        "description": "Automatically add confidently recognized faces of people already in the face library, so recognition adapts over time."
+      },
+      "min_score": {
+        "label": "Minimum score",
+        "description": "Minimum recognition score for a frame to count towards auto-enrollment."
+      },
+      "min_margin": {
+        "label": "Minimum margin",
+        "description": "Minimum score lead over the second most likely person for a frame to count."
+      },
+      "min_frames": {
+        "label": "Minimum frames",
+        "description": "Number of qualifying frames a tracked person needs before a face is enrolled."
+      },
+      "min_area": {
+        "label": "Minimum face area",
+        "description": "Minimum face area (pixels) for a frame to count towards auto-enrollment."
+      },
+      "max_images": {
+        "label": "Maximum auto images",
+        "description": "Maximum auto-enrolled images kept per person; the oldest are removed first. Manually added images are never removed."
+      },
+      "cooldown_seconds": {
+        "label": "Cooldown",
+        "description": "Minimum seconds between auto-enrollments of the same person."
+      }
     }
   },
   "lpr": {

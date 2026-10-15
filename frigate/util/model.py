@@ -46,7 +46,9 @@ def post_process_dfine(
     return detections
 
 
-def post_process_rfdetr(tensor_output: list[np.ndarray, np.ndarray]) -> np.ndarray:
+def post_process_rfdetr(
+    tensor_output: list[np.ndarray] | tuple[np.ndarray, ...],
+) -> np.ndarray:
     boxes = tensor_output[0]
     raw_scores = tensor_output[1]
 
@@ -227,6 +229,14 @@ def __post_process_nms_yolo(predictions: np.ndarray, width, height) -> np.ndarra
 
 
 def post_process_yolo(output: list[np.ndarray], width: int, height: int) -> np.ndarray:
+    try:
+        from frigate.detectors.rust_yolo import yolo_available, yolo_post_process
+
+        if yolo_available() and len(output) > 1:
+            return yolo_post_process(output, width, height)
+    except Exception:
+        pass
+
     if len(output) > 1:
         return __post_process_multipart_yolo(output, width, height)
     else:
