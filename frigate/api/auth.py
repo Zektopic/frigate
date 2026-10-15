@@ -11,7 +11,6 @@ import secrets
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -404,7 +403,7 @@ def verify_password(password, password_hash):
     return secrets.compare_digest(password_hash, compare_hash)
 
 
-def validate_password_strength(password: str) -> tuple[bool, Optional[str]]:
+def validate_password_strength(password: str) -> tuple[bool, str | None]:
     """
     Validate password strength.
 
@@ -460,7 +459,7 @@ async def get_current_user(request: Request):
     return {"username": username, "role": role}
 
 
-def require_role(required_roles: List[str]):
+def require_role(required_roles: list[str]):
     async def role_checker(request: Request):
         proxy_config: ProxyConfig = request.app.frigate_config.proxy
         config_roles = list(request.app.frigate_config.auth.roles.keys())
@@ -989,6 +988,7 @@ def delete_user(request: Request, username: str):
     summary="Update user password",
     description="Updates a user's password. Users can only change their own password unless they have admin role. Requires the current password to verify identity for non-admin users. Password must be at least 12 characters long. If user changes their own password, a new JWT cookie is automatically issued.",
 )
+@limiter.limit(limit_value=rateLimiter.get_limit)
 async def update_password(
     request: Request,
     username: str,
@@ -1002,10 +1002,11 @@ async def update_password(
     current_username = current_user.get("username")
     current_role = current_user.get("role")
 
-    # viewers can only change their own password
-    if current_role == "viewer" and current_username != username:
+    # Only admins may target another account. This has to cover every non-admin
+    # role rather than just viewer, since custom roles are arbitrary names
+    if current_role != "admin" and current_username != username:
         raise HTTPException(
-            status_code=403, detail="Viewers can only update their own password"
+            status_code=403, detail="Users can only update their own password"
         )
 
     HASH_ITERATIONS = request.app.frigate_config.auth.hash_iterations
@@ -1109,7 +1110,7 @@ async def update_role(
 
 
 async def require_camera_access(
-    camera_name: Optional[str] = None,
+    camera_name: str | None = None,
     request: Request = None,
 ):
     """Dependency to enforce camera access based on user role."""
@@ -1174,8 +1175,8 @@ GO2RTC_STREAM_PROXY_PATHS = frozenset(
 
 
 def deny_response_for_go2rtc_stream(
-    original_url: Optional[str], role: Optional[str], request: Request
-) -> Optional[int]:
+    original_url: str | None, role: str | None, request: Request
+) -> int | None:
     """Block role-restricted users from go2rtc live streams they cannot access.
 
     Returns 403 when any `src` stream named in `original_url` resolves to a
@@ -1220,7 +1221,7 @@ def deny_response_for_go2rtc_stream(
 
 
 async def require_go2rtc_stream_access(
-    stream_name: Optional[str] = None,
+    stream_name: str | None = None,
     request: Request = None,
 ):
     """Dependency to enforce go2rtc stream access based on owning camera access."""
@@ -1270,3 +1271,23 @@ async def get_allowed_cameras_for_filter(request: Request):
     all_camera_names = set(request.app.frigate_config.cameras.keys())
     roles_dict = request.app.frigate_config.auth.roles
     return User.get_allowed_cameras(role, roles_dict, all_camera_names)
+
+
+async def require_full_camera_access(
+    request: Request,
+    allowed_cameras: list[str] = Depends(get_allowed_cameras_for_filter),
+):
+    """Dependency for endpoints returning data that spans every camera.
+
+    Some responses cannot be meaningfully scoped to a subset of cameras, so
+    rather than filter them the endpoint is limited to callers who can already
+    see every camera. Admin and viewer always qualify; a custom role qualifies
+    only when its camera list covers all configured cameras.
+    """
+    all_camera_names = set(request.app.frigate_config.cameras.keys())
+
+    if not all_camera_names.issubset(allowed_cameras):
+        raise HTTPException(
+            status_code=403,
+            detail="Access to all cameras is required for this endpoint",
+        )

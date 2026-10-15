@@ -58,6 +58,10 @@
     "enabled_in_config": {
       "label": "Original transcription state"
     },
+    "vad_threshold": {
+      "label": "Voice Activity Detection Threshold",
+      "description": "Override for the global Voice Activity Detection threshold for this camera."
+    },
     "live_enabled": {
       "label": "Live transcription",
       "description": "Enable streaming live transcription for audio as it is received."
@@ -859,8 +863,8 @@
       "description": "Numeric order used to sort the camera in the UI (default dashboard and lists); larger numbers appear later."
     },
     "dashboard": {
-      "label": "Show in UI",
-      "description": "Toggle whether this camera is visible everywhere in the Frigate UI. Disabling this will require manually editing the config to view this camera in the UI again."
+      "label": "Show on Live dashboard",
+      "description": "Toggle whether this camera is visible on the default All Cameras live dashboard. The camera remains available everywhere else in the UI, including camera groups and settings."
     },
     "review": {
       "label": "Show in review",

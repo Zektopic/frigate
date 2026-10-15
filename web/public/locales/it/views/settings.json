@@ -132,7 +132,7 @@
     },
     "audio": {
       "title": "Audio",
-      "currentdbFS": "dbFS correnti",
+      "currentdbFS": "dbFS attuale",
       "noAudioDetections": "Nessun rilevamento audio",
       "score": "punteggio",
       "currentRMS": "RMS attuale"
@@ -212,7 +212,7 @@
         "type": {
           "zone": "zona",
           "motion_mask": "maschera di movimento",
-          "object_mask": "maschera di oggetto"
+          "object_mask": "maschera oggetto"
         },
         "revertOverride": {
           "title": "Ripristina la configurazione di base",
@@ -447,7 +447,7 @@
     "users": "Utenti",
     "frigateplus": "Frigate+",
     "enrichments": "Miglioramenti",
-    "triggers": "Inneschi",
+    "triggers": "Attivatori",
     "roles": "Ruoli",
     "cameraManagement": "Gestione della telecamera",
     "cameraReview": "Revisiona",
@@ -489,7 +489,7 @@
     "integrationObjectClassification": "Classificazione oggetti",
     "integrationAudioTranscription": "Trascrizione audio",
     "cameraDetect": "Rilevamento oggetti",
-    "cameraFfmpeg": "FFmpeg",
+    "cameraFfmpeg": "Flussi (FFmpeg)",
     "cameraRecording": "Registrazione",
     "cameraSnapshots": "Istantanee",
     "cameraMotion": "Rilevamento movimento",
@@ -896,22 +896,22 @@
     "restart_required": "Riavvio richiesto (impostazioni di miglioramento modificate)"
   },
   "triggers": {
-    "documentTitle": "Inneschi",
+    "documentTitle": "Attivatori",
     "management": {
-      "title": "Inneschi",
-      "desc": "Gestisci gli inneschi per {{camera}}. Utilizza il tipo miniatura per attivare miniature simili all'oggetto tracciato selezionato e il tipo descrizione per attivare descrizioni simili al testo specificato."
+      "title": "Attivatori",
+      "desc": "Gestisci gli attivatori per {{camera}}. Utilizza il tipo miniatura per attivare miniature simili all'oggetto tracciato selezionato e il tipo descrizione per attivare descrizioni simili al testo specificato."
     },
-    "addTrigger": "Aggiungi innesco",
+    "addTrigger": "Aggiungi attivatore",
     "table": {
       "name": "Nome",
       "type": "Tipo",
       "content": "Contenuto",
       "threshold": "Soglia",
       "actions": "Azioni",
-      "noTriggers": "Nessun innesco configurato per questa telecamera.",
+      "noTriggers": "Nessun attivatore configurato per questa telecamera.",
       "edit": "Modifica",
-      "deleteTrigger": "Elimina innesco",
-      "lastTriggered": "Ultimo innesco"
+      "deleteTrigger": "Elimina attivatore",
+      "lastTriggered": "Ultimo attivatore"
     },
     "type": {
       "thumbnail": "Miniatura",
@@ -925,34 +925,34 @@
     },
     "dialog": {
       "createTrigger": {
-        "title": "Crea innesco",
-        "desc": "Crea un innesco per la telecamera {{camera}}"
+        "title": "Crea attivatore",
+        "desc": "Crea un attivatore per la telecamera {{camera}}"
       },
       "editTrigger": {
-        "title": "Modifica innesco",
-        "desc": "Modifica le impostazioni per l'innesco della telecamera {{camera}}"
+        "title": "Modifica attivatore",
+        "desc": "Modifica le impostazioni per l'attivatore della telecamera {{camera}}"
       },
       "deleteTrigger": {
-        "title": "Elimina innesco",
-        "desc": "Vuoi davvero eliminare l'innesco <strong>{{triggerName}}</strong>? Questa azione non può essere annullata."
+        "title": "Elimina attivatore",
+        "desc": "Vuoi davvero eliminare l'attivatore <strong>{{triggerName}}</strong>? Questa azione non può essere annullata."
       },
       "form": {
         "name": {
           "title": "Nome",
-          "placeholder": "Assegna un nome a questo innesco",
+          "placeholder": "Assegna un nome a questo attivatore",
           "error": {
             "minLength": "Il campo deve contenere almeno 2 caratteri.",
             "invalidCharacters": "Il campo può contenere solo lettere, numeri, caratteri di sottolineatura e trattini.",
-            "alreadyExists": "Per questa telecamera esiste già un innesco con questo nome."
+            "alreadyExists": "Per questa telecamera esiste già un attivatore con questo nome."
           },
-          "description": "Inserisci un nome o una descrizione univoca per identificare questo innesco"
+          "description": "Inserisci un nome o una descrizione univoca per identificare questo attivatore"
         },
         "enabled": {
-          "description": "Abilita o disabilita questo innesco"
+          "description": "Abilita o disabilita questo attivatore"
         },
         "type": {
           "title": "Tipo",
-          "placeholder": "Seleziona il tipo di innesco",
+          "placeholder": "Seleziona il tipo di attivatore",
           "description": "Si attiva quando viene rilevata una descrizione di un oggetto simile tracciato",
           "thumbnail": "Attiva quando viene rilevata una miniatura di un oggetto simile tracciato"
         },
@@ -960,7 +960,7 @@
           "title": "Contenuto",
           "imagePlaceholder": "Seleziona una miniatura",
           "textPlaceholder": "Inserisci il contenuto del testo",
-          "imageDesc": "Vengono visualizzate solo le 100 miniature più recenti. Se non riesci a trovare la miniatura desiderata, controlla gli oggetti precedenti in Esplora e imposta un innesco dal menu.",
+          "imageDesc": "Vengono visualizzate solo le 100 miniature più recenti. Se non riesci a trovare la miniatura desiderata, controlla gli oggetti precedenti in Esplora e imposta un attivatore dal menu.",
           "textDesc": "Inserisci il testo per attivare questa azione quando viene rilevata una descrizione simile dell'oggetto tracciato.",
           "error": {
             "required": "Il contenuto è obbligatorio."
@@ -972,11 +972,11 @@
             "min": "La soglia deve essere almeno 0",
             "max": "La soglia deve essere al massimo 1"
           },
-          "desc": "Imposta la soglia di similarità per questo innesco. Una soglia più alta indica che è necessaria una corrispondenza più vicina per attivare l'innesco."
+          "desc": "Imposta la soglia di similarità per questo attivatore. Una soglia più alta indica che è necessaria una corrispondenza più vicina per attivare l'attivatore."
         },
         "actions": {
           "title": "Azioni",
-          "desc": "Per impostazione predefinita, Frigate invia un messaggio MQTT per tutti gli inneschi. Le sottoetichette aggiungono il nome dell'innesco all'etichetta dell'oggetto. Gli attributi sono metadati ricercabili, memorizzati separatamente nei metadati dell'oggetto tracciato.",
+          "desc": "Per impostazione predefinita, Frigate invia un messaggio MQTT per tutti gli attivatori. Le sottoetichette aggiungono il nome dell'attivatore all'etichetta dell'oggetto. Gli attributi sono metadati ricercabili, memorizzati separatamente nei metadati dell'oggetto tracciato.",
           "error": {
             "min": "È necessario selezionare almeno un'azione."
           }
@@ -990,30 +990,30 @@
     },
     "toast": {
       "success": {
-        "createTrigger": "L'innesco {{name}} è stato creato correttamente.",
-        "updateTrigger": "L'innesco {{name}} è stato aggiornato correttamente.",
-        "deleteTrigger": "L'innesco {{name}} è stato eliminato correttamente."
+        "createTrigger": "L'attivatore {{name}} è stato creato correttamente.",
+        "updateTrigger": "L'attivatore {{name}} è stato aggiornato correttamente.",
+        "deleteTrigger": "L'attivatore {{name}} è stato eliminato correttamente."
       },
       "error": {
-        "createTriggerFailed": "Impossibile creare l'innesco: {{errorMessage}}",
-        "updateTriggerFailed": "Impossibile aggiornare l'innesco: {{errorMessage}}",
-        "deleteTriggerFailed": "Impossibile eliminare l'innesco: {{errorMessage}}"
+        "createTriggerFailed": "Impossibile creare l'attivatore: {{errorMessage}}",
+        "updateTriggerFailed": "Impossibile aggiornare l'attivatore: {{errorMessage}}",
+        "deleteTriggerFailed": "Impossibile eliminare l'attivatore: {{errorMessage}}"
       }
     },
     "semanticSearch": {
       "title": "La ricerca semantica è disabilitata",
-      "desc": "Per utilizzare gli inneschi, è necessario abilitare la ricerca semantica."
+      "desc": "Per utilizzare gli attivatori, è necessario abilitare la ricerca semantica."
     },
     "wizard": {
-      "title": "Crea innesco",
+      "title": "Crea attivatore",
       "step1": {
-        "description": "Configura le impostazioni di base per il tuo innesco."
+        "description": "Configura le impostazioni di base per il tuo attivatore."
       },
       "step2": {
         "description": "Imposta il contenuto che attiverà questa azione."
       },
       "step3": {
-        "description": "Configura la soglia e le azioni per questo innesco."
+        "description": "Configura la soglia e le azioni per questo attivatore."
       },
       "steps": {
         "nameAndType": "Nome e tipo",
@@ -1430,10 +1430,10 @@
         "webuiUrlLabel": "URL dell'interfaccia web della telecamera",
         "webuiUrlHelp": "URL per accedere direttamente all'interfaccia web della telecamera dalla vista Correzioni. Lasciare vuoto per disabilitare il collegamento.",
         "webuiUrlInvalid": "Deve essere un URL valido (ad esempio, https://esempio.com).",
-        "dashboardLabel": "Mostra nella schermata Dal vivo",
-        "dashboardHelp": "Mostra questa telecamera nella schermata Dal vivo.",
-        "reviewLabel": "Mostra in Revisiona",
-        "reviewHelp": "Mostra questa telecamera in Revisiona, incluso il filtro della telecamera, la revisione del movimento e la visualizzazione della cronologia."
+        "dashboardLabel": "Mostra nel cruscotto Dal vivo",
+        "dashboardHelp": "Mostra questa telecamera nel cruscotto dal vivo predefinito \"Tutte le telecamere\". Rimarrà comunque disponibile in qualsiasi altra sezione, inclusi i gruppi di telecamere.",
+        "reviewLabel": "Mostra in Revisione",
+        "reviewHelp": "Mostra questa telecamera in Revisione, incluso il filtro della telecamera, la revisione del movimento e la visualizzazione della cronologia."
       },
       "label": "Stato della telecamera",
       "description": "Imposta lo stato operativo per ciascuna telecamera.<br /><br /><strong>Accesa</strong>: i flussi vengono elaborati normalmente.<br /><strong>Spenta</strong>: mette temporaneamente in pausa l'elaborazione. Non viene mantenuta dopo il riavvio di Frigate.<br /><strong>Disabilitata</strong>: interrompe l'elaborazione e salva la modifica nella configurazione. È necessario riavviare Frigate per riattivare una telecamera disabilitata.<br /><br /><em>Nota: la disabilitazione non influisce sulle ritrasmissioni go2rtc.</em><br /><br />Trascina la maniglia per riordinare le telecamere attive nell'interfaccia utente, inclusi il pannello di controllo Dal vivo e i menu a tendina di selezione della telecamera.",
@@ -1489,7 +1489,7 @@
     "deleteCameraDialog": {
       "title": "Elimina telecamera",
       "description": "L'eliminazione di una telecamera rimuoverà in modo permanente tutte le registrazioni, gli oggetti tracciati e la configurazione relativi a tale telecamera. Potrebbe essere comunque necessario rimuovere manualmente gli eventuali flussi go2rtc associati a questa telecamera.",
-      "selectPlaceholder": "Scegli telecamera...",
+      "selectPlaceholder": "Scegli telecamera…",
       "confirmTitle": "Sei sicuro?",
       "confirmWarning": "L'eliminazione di <strong>{{cameraName}}</strong> è irreversibile.",
       "deleteExports": "Elimina anche le esportazioni per questa telecamera",
@@ -1744,7 +1744,14 @@
       "keyLabel": "Chiave",
       "valueLabel": "Valore",
       "keyPlaceholder": "Nuova chiave",
-      "remove": "Rimuovi"
+      "remove": "Rimuovi",
+      "providerNameLabel": "Nome del fornitore",
+      "providerNamePlaceholder": "ad es. openai",
+      "variableNameLabel": "Nome della variabile",
+      "variableNamePlaceholder": "ad es. MIA_VARIABILE",
+      "loggerNameLabel": "Nome del logger",
+      "loggerNamePlaceholder": "ad es. frigate.record",
+      "keyPatternError": "Utilizza solo lettere, numeri, trattini e trattini bassi (nessun spazio)"
     },
     "ffmpegArgs": {
       "preset": "Preimpostazione",
@@ -1782,7 +1789,17 @@
       }
     },
     "cameraInputs": {
-      "itemTitle": "Flusso {{index}}"
+      "itemTitle": "Flusso {{index}}",
+      "sourceMode": {
+        "restream": "Ritrasmissione (go2rtc)",
+        "manual": "Percorso ingresso manuale",
+        "go2rtcStreamLabel": "Flusso go2rtc",
+        "go2rtcStreamPlaceholder": "Seleziona un flusso go2rtc",
+        "noGo2rtcStreams": "Nessun flusso go2rtc configurato",
+        "go2rtcStreamSearch": "Cerca flussi...",
+        "availableStreams": "Flussi disponibili",
+        "noMatchingStreams": "Nessun flusso corrispondente"
+      }
     },
     "restartRequiredField": "Riavvio richiesto",
     "restartRequiredFooter": "Configurazione modificata - Riavvio necessario",
@@ -1879,7 +1896,7 @@
     "liveStreams": {
       "streamNameLabel": "Nome flusso",
       "streamNamePlaceholder": "p.es., flusso HD principale",
-      "go2rtcStreamLabel": "flusso go2rtc",
+      "go2rtcStreamLabel": "Flusso go2rtc",
       "go2rtcStreamPlaceholder": "Seleziona un flusso go2rtc",
       "go2rtcStreamSearch": "Cerca o inserisci il nome di un flusso…",
       "noGo2rtcStreams": "Nessun flusso go2rtc configurato",
@@ -2030,10 +2047,10 @@
       "desc": "La griglia di regioni è un algoritmo di ottimizzazione che apprende dove gli oggetti di diverse dimensioni appaiono tipicamente nel campo visivo di ciascuna telecamera. Frigate utilizza questi dati per dimensionare in modo efficiente le regioni di rilevamento. La griglia viene creata automaticamente nel tempo a partire dai dati degli oggetti tracciati.",
       "clear": "Pulisci griglia di regioni",
       "clearConfirmTitle": "Pulisci griglia di regioni",
-      "clearConfirmDesc": "La pulizia della griglia di regioni non è consigliata a meno che non si sia recentemente modificato il modello del rilevatore o la posizione fisica della telecamera, riscontrando problemi di tracciamento degli oggetti. La griglia verrà ricostruita automaticamente nel tempo man mano che gli oggetti vengono tracciati. Per rendere effettive le modifiche è necessario riavviare Frigate.",
-      "clearSuccess": "Griglia di regioni pulita con successo",
-      "clearError": "Impossibile pulire la griglia di regioni",
-      "restartRequired": "È necessario riavviare il sistema affinché le modifiche alla griglia di regioni abbiano effetto"
+      "clearConfirmDesc": "La pulizia della griglia delle regioni non è consigliata, a meno che non sia stata modificata di recente la dimensione del modello del rilevatore, oppure sia stata cambiata la posizione fisica della telecamera e si riscontrino problemi di tracciamento degli oggetti. La griglia verrà ricostruita automaticamente nel tempo man mano che gli oggetti vengono tracciati. È richiesto un riavvio di Frigate affinché le modifiche abbiano effetto.",
+      "clearSuccess": "Griglia delle regioni pulita con successo",
+      "clearError": "Impossibile pulire la griglia delle regioni",
+      "restartRequired": "È necessario riavviare il sistema affinché le modifiche alla griglia delle regioni abbiano effetto"
     }
   },
   "retainMode": {
@@ -2186,6 +2203,14 @@
     },
     "onvif": {
       "autotrackingNoZones": "Il tracciamento automatico richiede almeno una zona. Definisci una zona per questa telecamera in Maschere/Zone, quindi impostala come zona obbligatoria qui sotto."
+    },
+    "model": {
+      "optimizedFor320": "Frigate è ottimizzato per un modello 320x320, che rappresenta la scelta migliore per la maggior parte delle configurazioni. Un modello 640x640 è più lento e risulta utile solo in scenari specifici.",
+      "inputDimensionsNotDetectResolution": "La larghezza e l'altezza di ingresso del modello sono le dimensioni di ingresso del modello di rilevamento oggetti, non la risoluzione di rilevamento della telecamera. Devono corrispondere alle dimensioni del modello in uso — in genere una dimensione quadrata come 320x320 o 640x640."
+    },
+    "ffmpeg": {
+      "hwaccelManualNotRecommended": "Gli argomenti manuali per l'accelerazione hardware non sono consigliati. A meno di esigenze specifiche, seleziona il preset corrispondente al tuo hardware.",
+      "inputsMissingGo2rtcStream": "Un ingresso sottostante punta ad una ritrasmissione go2rtc che non esiste più. Seleziona una ritrasmissione esistente o inserisci manualmente l'URL della telecamera, altrimenti la telecamera non riuscirà a connettersi."
     }
   },
   "saveAllPreview": {
