@@ -20,6 +20,11 @@ from frigate.comms.event_metadata_updater import (
 from frigate.comms.inter_process import InterProcessRequestor
 from frigate.config import FrigateConfig
 from frigate.const import FACE_DIR, MODEL_CACHE_DIR
+from frigate.data_processing.common.face.auto_enroll import (
+    AutoEnroller,
+    AutoEnrollSettings,
+    DirFaceLibrary,
+)
 from frigate.data_processing.common.face.model import (
     ArcFaceRecognizer,
     FaceNetRecognizer,
@@ -95,6 +100,12 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             self.recognizer = ArcFaceRecognizer(self.config)
 
         self.recognizer.build()
+
+        self.auto_enroller = AutoEnroller(
+            AutoEnrollSettings(**self.face_config.auto_enroll.model_dump()),
+            DirFaceLibrary(FACE_DIR, lambda path, img: cv2.imwrite(path, img)),
+            on_enrolled=lambda _name: self.recognizer.clear(),
+        )
 
     CONFIG_UPDATE_TOPIC = "config/face_recognition"
 
@@ -305,6 +316,16 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             f"Detected best face for person as: {sub_label} with probability {score}"
         )
 
+        self.auto_enroller.observe(
+            id,
+            sub_label,
+            score,
+            self.recognizer.last_runner_up_score,
+            face_frame.shape[0] * face_frame.shape[1],
+            face_frame,
+            datetime.datetime.now().timestamp(),
+        )
+
         self.write_face_attempt(
             face_frame, id, datetime.datetime.now().timestamp(), sub_label, score
         )
@@ -479,6 +500,8 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
         return None
 
     def expire_object(self, object_id: str, camera: str) -> None:
+        self.auto_enroller.finish(object_id, datetime.datetime.now().timestamp())
+
         if object_id in self.person_face_history:
             self.person_face_history.pop(object_id)
 

@@ -9,6 +9,7 @@ __all__ = [
     "CameraFaceRecognitionConfig",
     "CameraLicensePlateRecognitionConfig",
     "CameraAudioTranscriptionConfig",
+    "FaceAutoEnrollConfig",
     "FaceRecognitionConfig",
     "SemanticSearchConfig",
     "CameraSemanticSearchConfig",
@@ -259,6 +260,52 @@ class CameraSemanticSearchConfig(FrigateBaseModel):
     model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
 
+class FaceAutoEnrollConfig(FrigateBaseModel):
+    enabled: bool = Field(
+        default=False,
+        title="Enable face auto-enrollment",
+        description="Automatically add confidently recognized faces of people already in the face library, so recognition adapts over time.",
+    )
+    min_score: float = Field(
+        default=0.95,
+        gt=0.0,
+        le=1.0,
+        title="Minimum score",
+        description="Minimum recognition score for a frame to count towards auto-enrollment.",
+    )
+    min_margin: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        title="Minimum margin",
+        description="Minimum score lead over the second most likely person for a frame to count.",
+    )
+    min_frames: int = Field(
+        default=3,
+        ge=1,
+        title="Minimum frames",
+        description="Number of qualifying frames a tracked person needs before a face is enrolled.",
+    )
+    min_area: int = Field(
+        default=2500,
+        ge=0,
+        title="Minimum face area",
+        description="Minimum face area (pixels) for a frame to count towards auto-enrollment.",
+    )
+    max_images: int = Field(
+        default=40,
+        ge=1,
+        title="Maximum auto images",
+        description="Maximum auto-enrolled images kept per person; the oldest are removed first. Manually added images are never removed.",
+    )
+    cooldown_seconds: int = Field(
+        default=900,
+        ge=0,
+        title="Cooldown",
+        description="Minimum seconds between auto-enrollments of the same person.",
+    )
+
+
 class FaceRecognitionConfig(FrigateBaseModel):
     enabled: bool = Field(
         default=False,
@@ -318,6 +365,11 @@ class FaceRecognitionConfig(FrigateBaseModel):
         default=None,
         title="Device",
         description="This is an override, to target a specific device. See https://onnxruntime.ai/docs/execution-providers/ for more information",
+    )
+    auto_enroll: FaceAutoEnrollConfig = Field(
+        default_factory=FaceAutoEnrollConfig,
+        title="Auto-enrollment",
+        description="Guarded automatic enrollment of recognized faces into the face library.",
     )
 
 
