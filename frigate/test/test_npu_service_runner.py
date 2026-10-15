@@ -7,7 +7,11 @@ import unittest
 
 import numpy as np
 
-from frigate.detectors.npu_service_runner import NpuServiceRunner, parse_npu_device
+from frigate.detectors.npu_service_runner import (
+    NpuServiceRunner,
+    get_npu_service_stats,
+    parse_npu_device,
+)
 
 
 class FakeNpuService:
@@ -105,6 +109,38 @@ class TestNpuServiceRunner(unittest.TestCase):
         r._sock.close()  # simulate a dropped connection
         self.assertIsNotNone(r.run({"data": x}))
         svc.close()
+
+
+class TestNpuServiceStats(unittest.TestCase):
+    def test_stats_from_service(self):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        stats_port = srv.getsockname()[1]
+        body = b'{"npu": 42.5, "bo_mem_mib": 286.0, "embeddings_per_s": 7.0, "mean_latency_ms": 130.2, "h_clock_mhz": 1800}'
+
+        def serve():
+            c, _ = srv.accept()
+            c.recv(1024)
+            c.sendall(
+                b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n" + body
+            )
+            c.close()
+
+        threading.Thread(target=serve, daemon=True).start()
+        # stats live on the inference port + 1
+        s = get_npu_service_stats(("127.0.0.1", stats_port - 1))
+        self.assertEqual(s["npu"], 42.5)
+        self.assertEqual(s["mem"], "286 MiB")
+        self.assertEqual(s["clock_mhz"], 1800)
+        srv.close()
+
+    def test_stats_unavailable(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        self.assertIsNone(get_npu_service_stats(("127.0.0.1", port - 1), timeout=0.2))
 
 
 if __name__ == "__main__":
