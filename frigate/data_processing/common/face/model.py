@@ -22,6 +22,9 @@ class FaceRecognizer(ABC):
     def __init__(self, config: FrigateConfig) -> None:
         self.config = config
         self.landmark_detector: cv2.face.Facemark | None = None
+        # Confidence of the second-best person from the last classify() call,
+        # used to require a margin before auto-enrolling a face.
+        self.last_runner_up_score: float = 0.0
         self.init_landmark_detector()
 
     @abstractmethod
@@ -308,6 +311,7 @@ class FaceNetRecognizer(FaceRecognizer):
         embedding = self.face_embedder([img])[0].squeeze()
 
         score: float = 0
+        runner_up: float = 0
         label = ""
 
         for name, mean_emb in self.mean_embs.items():
@@ -321,9 +325,13 @@ class FaceNetRecognizer(FaceRecognizer):
             )
 
             if confidence > score:
+                runner_up = score
                 score = confidence
                 label = name
+            elif confidence > runner_up:
+                runner_up = confidence
 
+        self.last_runner_up_score = max(0, round(runner_up - blur_reduction, 2))
         return label, max(0, round(score - blur_reduction, 2))
 
 
@@ -419,6 +427,7 @@ class ArcFaceRecognizer(FaceRecognizer):
         embedding = self.face_embedder([img])[0].squeeze()  # type: ignore[arg-type]
 
         score: float = 0
+        runner_up: float = 0
         label = ""
 
         for name, mean_emb in self.mean_embs.items():
@@ -430,7 +439,11 @@ class ArcFaceRecognizer(FaceRecognizer):
             confidence = similarity_to_confidence(cosine_similarity)
 
             if confidence > score:
+                runner_up = score
                 score = confidence
                 label = name
+            elif confidence > runner_up:
+                runner_up = confidence
 
+        self.last_runner_up_score = max(0, round(runner_up - blur_reduction, 2))
         return label, max(0, round(score - blur_reduction, 2))
