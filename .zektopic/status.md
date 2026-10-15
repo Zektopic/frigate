@@ -238,3 +238,16 @@ The tests for `TestObjectBoundingBoxes` and `TestRegion` in `test_video.py` curr
 - Fixed `test_util_path.py` missing `pathvalidate` dependency by installing it.
 - Identified that `test_object_detector.py` requires a better mock for `test_cfg.model` to prevent `AttributeError`.
 - Documented issue in `Jules/improvements.md`.
+
+## Testing Status and Roadmap (Update 4)
+
+### 1. Test Results Summary
+- **Python Backend Tests**: `test_runner.py` continues to execute with severe false-negatives due to limitations in mimicking Pydantic and C-extensions natively. Un-mocking `numpy` and `cv2` to install them directly breaks `MockPydanticValidationError` and other complex `test_runner.py` abstractions.
+- **Web Frontend Tests**: Passed successfully using `npm run test -- --run src/`. Deprecation warnings (`DEP0040`) for the `punycode` module are present and should be resolved in the future.
+- **Rust Component Tests**: Passed successfully without any failures across all 4 Rust crates.
+
+### 2. Actionable Roadmap of Future Implementations and Improvements
+- **Docker BuildKit Fix**: The `make run_tests` command must be updated or a `DOCKER_BUILDKIT=0` execution mode must be added to bypass the `overlayfs` mount error.
+- **Dependency Management**: Standardize the test dependency stack (`numpy<2`, `opencv-python-headless`, `pathvalidate`) using a `requirements-test.txt` or a `tox.ini` setup.
+- **Frontend Modernization**: Update the frontend dependencies (`tr46`, `whatwg-url`) to replace the deprecated `punycode` module. This will silence the `DEP0040` warnings during test runs and improve future compatibility.
+- **E2E Test Separation**: Explicitly add `exclude: ['e2e/**']` to `web/vitest.config.ts` so users running standard `npm test` don't collide with the Playwright test runner.

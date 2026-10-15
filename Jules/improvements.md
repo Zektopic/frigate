@@ -266,3 +266,15 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+### Rust Validation (Rust Components)
+- `cargo test` run in the 4 backend crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) returns 100% success with zero failures.
+- No immediate logic improvements required within rust implementations.
+
+### NPM Web Fallback Testing (JS Frontend)
+- Executing `npm run test` strictly on `src/` correctly ignores e2e Playwright test matchers. All 137 components validate successfully.
+- Web component tests continue to log warnings related to `DEP0040` (the deprecated `punycode` module), requiring library upgrades to dependencies (`tr46`, `whatwg-url`).
+
+### Local Test Runner Limitations
+- Attempts to remove `numpy` mocking from `test_runner.py` via `sys.modules` overriding fail since multiple custom mocks rely on MagicMock evaluations when comparing against numbers. Fixing this to natively test functions like `get_cluster_candidates` outside of Docker without extensive environment configuration is intractable.
+- The pathvalidate library mock has been un-mocked and tested directly with `pip install pathvalidate`, which allows `test_util_path.py` tests to execute better but exposes further ad-hoc script limitations.
