@@ -173,11 +173,14 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             if potential_face[-1] < threshold:
                 continue
 
-            raw_bbox = potential_face[0:4].astype(np.uint16)
-            x: int = int(max(raw_bbox[0], 0) / scale_factor)
-            y: int = int(max(raw_bbox[1], 0) / scale_factor)
-            w: int = int(raw_bbox[2] / scale_factor)
-            h: int = int(raw_bbox[3] / scale_factor)
+            raw_x, raw_y, raw_w, raw_h = (float(v) for v in potential_face[0:4])
+            if raw_w <= 0 or raw_h <= 0:
+                continue
+
+            x: int = int(max(raw_x, 0.0) / scale_factor)
+            y: int = int(max(raw_y, 0.0) / scale_factor)
+            w: int = int(max(raw_w, 0.0) / scale_factor)
+            h: int = int(max(raw_h, 0.0) / scale_factor)
             bbox = (x, y, x + w, y + h)
 
             if face is None or area(bbox) > area(face):  # type: ignore[unreachable]
@@ -244,7 +247,14 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             # YuNet (cv2.FaceDetectorYN) is trained on BGR
             bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
             left, top, right, bottom = person_box
-            person = bgr[top:bottom, left:right]
+            person = bgr[
+                max(0, top) : min(bgr.shape[0], bottom),
+                max(0, left) : min(bgr.shape[1], right),
+            ]
+            if person.size == 0:
+                logger.debug(f"Empty person crop for {id}")
+                return
+
             face_box = self.__detect_face(person, self.face_config.detection_threshold)
 
             if not face_box:
@@ -252,8 +262,8 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
                 return
 
             face_frame = person[
-                max(0, face_box[1]) : min(frame.shape[0], face_box[3]),
-                max(0, face_box[0]) : min(frame.shape[1], face_box[2]),
+                max(0, face_box[1]) : min(person.shape[0], face_box[3]),
+                max(0, face_box[0]) : min(person.shape[1], face_box[2]),
             ]
 
             # check that face is correct size
@@ -296,9 +306,13 @@ class FaceRealTimeProcessor(RealTimeProcessorApi):
             face_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
 
             face_frame = face_frame[
-                max(0, face_box[1]) : min(frame.shape[0], face_box[3]),
-                max(0, face_box[0]) : min(frame.shape[1], face_box[2]),
+                max(0, face_box[1]) : min(face_frame.shape[0], face_box[3]),
+                max(0, face_box[0]) : min(face_frame.shape[1], face_box[2]),
             ]
+
+        if face_frame.size == 0:
+            logger.debug(f"Empty face crop for {id}, skipping classification")
+            return
 
         res = self.recognizer.classify(face_frame)
 
