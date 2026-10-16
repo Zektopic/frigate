@@ -22,11 +22,14 @@ def _load_lib() -> Optional[ctypes.CDLL]:
         return None
     if _lib is not None:
         return _lib
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     search = [
         "/opt/frigate",
         os.path.dirname(__file__),
         os.path.join(os.path.dirname(__file__), ".."),
-        os.path.join(os.path.dirname(__file__), "..", ".."),
+        repo_root,
+        os.path.join(repo_root, "frigate-frame-rs", "target", "release"),
+        os.path.join(repo_root, "frigate-frame-rs", "target", "debug"),
     ]
     for d in search:
         candidate = os.path.join(d, _LIB_NAME)
@@ -253,3 +256,157 @@ def preprocess_detect_input_rust(
         channels,
     )
     return out_buf
+
+
+def transform_detect_input_rust(tensor_input):
+    """Fused NHWC(u8) -> NCHW(f32) normalized to [0.0, 1.0] in a single pass.
+
+    Accepts shape (1, H, W, C) or (H, W, C) uint8 and returns (1, C, H, W)
+    or (C, H, W) float32.
+    """
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    has_batch = tensor_input.ndim == 4
+    if has_batch:
+        b, h, w, c = tensor_input.shape
+        if b != 1:
+            raise ValueError(f"Expected batch size 1, got {b}")
+        out_shape = (1, c, h, w)
+    elif tensor_input.ndim == 3:
+        h, w, c = tensor_input.shape
+        out_shape = (c, h, w)
+    else:
+        raise ValueError(f"Expected 3D or 4D tensor, got shape {tensor_input.shape}")
+
+    src = np.ascontiguousarray(tensor_input, dtype=np.uint8)
+    dst = np.empty(out_shape, dtype=np.float32)
+
+    lib.transform_detect_input.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+    ]
+    lib.transform_detect_input.restype = None
+
+    lib.transform_detect_input(
+        src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        dst.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        ctypes.c_uint32(h),
+        ctypes.c_uint32(w),
+        ctypes.c_uint32(c),
+    )
+    return dst
+
+
+def normalize_u8_to_f32_rust(tensor_input):
+    """AVX2 SIMD u8 -> f32 normalization (divide by 255.0) preserving shape."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    src = np.ascontiguousarray(tensor_input, dtype=np.uint8)
+    dst = np.empty(src.shape, dtype=np.float32)
+
+    lib.normalize_u8_to_f32.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_uint32,
+    ]
+    lib.normalize_u8_to_f32.restype = None
+
+    lib.normalize_u8_to_f32(
+        src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        dst.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        ctypes.c_uint32(src.size),
+    )
+    return dst
+
+
+def yuv420_to_3channel_rust(yuv_frame):
+    """Convert planar I420 (H*3//2, W) uint8 to 3-channel YUV (H, W, 3) uint8."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    height = yuv_frame.shape[0] // 3 * 2
+    width = yuv_frame.shape[1]
+    src = np.ascontiguousarray(yuv_frame, dtype=np.uint8)
+    dst = np.empty((height, width, 3), dtype=np.uint8)
+
+    y_count = height * width
+    uv_count = y_count // 4
+    base_ptr = src.ctypes.data
+
+    lib.yuv420_to_3channel.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint8),
+    ]
+    lib.yuv420_to_3channel.restype = None
+
+    lib.yuv420_to_3channel(
+        ctypes.cast(base_ptr, ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.cast(base_ptr + y_count, ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.cast(base_ptr + y_count + uv_count, ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.c_uint32(width),
+        ctypes.c_uint32(height),
+        dst.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+    )
+    return dst
+
+
+def yuv420_crop_repack_rust(
+    frame,
+    src_w: int,
+    src_h: int,
+    crop_x: int,
+    crop_y: int,
+    crop_w: int,
+    crop_h: int,
+):
+    """Crop an in-bounds region from a planar I420 frame and repack into a contiguous I420 buffer."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    src = np.ascontiguousarray(frame, dtype=np.uint8)
+    dst = np.empty((crop_h + crop_h // 2, crop_w), dtype=np.uint8)
+
+    lib.yuv420_crop_repack.argtypes = [
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint8),
+    ]
+    lib.yuv420_crop_repack.restype = None
+
+    lib.yuv420_crop_repack(
+        src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.c_uint32(src_w),
+        ctypes.c_uint32(src_h),
+        ctypes.c_uint32(crop_x),
+        ctypes.c_uint32(crop_y),
+        ctypes.c_uint32(crop_w),
+        ctypes.c_uint32(crop_h),
+        dst.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+    )
+    return dst

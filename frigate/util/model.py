@@ -79,9 +79,23 @@ def post_process_rfdetr(
     filtered_boxes = np.stack([x_min, y_min, x_max, y_max], axis=-1)
 
     # apply nms
-    indices = cv2.dnn.NMSBoxes(
-        filtered_boxes, filtered_scores, score_threshold=0.4, nms_threshold=0.4
-    )
+    indices = None
+    try:
+        from frigate.detectors.rust_yolo import nms_boxes, yolo_available
+
+        if yolo_available():
+            if len(filtered_scores) == 0:
+                return np.zeros((20, 6), np.float32)
+            indices = nms_boxes(
+                filtered_boxes, filtered_scores, iou_threshold=0.4, max_indices=20
+            )
+    except Exception:
+        indices = None
+
+    if indices is None:
+        indices = cv2.dnn.NMSBoxes(
+            filtered_boxes, filtered_scores, score_threshold=0.4, nms_threshold=0.4
+        )
     detections = np.zeros((20, 6), np.float32)
 
     for i, (bbox, confidence, class_id) in enumerate(
@@ -196,6 +210,10 @@ def __post_process_nms_yolo(predictions: np.ndarray, width, height) -> np.ndarra
     scores = np.max(predictions[:, 4:], axis=1)
     predictions = predictions[scores > 0.4, :]
     scores = scores[scores > 0.4]
+
+    if len(scores) == 0:
+        return np.zeros((20, 6), np.float32)
+
     class_ids = np.argmax(predictions[:, 4:], axis=1)
 
     # Rescale box
@@ -208,7 +226,20 @@ def __post_process_nms_yolo(predictions: np.ndarray, width, height) -> np.ndarra
     boxes = boxes_xyxy
 
     # run NMS
-    indices = cv2.dnn.NMSBoxes(boxes, scores, score_threshold=0.4, nms_threshold=0.4)
+    indices = None
+    try:
+        from frigate.detectors.rust_yolo import nms_boxes, yolo_available
+
+        if yolo_available():
+            indices = nms_boxes(boxes, scores, iou_threshold=0.4, max_indices=20)
+    except Exception:
+        indices = None
+
+    if indices is None:
+        indices = cv2.dnn.NMSBoxes(
+            boxes, scores, score_threshold=0.4, nms_threshold=0.4
+        )
+
     detections = np.zeros((20, 6), np.float32)
     for i, (bbox, confidence, class_id) in enumerate(
         zip(boxes[indices], scores[indices], class_ids[indices])
@@ -230,10 +261,51 @@ def __post_process_nms_yolo(predictions: np.ndarray, width, height) -> np.ndarra
 
 def post_process_yolo(output: list[np.ndarray], width: int, height: int) -> np.ndarray:
     try:
-        from frigate.detectors.rust_yolo import yolo_available, yolo_post_process
+        from frigate.detectors.rust_yolo import (
+            anchor_free_post_process,
+            yolo26_post_process,
+            yolo_available,
+            yolo_post_process,
+        )
 
-        if yolo_available() and len(output) > 1:
-            return yolo_post_process(output, width, height)
+        if yolo_available():
+            if len(output) > 1:
+                first = output[0]
+                if (
+                    first.ndim >= 3
+                    and (first.shape[1] == 144 or first.shape[-1] == 144)
+                    and width == height
+                ):
+                    return anchor_free_post_process(
+                        output,
+                        model_size=width,
+                        frame_w=1.0,
+                        frame_h=1.0,
+                        score_thresh=0.4,
+                        nms_thresh=0.4,
+                    )
+                return yolo_post_process(output, width, height)
+            elif len(output) == 1 and width == height:
+                s = np.squeeze(output[0])
+                if s.ndim == 2:
+                    if s.shape[0] == 84 or s.shape[1] == 84:
+                        return yolo26_post_process(
+                            s,
+                            model_size=width,
+                            frame_w=1.0,
+                            frame_h=1.0,
+                            score_thresh=0.4,
+                            nms_thresh=0.4,
+                        )
+                    if s.shape[0] == 144 or s.shape[1] == 144:
+                        return anchor_free_post_process(
+                            s,
+                            model_size=width,
+                            frame_w=1.0,
+                            frame_h=1.0,
+                            score_thresh=0.4,
+                            nms_thresh=0.4,
+                        )
     except Exception:
         pass
 
@@ -266,6 +338,35 @@ def post_process_yolox(
 
     cls_inds = scores.argmax(1)
     scores = scores[np.arange(len(cls_inds)), cls_inds]
+
+    try:
+        from frigate.detectors.rust_yolo import nms_boxes, yolo_available
+
+        if yolo_available():
+            keep = scores > 0.4
+            detections = np.zeros((20, 6), np.float32)
+            if not np.any(keep):
+                return detections
+            f_boxes = boxes_xyxy[keep]
+            f_scores = scores[keep]
+            f_cls = cls_inds[keep]
+            indices = nms_boxes(f_boxes, f_scores, iou_threshold=0.4, max_indices=20)
+            for i, (bbox, confidence, class_id) in enumerate(
+                zip(f_boxes[indices], f_scores[indices], f_cls[indices])
+            ):
+                if i == 20:
+                    break
+                detections[i] = [
+                    class_id,
+                    confidence,
+                    bbox[1] / height,
+                    bbox[0] / width,
+                    bbox[3] / height,
+                    bbox[2] / width,
+                ]
+            return detections
+    except Exception:
+        pass
 
     indices = cv2.dnn.NMSBoxes(
         boxes_xyxy, scores, score_threshold=0.4, nms_threshold=0.4

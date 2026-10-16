@@ -140,8 +140,8 @@ def _post_process_yolov8(
     x2 = np.concatenate([b[2] for b in box_parts])
     y2 = np.concatenate([b[3] for b in box_parts])
 
-    # Sigmoid on class logits
-    cls_raw = cls_raw - cls_raw.max(axis=1, keepdims=True)
+    # Sigmoid on class logits (clamp to avoid overflow in exp)
+    cls_raw = np.clip(cls_raw, -20.0, 20.0)
     cls_scores = 1.0 / (1.0 + np.exp(-cls_raw))
     class_ids = np.argmax(cls_scores, axis=1)
     scores = cls_scores[np.arange(cls_scores.shape[0]), class_ids]
@@ -199,6 +199,17 @@ def _pad_detections(dets: np.ndarray, max_det: int = 20) -> np.ndarray:
 
 def _nms(x1, y1, x2, y2, scores, iou_threshold):
     """Greedy class-agnostic NMS."""
+    if len(scores) == 0:
+        return np.array([], dtype=np.int32)
+    try:
+        from frigate.detectors.rust_yolo import nms_boxes, yolo_available
+
+        if yolo_available():
+            boxes = np.column_stack([x1, y1, x2, y2])
+            return nms_boxes(boxes, scores, iou_threshold, max_indices=len(scores))
+    except Exception:
+        pass
+
     areas = (x2 - x1) * (y2 - y1)
     order = scores.argsort()[::-1]
     keep = []
@@ -753,6 +764,21 @@ while True:
             logger.error("YOLO26: unexpected output shape %s", raw.shape)
             return _pad_detections(np.zeros((0, 6), dtype=np.float32))
 
+        try:
+            from frigate.detectors.rust_yolo import yolo26_post_process, yolo_available
+
+            if yolo_available():
+                return yolo26_post_process(
+                    raw,
+                    model_size=self.model_input_size,
+                    frame_w=1.0,
+                    frame_h=1.0,
+                    score_thresh=0.25,
+                    nms_thresh=0.45,
+                )
+        except Exception:
+            pass
+
         bboxes = raw[:4, :].T  # (N, 4) — cx, cy, w, h
         scores = raw[4:, :].T  # (N, 80) — already sigmoid'd
 
@@ -938,6 +964,24 @@ while True:
                 "NCNN: unexpected output shape %s (expected (N, 144))", raw.shape
             )
             return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+
+        try:
+            from frigate.detectors.rust_yolo import (
+                anchor_free_post_process,
+                yolo_available,
+            )
+
+            if yolo_available():
+                return anchor_free_post_process(
+                    raw,
+                    model_size=self.model_input_size,
+                    frame_w=1.0,
+                    frame_h=1.0,
+                    score_thresh=0.25,
+                    nms_thresh=0.45,
+                )
+        except Exception:
+            pass
 
         dets = _post_process_yolov8(
             raw, self.model_input_size, score_thresh=0.25, nms_thresh=0.45

@@ -641,6 +641,31 @@ def yuv_crop_and_resize(frame, region, height=None):
     # https://stackoverflow.com/a/57022634
     height = frame.shape[0] // 3 * 2
     width = frame.shape[1]
+    size = (region[3] - region[1]) // 4 * 4
+
+    if (
+        size > 0
+        and (region[2] - region[0]) == size
+        and (region[3] - region[1]) == size
+        and region[0] >= 0
+        and region[1] >= 0
+        and region[2] <= width
+        and region[3] <= height
+        and region[0] % 2 == 0
+        and region[1] % 4 == 0
+    ):
+        try:
+            from frigate.util.frame_rs import (
+                frame_rs_available,
+                yuv420_crop_repack_rust,
+            )
+
+            if frame_rs_available():
+                return yuv420_crop_repack_rust(
+                    frame, width, height, region[0], region[1], size, size
+                )
+        except Exception:
+            pass
 
     # get the crop box if the region extends beyond the frame
     crop_x1 = max(0, region[0])
@@ -662,7 +687,6 @@ def yuv_crop_and_resize(frame, region, height=None):
     # create the yuv region frame
     # make sure the size is a multiple of 4
     # TODO: this should be based on the size after resize now
-    size = (region[3] - region[1]) // 4 * 4
     yuv_cropped_frame = np.zeros((size + size // 2, size), np.uint8)
     # fill in black
     yuv_cropped_frame[:] = 128
@@ -715,6 +739,17 @@ def yuv_crop_and_resize(frame, region, height=None):
 
 
 def yuv_to_3_channel_yuv(yuv_frame):
+    try:
+        from frigate.util.frame_rs import (
+            frame_rs_available,
+            yuv420_to_3channel_rust,
+        )
+
+        if frame_rs_available():
+            return yuv420_to_3channel_rust(yuv_frame)
+    except Exception:
+        pass
+
     height = yuv_frame.shape[0] // 3 * 2
     width = yuv_frame.shape[1]
 

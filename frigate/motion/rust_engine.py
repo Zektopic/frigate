@@ -35,7 +35,13 @@ def _load_lib() -> Optional[ctypes.CDLL]:
         return None
     if _lib is not None:
         return _lib
-    search = ["/opt/frigate", os.path.dirname(__file__)]
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    search = [
+        "/opt/frigate",
+        os.path.dirname(__file__),
+        os.path.join(repo_root, "frigate-motion-rs", "target", "release"),
+        os.path.join(repo_root, "frigate-motion-rs", "target", "debug"),
+    ]
     for d in search:
         candidate = os.path.join(d, _LIB_NAME)
         if os.path.isfile(candidate):

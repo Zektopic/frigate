@@ -50,31 +50,30 @@ fn decode_yolo_scale(
     let mut class_ids = Vec::with_capacity(1024);
 
     let num_anchors = 3;
-    let per_anchor_stride = ny * nx * 85;
-    let per_row_stride = nx * 85;
+    let cell_stride = ny * nx;
+    let per_anchor_stride = 85 * cell_stride;
 
     for a_idx in 0..num_anchors {
         let (anchor_w, anchor_h) = anchors[a_idx];
         let anchor_base = a_idx * per_anchor_stride;
+        let obj_conf_base = anchor_base + 4 * cell_stride;
 
         for y in 0..ny {
-            let row_base = anchor_base + y * per_row_stride;
+            let row_offset = y * nx;
 
             for x in 0..nx {
-                let base = row_base + x * 85;
+                let cell_idx = row_offset + x;
+                let obj_conf = output[obj_conf_base + cell_idx];
 
-                let dx = output[base];
-                let dy = output[base + 1];
-                let dw = output[base + 2];
-                let dh = output[base + 3];
-                let obj_conf = output[base + 4];
+                // Skip 80-way class search if obj_conf alone cannot pass score_thresh
+                if obj_conf < score_thresh {
+                    continue;
+                }
 
-                // Find best class (skip 80-way search if obj_conf alone won't pass)
                 let mut best_class: i32 = 0;
                 let mut best_score: f32 = 0.0;
-                let base_cls = base + 5;
                 for c in 0..80 {
-                    let s = output[base_cls + c];
+                    let s = output[anchor_base + (5 + c) * cell_stride + cell_idx];
                     if s > best_score {
                         best_score = s;
                         best_class = c as i32;
@@ -85,6 +84,11 @@ fn decode_yolo_scale(
                 if conf < score_thresh {
                     continue;
                 }
+
+                let dx = output[anchor_base + cell_idx];
+                let dy = output[anchor_base + cell_stride + cell_idx];
+                let dw = output[anchor_base + 2 * cell_stride + cell_idx];
+                let dh = output[anchor_base + 3 * cell_stride + cell_idx];
 
                 let bx = ((dx * 2.0 - 0.5) + x as f32) * stride;
                 let by = ((dy * 2.0 - 0.5) + y as f32) * stride;
@@ -162,7 +166,8 @@ fn box_iou(a: &(f32, f32, f32, f32), b: &(f32, f32, f32, f32), area_a: f32, area
     let w = (xx2 - xx1).max(0.0);
     let h = (yy2 - yy1).max(0.0);
     let inter = w * h;
-    inter / (area_a + area_b - inter)
+    let denom = area_a + area_b - inter;
+    if denom <= 0.0 { 0.0 } else { inter / denom }
 }
 
 // ── Public C ABI ───────────────────────────────────────────────────
@@ -418,14 +423,15 @@ mod tests {
     fn test_decode_basic() {
         let ny = 10;
         let nx = 10;
-        let mut output = vec![0.0f32; 3 * ny * nx * 85];
-        let base = 0 * (ny * nx * 85) + 5 * (nx * 85) + 5 * 85;
-        output[base] = 0.0;
-        output[base + 1] = 0.0;
-        output[base + 2] = 0.5;
-        output[base + 3] = 0.5;
-        output[base + 4] = 0.9;
-        output[base + 5] = 1.0;
+        let cell_stride = ny * nx;
+        let mut output = vec![0.0f32; 3 * 85 * cell_stride];
+        let cell_idx = 5 * nx + 5;
+        output[0 * cell_stride + cell_idx] = 0.0; // dx
+        output[1 * cell_stride + cell_idx] = 0.0; // dy
+        output[2 * cell_stride + cell_idx] = 0.5; // dw
+        output[3 * cell_stride + cell_idx] = 0.5; // dh
+        output[4 * cell_stride + cell_idx] = 0.9; // obj_conf
+        output[5 * cell_stride + cell_idx] = 1.0; // class 0
 
         let (boxes, scores, _) = decode_yolo_scale(
             &output, ny, nx, 8.0, &ANCHORS[0], 640.0, 640.0, 0.1,
