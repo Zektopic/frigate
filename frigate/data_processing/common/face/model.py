@@ -92,6 +92,8 @@ class FaceRecognizer(ABC):
         # image to the ratio of distance between eyes in the
         # *desired* image
         dist = np.sqrt((dX**2) + (dY**2))
+        if dist < 1e-6:
+            return cv2.resize(image, (output_width, output_height))
         desiredDist = desiredRightEyeX - 0.35
         desiredDist *= output_width
         scale = desiredDist / dist
@@ -118,7 +120,11 @@ class FaceRecognizer(ABC):
 
     def get_blur_confidence_reduction(self, input: np.ndarray) -> float:
         """Calculates the reduction in confidence based on the blur of the image."""
-        if not self.config.face_recognition.blur_confidence_filter:
+        if (
+            not self.config.face_recognition.blur_confidence_filter
+            or input is None
+            or input.size == 0
+        ):
             return 0.0
 
         variance = cv2.Laplacian(input, cv2.CV_64F).var()
@@ -292,7 +298,7 @@ class FaceNetRecognizer(FaceRecognizer):
         logger.debug("Finished building ArcFace model")
 
     def classify(self, face_image: np.ndarray) -> tuple[str, float] | None:
-        if not self.landmark_detector:
+        if face_image is None or face_image.size == 0 or not self.landmark_detector:
             return None
 
         if not self.mean_embs:
@@ -408,7 +414,7 @@ class ArcFaceRecognizer(FaceRecognizer):
         logger.debug("Finished building ArcFace model")
 
     def classify(self, face_image: np.ndarray) -> tuple[str, float] | None:
-        if not self.landmark_detector:
+        if face_image is None or face_image.size == 0 or not self.landmark_detector:
             return None
 
         if not self.mean_embs:

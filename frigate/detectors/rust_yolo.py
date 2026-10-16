@@ -69,22 +69,22 @@ def yolo_post_process(
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
 
-    # Build array of output pointers
+    # Build array of output pointers; keep buffers alive across the FFI call
     output_ptrs = (ctypes.POINTER(ctypes.c_float) * 3)()
     ny_nx = (ctypes.c_uint32 * 6)()
+    flat_outputs: list[np.ndarray] = []
 
     for i, out in enumerate(outputs):
-        out = np.ascontiguousarray(out.ravel().astype(np.float32))
-        output_ptrs[i] = out.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-        # Infer ny, nx from shape: (bs, ny, nx, ch) for each scale
-        ny_nx[i * 2] = out.shape[-3] if out.ndim >= 3 else 0
-        # Shape is actually (1, 255, ny, nx) → we need ny, nx
+        # Infer ny, nx from original shape: (1, 255, ny, nx) or (255, ny, nx)
         if out.ndim >= 4:
             ny_nx[i * 2] = out.shape[2]
             ny_nx[i * 2 + 1] = out.shape[3]
         elif out.ndim >= 3:
             ny_nx[i * 2] = out.shape[1]
             ny_nx[i * 2 + 1] = out.shape[2]
+        flat = np.ascontiguousarray(out.ravel().astype(np.float32))
+        flat_outputs.append(flat)
+        output_ptrs[i] = flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
 
     dets = (Detection * max_dets)()
 
