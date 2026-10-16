@@ -451,15 +451,28 @@ pub unsafe extern "C" fn transform_detect_input(
         return;
     }
 
-    let src = std::slice::from_raw_parts(src, h * w * c);
-    let dst = std::slice::from_raw_parts_mut(dst, c * h * w);
+    let hw = h * w;
+    let src = std::slice::from_raw_parts(src, hw * c);
+    let dst = std::slice::from_raw_parts_mut(dst, c * hw);
     let inv255: f32 = 1.0 / 255.0;
+
+    if c == 3 {
+        let (p0, rest) = dst.split_at_mut(hw);
+        let (p1, p2) = rest.split_at_mut(hw);
+        for i in 0..hw {
+            let base = i * 3;
+            *p0.get_unchecked_mut(i) = *src.get_unchecked(base) as f32 * inv255;
+            *p1.get_unchecked_mut(i) = *src.get_unchecked(base + 1) as f32 * inv255;
+            *p2.get_unchecked_mut(i) = *src.get_unchecked(base + 2) as f32 * inv255;
+        }
+        return;
+    }
 
     for ci in 0..c {
         for hi in 0..h {
             for wi in 0..w {
                 let src_idx = (hi * w + wi) * c + ci;
-                let dst_idx = ci * (h * w) + hi * w + wi;
+                let dst_idx = ci * hw + hi * w + wi;
                 *dst.get_unchecked_mut(dst_idx) =
                     *src.get_unchecked(src_idx) as f32 * inv255;
             }
@@ -797,6 +810,36 @@ mod tests {
             nhwc_to_nchw_f32(src.as_ptr(), dst.as_mut_ptr(), 1, 2, 3);
         }
         assert_eq!(dst, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+    }
+
+    #[test]
+    fn test_transform_detect_input() {
+        let src = vec![0u8, 128, 255, 255, 128, 0];
+        let mut dst = vec![0.0f32; 6];
+        unsafe {
+            transform_detect_input(src.as_ptr(), dst.as_mut_ptr(), 1, 2, 3);
+        }
+        assert!((dst[0] - 0.0).abs() < 1e-6);
+        assert!((dst[1] - 1.0).abs() < 1e-6);
+        assert!((dst[2] - 128.0 / 255.0).abs() < 1e-6);
+        assert!((dst[3] - 128.0 / 255.0).abs() < 1e-6);
+        assert!((dst[4] - 1.0).abs() < 1e-6);
+        assert!((dst[5] - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_yuv420_to_3channel() {
+        let y = vec![10u8, 20, 30, 40]; // 2x2
+        let u = vec![100u8];             // 1x1
+        let v = vec![200u8];             // 1x1
+        let mut out = vec![0u8; 2 * 2 * 3];
+        unsafe {
+            yuv420_to_3channel(y.as_ptr(), u.as_ptr(), v.as_ptr(), 2, 2, out.as_mut_ptr());
+        }
+        assert_eq!(
+            out,
+            vec![10, 100, 200, 20, 100, 200, 30, 100, 200, 40, 100, 200]
+        );
     }
 
     #[test]

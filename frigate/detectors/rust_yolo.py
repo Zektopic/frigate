@@ -35,7 +35,14 @@ def _load_lib() -> Optional[ctypes.CDLL]:
         return None
     if _lib is not None:
         return _lib
-    for d in ["/opt/frigate", os.path.dirname(__file__)]:
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    search = [
+        "/opt/frigate",
+        os.path.dirname(__file__),
+        os.path.join(repo_root, "frigate-yolo-rs", "target", "release"),
+        os.path.join(repo_root, "frigate-yolo-rs", "target", "debug"),
+    ]
+    for d in search:
         candidate = os.path.join(d, _LIB_NAME)
         if os.path.isfile(candidate):
             try:
@@ -173,7 +180,7 @@ def yolo26_post_process(
     """YOLO26 decoded-output post-process: bbox convert + NMS in Rust.
 
     Args:
-        raw: (84, N) float32 — rows 0-3 are cx,cy,w,h, rows 4-83 scores.
+        raw: (84, N), (N, 84), (1, 84, N), or (1, N, 84) float32 — 4 bbox + 80 scores.
     Returns: (20, 6) float32 [class_id, score, y1, x1, y2, x2] normalised.
     """
     lib = _load_lib()
@@ -181,8 +188,11 @@ def yolo26_post_process(
         raise RuntimeError("Rust YOLO engine not available")
     import numpy as np
 
-    raw = np.ascontiguousarray(raw.T.ravel().astype(np.float32))
-    n = raw.size // 84
+    arr = np.squeeze(raw) if raw.ndim >= 3 else raw
+    if arr.ndim == 2 and arr.shape[0] == 84 and arr.shape[1] != 84:
+        arr = arr.T
+    raw_flat = np.ascontiguousarray(arr.ravel().astype(np.float32))
+    n = raw_flat.size // 84
     out = np.zeros((20, 6), dtype=np.float32)
 
     lib.yolo26_post_process.argtypes = [
@@ -198,7 +208,7 @@ def yolo26_post_process(
     lib.yolo26_post_process.restype = None
 
     lib.yolo26_post_process(
-        raw.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        raw_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         n,
         ctypes.c_float(model_size),
         ctypes.c_float(frame_w),
@@ -210,12 +220,38 @@ def yolo26_post_process(
     return out
 
 
+_grid_pts_cache: dict[int, "np.ndarray"] = {}
+
+
+def get_anchor_free_grid_points(model_size: int = 640) -> "np.ndarray":
+    """Pre-compute and cache (N_total, 2) anchor-free grid centres for strides (8, 16, 32)."""
+    pts = _grid_pts_cache.get(model_size)
+    if pts is not None:
+        return pts
+
+    grid_pts = []
+    for stride in (8, 16, 32):
+        g = model_size // stride
+        ys, xs = np.mgrid[0:g, 0:g].astype(np.float32)
+        grid_pts.append(
+            np.column_stack(
+                [
+                    (xs.reshape(-1) + 0.5) * stride,
+                    (ys.reshape(-1) + 0.5) * stride,
+                ]
+            )
+        )
+    pts = np.ascontiguousarray(np.concatenate(grid_pts, axis=0), dtype=np.float32)
+    _grid_pts_cache[model_size] = pts
+    return pts
+
+
 def anchor_free_post_process(
-    raw: "np.ndarray",
-    all_pts: "np.ndarray",
+    raw: "np.ndarray | list[np.ndarray]",
+    all_pts: Optional["np.ndarray"] = None,
     model_size: int = 640,
-    frame_w: int = 640,
-    frame_h: int = 640,
+    frame_w: float = 1.0,
+    frame_h: float = 1.0,
     score_thresh: float = 0.05,
     nms_thresh: float = 0.45,
 ) -> "np.ndarray":
@@ -225,7 +261,25 @@ def anchor_free_post_process(
         raise RuntimeError("Rust YOLO engine not available")
     import numpy as np
 
-    raw = np.ascontiguousarray(raw.ravel().astype(np.float32))
+    if isinstance(raw, (list, tuple)):
+        parts = []
+        for t in raw:
+            s = np.squeeze(t)
+            if s.ndim == 3 and s.shape[0] == 144:
+                s = s.reshape(144, -1).T
+            elif s.ndim == 3 and s.shape[-1] == 144:
+                s = s.reshape(-1, 144)
+            parts.append(s)
+        arr = np.concatenate(parts, axis=0)
+    else:
+        arr = np.squeeze(raw) if raw.ndim >= 3 else raw
+        if arr.ndim == 2 and arr.shape[0] == 144 and arr.shape[1] != 144:
+            arr = arr.T
+
+    if all_pts is None:
+        all_pts = get_anchor_free_grid_points(int(model_size))
+
+    raw_flat = np.ascontiguousarray(arr.ravel().astype(np.float32))
     pts = np.ascontiguousarray(all_pts.ravel().astype(np.float32))
     out = np.zeros((20, 6), dtype=np.float32)
 
@@ -243,8 +297,8 @@ def anchor_free_post_process(
     lib.yolo_anchor_free_post_process.restype = ctypes.c_uint32
 
     lib.yolo_anchor_free_post_process(
-        raw.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        raw.size // 144,
+        raw_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        raw_flat.size // 144,
         pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         ctypes.c_float(model_size),
         ctypes.c_float(frame_w),

@@ -66,6 +66,29 @@ class BaseLocalDetector(ObjectDetector):
             self.detect_api.set_stop_event(stop_event)
 
     def _transform_input(self, tensor_input: np.ndarray) -> np.ndarray:
+        if (
+            self.dtype == InputDTypeEnum.float
+            and getattr(tensor_input, "dtype", None) == np.uint8
+        ):
+            try:
+                from frigate.util.frame_rs import (
+                    frame_rs_available,
+                    normalize_u8_to_f32_rust,
+                    transform_detect_input_rust,
+                )
+
+                if frame_rs_available():
+                    if (
+                        self.input_transform == (0, 3, 1, 2)
+                        and tensor_input.ndim == 4
+                        and tensor_input.shape[0] == 1
+                    ):
+                        return transform_detect_input_rust(tensor_input)
+                    if self.input_transform is None:
+                        return normalize_u8_to_f32_rust(tensor_input)
+            except Exception:
+                pass
+
         if self.input_transform:
             tensor_input = np.transpose(tensor_input, self.input_transform)
 

@@ -140,6 +140,17 @@ class NCNNDetector(DetectionApi):
     @staticmethod
     def _nms(x1, y1, x2, y2, scores, iou_threshold):
         """Simple NMS implementation."""
+        if len(scores) == 0:
+            return np.array([], dtype=np.int32)
+        try:
+            from frigate.detectors.rust_yolo import nms_boxes, yolo_available
+
+            if yolo_available():
+                boxes = np.column_stack([x1, y1, x2, y2])
+                return nms_boxes(boxes, scores, iou_threshold, max_indices=len(scores))
+        except Exception:
+            pass
+
         areas = (x2 - x1) * (y2 - y1)
         order = scores.argsort()[::-1]
         keep = []
