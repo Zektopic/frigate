@@ -5,6 +5,7 @@ from typing import Any, Sequence, cast
 
 import cv2
 import numpy as np
+import norfair.distances as _norfair_distances
 from norfair.drawing.draw_boxes import draw_boxes
 from norfair.drawing.drawer import Drawable, Drawer
 from norfair.filter import OptimizedKalmanFilterFactory
@@ -33,6 +34,9 @@ from frigate.util.object import average_boxes, median_of_boxes
 # per-call numpy small-array overhead. Falls back to numpy when the shared
 # library is unavailable.
 try:
+    from frigate.util.frame_rs import (
+        batch_track_distance_matrix_rust as _batch_track_distance_matrix_rust,
+    )
     from frigate.util.frame_rs import (
         frame_rs_available as _frame_rs_available,
     )
@@ -104,6 +108,31 @@ def frigate_distance(detection: Detection, tracked_object: TrackedObject) -> flo
     return distance(detection.points, tracked_object.estimate)
 
 
+def frigate_vectorized_distance(
+    candidates: np.ndarray, objects: np.ndarray
+) -> np.ndarray:
+    """Vectorized pairwise association distance matrix (N candidates x M objects)."""
+    if _HAS_RUST_DISTANCE:
+        return _batch_track_distance_matrix_rust(candidates, objects)
+
+    n_cands = len(candidates)
+    n_objs = len(objects)
+    out = np.empty((n_cands, n_objs), dtype=np.float64)
+    for i, cand in enumerate(candidates):
+        c_pts = np.asarray(cand, dtype=np.float64).reshape(2, 2)
+        for j, obj in enumerate(objects):
+            o_pts = np.asarray(obj, dtype=np.float64).reshape(2, 2)
+            out[i, j] = distance(c_pts, o_pts)
+    return out
+
+
+_norfair_distances._VECTORIZED_DISTANCE_FUNCTIONS["frigate"] = (
+    frigate_vectorized_distance
+)
+if "frigate" not in _norfair_distances.AVAILABLE_VECTORIZED_DISTANCES:
+    _norfair_distances.AVAILABLE_VECTORIZED_DISTANCES.append("frigate")
+
+
 def histogram_distance(
     matched_not_init_trackers: TrackedObject, unmatched_trackers: TrackedObject
 ) -> float:
@@ -153,12 +182,12 @@ class NorfairTracker(ObjectTracker):
         self.object_type_configs = {
             "car": {
                 "filter_factory": OptimizedKalmanFilterFactory(R=3.4, Q=0.03),
-                "distance_function": frigate_distance,
+                "distance_function": "frigate",
                 "distance_threshold": 2.5,
             },
             "license_plate": {
                 "filter_factory": OptimizedKalmanFilterFactory(R=2.5, Q=0.05),
-                "distance_function": frigate_distance,
+                "distance_function": "frigate",
                 "distance_threshold": 3.75,
             },
         }
@@ -170,7 +199,7 @@ class NorfairTracker(ObjectTracker):
                     R=4.5,
                     Q=0.25,
                 ),
-                "distance_function": frigate_distance,
+                "distance_function": "frigate",
                 "distance_threshold": 2,
                 "past_detections_length": 5,
                 "reid_distance_function": histogram_distance,
@@ -186,13 +215,13 @@ class NorfairTracker(ObjectTracker):
         # testing shows that the prediction was being relied on a bit too much
         self.default_tracker_config = {
             "filter_factory": OptimizedKalmanFilterFactory(R=3.4),
-            "distance_function": frigate_distance,
+            "distance_function": "frigate",
             "distance_threshold": 2.5,
         }
 
         self.default_ptz_tracker_config = {
             "filter_factory": OptimizedKalmanFilterFactory(R=4, Q=0.2),
-            "distance_function": frigate_distance,
+            "distance_function": "frigate",
             "distance_threshold": 3,
         }
 
@@ -221,7 +250,7 @@ class NorfairTracker(ObjectTracker):
         # Initialize default trackers
         self.default_tracker = {
             "static": Tracker(
-                distance_function=frigate_distance,
+                distance_function="frigate",
                 distance_threshold=self.default_tracker_config[  # type: ignore[arg-type]
                     "distance_threshold"
                 ],
@@ -230,7 +259,7 @@ class NorfairTracker(ObjectTracker):
                 filter_factory=self.default_tracker_config["filter_factory"],  # type: ignore[arg-type]
             ),
             "ptz": Tracker(
-                distance_function=frigate_distance,
+                distance_function="frigate",
                 distance_threshold=self.default_ptz_tracker_config[
                     "distance_threshold"
                 ],  # type: ignore[arg-type]
@@ -247,8 +276,11 @@ class NorfairTracker(ObjectTracker):
 
     def _create_tracker(self, obj_type: str, tracker_config: dict[str, Any]) -> Tracker:
         """Helper function to create a tracker with given configuration."""
+        dist_fn = tracker_config["distance_function"]
+        if dist_fn is frigate_distance:
+            dist_fn = "frigate"
         tracker_params = {
-            "distance_function": tracker_config["distance_function"],
+            "distance_function": dist_fn,
             "distance_threshold": tracker_config["distance_threshold"],
             "initialization_delay": self.detect_config.min_initialized,
             "hit_counter_max": self.detect_config.max_disappeared,

@@ -16,6 +16,69 @@ _lib: Optional[ctypes.CDLL] = None
 _available: Optional[bool] = None
 
 
+def _configure_signatures(lib: ctypes.CDLL) -> None:
+    """Configure ctypes argtypes/restype once at load time to avoid per-call setup overhead."""
+    if getattr(lib, "_signatures_configured", False):
+        return
+
+    u8_p = ctypes.POINTER(ctypes.c_uint8)
+    f32_p = ctypes.POINTER(ctypes.c_float)
+    f64_p = ctypes.POINTER(ctypes.c_double)
+    u32 = ctypes.c_uint32
+    i32 = ctypes.c_int32
+    f32 = ctypes.c_float
+    f64 = ctypes.c_double
+    sz = ctypes.c_size_t
+    vp = ctypes.c_void_p
+
+    lib.read_ffmpeg_frame.argtypes = [i32, vp, u32]
+    lib.read_ffmpeg_frame.restype = i32
+
+    lib.intersection_over_union.argtypes = [f32_p, f32_p]
+    lib.intersection_over_union.restype = f32
+
+    lib.track_distance.argtypes = [f64_p, f64_p]
+    lib.track_distance.restype = f64
+
+    lib.point_in_polygon.argtypes = [f64, f64, f64_p, sz]
+    lib.point_in_polygon.restype = i32
+
+    lib.polygon_box_overlap.argtypes = [f64_p, sz, f64_p]
+    lib.polygon_box_overlap.restype = i32
+
+    lib.batch_track_distance_matrix.argtypes = [f64_p, sz, f64_p, sz, f64_p]
+    lib.batch_track_distance_matrix.restype = None
+
+    lib.fast_shm_copy.argtypes = [vp, vp, sz]
+    lib.fast_shm_copy.restype = None
+
+    lib.preprocess_detect_input.argtypes = [u8_p, f32_p, u32, u32, u32, u32, u32]
+    lib.preprocess_detect_input.restype = None
+
+    lib.transform_detect_input.argtypes = [u8_p, f32_p, u32, u32, u32]
+    lib.transform_detect_input.restype = None
+
+    lib.normalize_u8_to_f32.argtypes = [u8_p, f32_p, u32]
+    lib.normalize_u8_to_f32.restype = None
+
+    lib.yuv420_to_3channel.argtypes = [u8_p, u8_p, u8_p, u32, u32, u8_p]
+    lib.yuv420_to_3channel.restype = None
+
+    lib.yuv420_crop_repack.argtypes = [u8_p, u32, u32, u32, u32, u32, u32, u8_p]
+    lib.yuv420_crop_repack.restype = None
+
+    lib.bilinear_resize_u8.argtypes = [u8_p, u8_p, u32, u32, u32, u32, u32]
+    lib.bilinear_resize_u8.restype = None
+
+    lib.yuv420_to_rgb.argtypes = [u8_p, u8_p, u8_p, u8_p, u32, u32]
+    lib.yuv420_to_rgb.restype = None
+
+    lib.nhwc_to_nchw_f32.argtypes = [f32_p, f32_p, u32, u32, u32]
+    lib.nhwc_to_nchw_f32.restype = None
+
+    lib._signatures_configured = True
+
+
 def _load_lib() -> Optional[ctypes.CDLL]:
     global _lib, _available
     if _available is False:
@@ -36,6 +99,7 @@ def _load_lib() -> Optional[ctypes.CDLL]:
         if os.path.isfile(candidate):
             try:
                 _lib = ctypes.CDLL(candidate)
+                _configure_signatures(_lib)
                 _available = True
                 logger.debug("Loaded Rust frame engine from %s", candidate)
                 return _lib
@@ -75,12 +139,7 @@ def read_ffmpeg_frame_to_ptr(
         )
         return -1
 
-    lib.read_ffmpeg_frame.argtypes = [
-        ctypes.c_int32,
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-    ]
-    lib.read_ffmpeg_frame.restype = ctypes.c_int32
+    _configure_signatures(lib)
     return lib.read_ffmpeg_frame(fd, ptr_addr, frame_size)
 
 
@@ -92,11 +151,7 @@ def intersection_over_union_rust(box_a, box_b) -> float:
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
-    lib.intersection_over_union.argtypes = [
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float),
-    ]
-    lib.intersection_over_union.restype = ctypes.c_float
+    _configure_signatures(lib)
 
     # A ctypes array initializer rejects >4 values but silently zero-fills
     # fewer, which would turn a malformed box into a wrong answer.
@@ -119,11 +174,7 @@ def track_distance_rust(detection, estimate) -> float:
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
-    lib.track_distance.argtypes = [
-        ctypes.POINTER(ctypes.c_double),
-        ctypes.POINTER(ctypes.c_double),
-    ]
-    lib.track_distance.restype = ctypes.c_double
+    _configure_signatures(lib)
 
     det = (ctypes.c_double * 4)(*detection)
     est = (ctypes.c_double * 4)(*estimate)
@@ -139,13 +190,7 @@ def point_in_polygon_rust(px: float, py: float, pts: list[tuple[float, float]]) 
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
-    lib.point_in_polygon.argtypes = [
-        ctypes.c_double,
-        ctypes.c_double,
-        ctypes.POINTER(ctypes.c_double),
-        ctypes.c_size_t,
-    ]
-    lib.point_in_polygon.restype = ctypes.c_int32
+    _configure_signatures(lib)
 
     flat_pts = []
     for x, y in pts:
@@ -164,12 +209,7 @@ def polygon_box_overlap_rust(
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
-    lib.polygon_box_overlap.argtypes = [
-        ctypes.POINTER(ctypes.c_double),
-        ctypes.c_size_t,
-        ctypes.POINTER(ctypes.c_double),
-    ]
-    lib.polygon_box_overlap.restype = ctypes.c_int32
+    _configure_signatures(lib)
 
     flat_pts = []
     for x, y in pts:
@@ -192,14 +232,7 @@ def batch_track_distance_matrix_rust(detections: list, estimates: list):
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
-    lib.batch_track_distance_matrix.argtypes = [
-        ctypes.POINTER(ctypes.c_double),
-        ctypes.c_size_t,
-        ctypes.POINTER(ctypes.c_double),
-        ctypes.c_size_t,
-        ctypes.POINTER(ctypes.c_double),
-    ]
-    lib.batch_track_distance_matrix.restype = None
+    _configure_signatures(lib)
 
     # Rust reads exactly 4 doubles per box.  reshape() raises on anything
     # else (a 3-value box used to make Rust read past the end of the array)
@@ -228,12 +261,7 @@ def fast_shm_copy_rust(dst_buf, src_buf, length: int) -> None:
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
-    lib.fast_shm_copy.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_size_t,
-    ]
-    lib.fast_shm_copy.restype = None
+    _configure_signatures(lib)
 
     # Bound the copy by what both buffers actually hold; Rust trusts
     # `length` and would read/write past either end.
@@ -275,16 +303,7 @@ def preprocess_detect_input_rust(
             f"source holds {len(src_bytes)} bytes, need {src_w * src_h * channels}"
         )
 
-    lib.preprocess_detect_input.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-    ]
-    lib.preprocess_detect_input.restype = None
+    _configure_signatures(lib)
 
     out_buf = (ctypes.c_float * (channels * dst_w * dst_h))()
     src_arr = (ctypes.c_uint8 * len(src_bytes)).from_buffer_copy(src_bytes)
@@ -319,14 +338,7 @@ def transform_detect_input_rust(tensor_input):
     src = np.ascontiguousarray(tensor_input, dtype=np.uint8)
     dst = np.empty(out_shape, dtype=np.float32)
 
-    lib.transform_detect_input.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-    ]
-    lib.transform_detect_input.restype = None
+    _configure_signatures(lib)
 
     lib.transform_detect_input(
         src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
@@ -349,12 +361,7 @@ def normalize_u8_to_f32_rust(tensor_input):
     src = np.ascontiguousarray(tensor_input, dtype=np.uint8)
     dst = np.empty(src.shape, dtype=np.float32)
 
-    lib.normalize_u8_to_f32.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_uint32,
-    ]
-    lib.normalize_u8_to_f32.restype = None
+    _configure_signatures(lib)
 
     lib.normalize_u8_to_f32(
         src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
@@ -381,15 +388,7 @@ def yuv420_to_3channel_rust(yuv_frame):
     uv_count = y_count // 4
     base_ptr = src.ctypes.data
 
-    lib.yuv420_to_3channel.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.POINTER(ctypes.c_uint8),
-    ]
-    lib.yuv420_to_3channel.restype = None
+    _configure_signatures(lib)
 
     lib.yuv420_to_3channel(
         ctypes.cast(base_ptr, ctypes.POINTER(ctypes.c_uint8)),
@@ -421,17 +420,7 @@ def yuv420_crop_repack_rust(
     src = np.ascontiguousarray(frame, dtype=np.uint8)
     dst = np.empty((crop_h + crop_h // 2, crop_w), dtype=np.uint8)
 
-    lib.yuv420_crop_repack.argtypes = [
-        ctypes.POINTER(ctypes.c_uint8),
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.POINTER(ctypes.c_uint8),
-    ]
-    lib.yuv420_crop_repack.restype = None
+    _configure_signatures(lib)
 
     lib.yuv420_crop_repack(
         src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
@@ -442,5 +431,119 @@ def yuv420_crop_repack_rust(
         ctypes.c_uint32(crop_w),
         ctypes.c_uint32(crop_h),
         dst.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+    )
+    return dst
+
+
+def bilinear_resize_u8_rust(frame, dst_w: int, dst_h: int):
+    """Bilinear resize of a 2D (H, W) or 3D (H, W, C) uint8 image in Rust."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    if dst_w <= 0 or dst_h <= 0:
+        raise ValueError("destination dimensions must be positive")
+
+    if frame.ndim == 2:
+        src_h, src_w = frame.shape
+        channels = 1
+        out_shape = (dst_h, dst_w)
+    elif frame.ndim == 3:
+        src_h, src_w, channels = frame.shape
+        out_shape = (dst_h, dst_w, channels)
+    else:
+        raise ValueError(f"Expected 2D or 3D image, got shape {frame.shape}")
+
+    if min(src_w, src_h, channels) <= 0:
+        raise ValueError("source dimensions must be positive")
+
+    src = np.ascontiguousarray(frame, dtype=np.uint8)
+    dst = np.empty(out_shape, dtype=np.uint8)
+
+    _configure_signatures(lib)
+
+    lib.bilinear_resize_u8(
+        src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        dst.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.c_uint32(src_w),
+        ctypes.c_uint32(src_h),
+        ctypes.c_uint32(dst_w),
+        ctypes.c_uint32(dst_h),
+        ctypes.c_uint32(channels),
+    )
+    return dst
+
+
+def yuv420_to_rgb_rust(yuv_frame):
+    """Convert planar I420 (H*3//2, W) uint8 to interleaved RGB (H, W, 3) uint8 in Rust."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    if yuv_frame.ndim != 2 or yuv_frame.shape[0] % 3 != 0:
+        raise ValueError(f"Expected planar I420 (H*3//2, W), got {yuv_frame.shape}")
+
+    height = (yuv_frame.shape[0] * 2) // 3
+    width = yuv_frame.shape[1]
+    if height <= 0 or width <= 0 or height % 2 != 0 or width % 2 != 0:
+        raise ValueError(f"YUV420 dimensions must be positive and even: {width}x{height}")
+
+    src = np.ascontiguousarray(yuv_frame, dtype=np.uint8)
+    dst = np.empty((height, width, 3), dtype=np.uint8)
+
+    y_count = height * width
+    uv_count = y_count // 4
+    base_ptr = src.ctypes.data
+
+    _configure_signatures(lib)
+
+    lib.yuv420_to_rgb(
+        ctypes.cast(base_ptr, ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.cast(base_ptr + y_count, ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.cast(base_ptr + y_count + uv_count, ctypes.POINTER(ctypes.c_uint8)),
+        dst.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.c_uint32(width),
+        ctypes.c_uint32(height),
+    )
+    return dst
+
+
+def nhwc_to_nchw_f32_rust(tensor_input):
+    """Transpose an NHWC (H, W, C) or (1, H, W, C) float32 tensor to NCHW in Rust."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    if tensor_input.ndim == 4:
+        b, h, w, c = tensor_input.shape
+        if b != 1:
+            raise ValueError(f"Expected batch size 1, got {b}")
+        out_shape = (1, c, h, w)
+    elif tensor_input.ndim == 3:
+        h, w, c = tensor_input.shape
+        out_shape = (c, h, w)
+    else:
+        raise ValueError(f"Expected 3D or 4D tensor, got shape {tensor_input.shape}")
+
+    if min(h, w, c) <= 0:
+        raise ValueError("tensor dimensions must be positive")
+
+    src = np.ascontiguousarray(tensor_input, dtype=np.float32)
+    dst = np.empty(out_shape, dtype=np.float32)
+
+    _configure_signatures(lib)
+
+    lib.nhwc_to_nchw_f32(
+        src.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        dst.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        ctypes.c_uint32(h),
+        ctypes.c_uint32(w),
+        ctypes.c_uint32(c),
     )
     return dst
