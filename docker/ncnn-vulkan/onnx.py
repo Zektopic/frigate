@@ -740,7 +740,8 @@ while True:
 
     @staticmethod
     def _drain_worker_stderr(stderr_fd: int) -> None:
-        """Consume the worker's stderr until it exits, logging what it says."""
+        """Consume the worker's stderr until it exits, logging complete lines."""
+        buf = b""
         while True:
             try:
                 chunk = os.read(stderr_fd, 4096)
@@ -750,7 +751,10 @@ while True:
             if not chunk:
                 return
 
-            for line in chunk.decode(errors="replace").splitlines():
+            buf += chunk
+            *lines, buf = buf.split(b"\n")
+            for raw_line in lines:
+                line = raw_line.decode(errors="replace").strip()
                 if not line:
                     continue
 
