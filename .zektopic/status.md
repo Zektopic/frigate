@@ -285,3 +285,30 @@ The `test_video` tests were failing natively due to missing/inadequate mocks of 
 
 #### Frontend Tests and E2E
 - Resolve deprecation warnings logged in the Vitest suite (e.g. `[DEP0040] DeprecationWarning: The punycode module is deprecated. Please use a userland alternative instead.`). This requires bumping related networking/dependency libraries (like `tr46` or `whatwg-url`) within `package.json` that still rely on Node's native `punycode`.
+
+# Test Run Status Report
+
+## Frontend Tests
+Vitest frontend test suite executed successfully.
+- **Passed**: 137 tests across 13 files.
+- **Time**: ~5s.
+- **Notes**: Several Node.js deprecation warnings were emitted during test execution related to the `punycode` module. This suggests that underlying dependencies (e.g., `whatwg-url` or `tr46`) need to be bumped to newer major versions to suppress these warnings in future Node.js releases.
+
+## Backend Tests (Native Execution via test_runner.py)
+Backend tests were executed natively using the custom `test_runner.py` framework since Docker BuildKit caching mechanisms are failing with `overlayfs` mount errors (`err: invalid argument`). Native execution identified several issues primarily tied to the reliance on `MagicMock` in the `sys.modules` monkey-patching technique:
+
+- **OpenCV and Numpy Issues**: The custom test runner currently mocks `cv2` and `numpy` globally. This breaks multiple core tests (e.g., `test_video.py`, `test_yuv_region_2_rgb.py`) because actual numpy arrays and OpenCV structs cannot be simulated perfectly by `MagicMock`. I updated `test_runner.py` to attempt to import real `numpy` and `cv2` if available before falling back to mocks. This fixed `test_video.py` but surfaced deeper missing dependencies for other modules.
+- **Missing Dependencies**: Native testing fails due to numerous missing dependencies (e.g., `requests`, `pathvalidate`, `pywebpush`, `peewee`). I manually installed these, but maintaining a fully functional native test environment without Docker is fragile.
+- **Database Mocks**: The `SqliteQueueDatabase` and `peewee` mock implementations inside `test_runner.py` are incomplete and lack basic methods like `_connect` and `stop`. This caused tests like `test_sqlite_wal_queue.py` to fail due to `AttributeError` on the mock objects.
+- **Path Validation**: `test_util_path.py` failed due to the mock for `sanitize_filename` always returning a truthy object instead of correctly filtering unsafe paths.
+- **Regex Testing**: Tests relying on SQLite regex functions (`test_sqlitevecq_regexp.py`) failed because the native SQLite module does not inherently load the custom vector/regex extensions without the specific Docker environment or a manual load operation.
+
+## Rust Component Tests
+Rust components were built and tested natively using Cargo.
+- `frigate-detector-rs`: 2 tests passed.
+- `frigate-frame-rs`: 17 tests passed.
+- `frigate-motion-rs`: 21 tests passed.
+- `frigate-yolo-rs`: 9 tests passed.
+
+## Overall Assessment
+The codebase heavily relies on Docker for correct test execution due to complex dependencies (C-extensions, Rust modules, custom SQLite builds). The fallback native test runner (`test_runner.py`) uses extensive monkey-patching which makes it brittle and error-prone when testing lower-level logic that depends on specific library behaviors (like `numpy` shape manipulation or SQLite extensions).

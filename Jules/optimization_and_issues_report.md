@@ -131,3 +131,31 @@ The `test_video` tests were failing natively due to missing/inadequate mocks of 
 
 #### Frontend Tests and E2E
 - Resolve deprecation warnings logged in the Vitest suite (e.g. `[DEP0040] DeprecationWarning: The punycode module is deprecated. Please use a userland alternative instead.`). This requires bumping related networking/dependency libraries (like `tr46` or `whatwg-url`) within `package.json` that still rely on Node's native `punycode`.
+
+# Optimization and Issues Report
+
+Based on the recent test run, the following areas have been identified for future improvement and optimization:
+
+## 1. Native Testing Environment (`test_runner.py`) Improvements
+**Issue**: The current fallback testing framework (`test_runner.py`) uses an aggressive `MagicMock` strategy for nearly all external dependencies (`sys.modules["cv2"] = MagicMock()`, etc.). This breaks tests that rely on basic functionality, type checking, or specific method return values (like `numpy` array shapes, SQLite connections, or Pydantic validation errors).
+**Optimization Road Map**:
+- **Partial Mocking / Dependency Injection**: Instead of blanket mocking `numpy`, `cv2`, and database connectors, refactor tests to use dependency injection or establish a lightweight, mockable interface.
+- **Improve `MockBaseModel`**: The custom `MockBaseModel` in `test_runner.py` bypasses true validation. Investigate using `pydantic-core` directly or constructing mock classes that accurately reflect Pydantic V2 validation errors to prevent false positives in tests like `test_profiles.py`.
+- **Refined Database Mocks**: The SQLite and Peewee mocks lack essential connection lifecycle methods (e.g., `_connect`, `stop`). These need to be fleshed out to allow database tests (like `test_sqlite_wal_queue.py`) to run natively without raising `AttributeError`.
+
+## 2. Docker BuildKit Caching Fixes
+**Issue**: Running tests via `make run_tests` fails with Docker BuildKit `overlayfs` mount errors (`err: invalid argument`), likely due to host kernel compatibility or stale cache layers that cannot be cleared effectively.
+**Optimization Road Map**:
+- **Docker Compose Integration**: Consider migrating test execution to a dedicated `docker-compose.test.yml` file rather than relying on complex `docker buildx build` cache mounts within the Makefile. This provides better isolation and easier cache invalidation.
+- **Pre-built Test Container**: Publish a pre-built testing Docker image to GHCR to avoid building the complex C-extensions and Rust binaries from scratch during every local test run.
+
+## 3. Frontend Dependency Updates
+**Issue**: Vitest execution produces multiple Node.js deprecation warnings: `[DEP0040] DeprecationWarning: The punycode module is deprecated`.
+**Optimization Road Map**:
+- Identify dependencies in `web/package.json` that rely on the deprecated `punycode` module (commonly `whatwg-url`, `tr46`, or `ajv`).
+- Upgrade these dependencies to their latest major versions to ensure compatibility with future Node.js releases and clean up test output.
+
+## 4. SQLite Vector and Regex Extensions
+**Issue**: Tests targeting custom SQLite extensions (like `REGEXP` in `test_sqlitevecq_regexp.py`) fail natively because the extensions are not loaded in the standard Python `sqlite3` module.
+**Optimization Road Map**:
+- Ensure the native test harness either automatically builds and loads the required `.so` extension files via `conn.load_extension()` or explicitly skips these tests when not running inside the Docker environment.
