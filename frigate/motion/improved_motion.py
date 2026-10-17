@@ -285,22 +285,19 @@ class ImprovedMotionDetector(MotionDetector):
                 ),
             )
 
+        # cv2.accumulateWeighted is already vectorized and updates in place;
+        # the Rust accumulator only added an FFI hop, with no speed or
+        # memory win even after its SIMD kernel was fixed.
         if len(motion_boxes) > 0:
             self.motion_frame_count += 1
             if self.motion_frame_count >= 10:
                 # only average in the current frame if the difference persists for a bit
-                cv2.accumulateWeighted(
-                    resized_frame,
-                    self.avg_frame,
-                    0.2 if self.calibrating else self.config.frame_alpha,
-                )
+                alpha = 0.2 if self.calibrating else self.config.frame_alpha
+                cv2.accumulateWeighted(resized_frame, self.avg_frame, alpha)
         else:
             # when no motion, just keep averaging the frames together
-            cv2.accumulateWeighted(
-                resized_frame,
-                self.avg_frame,
-                0.2 if self.calibrating else self.config.frame_alpha,
-            )
+            alpha = 0.2 if self.calibrating else self.config.frame_alpha
+            cv2.accumulateWeighted(resized_frame, self.avg_frame, alpha)
             self.motion_frame_count = 0
 
         return motion_boxes

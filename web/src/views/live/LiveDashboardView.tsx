@@ -58,9 +58,13 @@ import { AuthContext } from "@/context/auth-context";
 import { useIsAdmin } from "@/hooks/use-is-admin";
 
 // How long to wait before retrying a better live mode after a
-// transient failure, and how many times to bother.
+// transient failure. The wait doubles with each failure up to the cap
+// so a camera that keeps failing costs little, but it is never pinned
+// to jsmpeg for good: the count is never reset, so a cap on attempts
+// meant that a few backend restarts over the life of a long-open
+// dashboard left cameras on jsmpeg until the page was reloaded.
 const LIVE_MODE_RETRY_MS = 60_000;
-const LIVE_MODE_MAX_RETRIES = 3;
+const LIVE_MODE_MAX_RETRY_MS = 15 * 60_000;
 
 type LiveDashboardViewProps = {
   cameras: CameraConfig[];
@@ -327,16 +331,17 @@ export default function LiveDashboardView({
       }
 
       const attempts = downgradeCountsRef.current[cameraName] ?? 0;
-      if (attempts >= LIVE_MODE_MAX_RETRIES) {
-        return;
-      }
       downgradeCountsRef.current[cameraName] = attempts + 1;
+      const retryDelay = Math.min(
+        LIVE_MODE_RETRY_MS * 2 ** attempts,
+        LIVE_MODE_MAX_RETRY_MS,
+      );
 
       window.clearTimeout(downgradeTimersRef.current[cameraName]);
       downgradeTimersRef.current[cameraName] = window.setTimeout(() => {
         delete downgradeTimersRef.current[cameraName];
         resetPreferredLiveMode(cameraName);
-      }, LIVE_MODE_RETRY_MS);
+      }, retryDelay);
     },
     [setPreferredLiveModes, resetPreferredLiveMode],
   );

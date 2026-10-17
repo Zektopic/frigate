@@ -76,20 +76,25 @@ def yolo_post_process(
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
 
-    # Build array of output pointers; keep buffers alive across the FFI call
+    if len(outputs) != 3:
+        raise ValueError(f"expected 3 YOLO output scales, got {len(outputs)}")
+
+    # Build array of output pointers; keep buffers alive across the FFI call.
+    # The Rust decoder reads each scale directly in NCHW (1, 3*85, ny, nx) order.
     output_ptrs = (ctypes.POINTER(ctypes.c_float) * 3)()
     ny_nx = (ctypes.c_uint32 * 6)()
     flat_outputs: list[np.ndarray] = []
 
     for i, out in enumerate(outputs):
-        # Infer ny, nx from original shape: (1, 255, ny, nx) or (255, ny, nx)
-        if out.ndim >= 4:
-            ny_nx[i * 2] = out.shape[2]
-            ny_nx[i * 2 + 1] = out.shape[3]
-        elif out.ndim >= 3:
-            ny_nx[i * 2] = out.shape[1]
-            ny_nx[i * 2 + 1] = out.shape[2]
-        flat = np.ascontiguousarray(out.ravel().astype(np.float32))
+        if out.ndim == 4 and out.shape[0] == 1 and out.shape[1] == 3 * 85:
+            ny, nx = out.shape[2], out.shape[3]
+        elif out.ndim == 3 and out.shape[0] == 3 * 85:
+            ny, nx = out.shape[1], out.shape[2]
+        else:
+            raise ValueError(f"unexpected YOLO output shape {out.shape}")
+        ny_nx[i * 2] = ny
+        ny_nx[i * 2 + 1] = nx
+        flat = np.ascontiguousarray(out, dtype=np.float32).ravel()
         flat_outputs.append(flat)
         output_ptrs[i] = flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
 
@@ -118,6 +123,9 @@ def yolo_post_process(
         ctypes.c_uint32(max_dets),
     )
 
+    # flat_outputs must outlive the FFI call above.
+    del flat_outputs
+
     result = np.zeros((20, 6), dtype=np.float32)
     for i in range(min(n, 20)):
         result[i] = [
@@ -142,9 +150,15 @@ def nms_boxes(
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
 
-    boxes = np.ascontiguousarray(boxes.ravel().astype(np.float32))
-    scores = np.ascontiguousarray(scores.ravel().astype(np.float32))
+    boxes = np.ascontiguousarray(boxes, dtype=np.float32).ravel()
+    scores = np.ascontiguousarray(scores, dtype=np.float32).ravel()
     n = len(scores)
+    # Rust reads n * 4 box coordinates; a shorter box array is a heap
+    # over-read.
+    if boxes.size != n * 4:
+        raise ValueError(f"expected {n * 4} box coordinates, got {boxes.size}")
+    if n == 0 or max_indices <= 0:
+        return np.zeros(0, dtype=np.int32)
     out_indices = (ctypes.c_uint32 * max_indices)()
 
     lib.nms_boxes.argtypes = [
@@ -189,9 +203,11 @@ def yolo26_post_process(
     import numpy as np
 
     arr = np.squeeze(raw) if raw.ndim >= 3 else raw
-    if arr.ndim == 2 and arr.shape[0] == 84 and arr.shape[1] != 84:
+    if arr.ndim != 2 or (arr.shape[0] != 84 and arr.shape[1] != 84):
+        raise ValueError(f"expected a (84, N) or (N, 84) YOLO26 tensor, got {raw.shape}")
+    if arr.shape[0] == 84 and arr.shape[1] != 84:
         arr = arr.T
-    raw_flat = np.ascontiguousarray(arr.ravel().astype(np.float32))
+    raw_flat = np.ascontiguousarray(arr, dtype=np.float32).ravel()
     n = raw_flat.size // 84
     out = np.zeros((20, 6), dtype=np.float32)
 
@@ -279,9 +295,16 @@ def anchor_free_post_process(
     if all_pts is None:
         all_pts = get_anchor_free_grid_points(int(model_size))
 
-    raw_flat = np.ascontiguousarray(arr.ravel().astype(np.float32))
-    pts = np.ascontiguousarray(all_pts.ravel().astype(np.float32))
+    raw_flat = np.ascontiguousarray(arr, dtype=np.float32).ravel()
+    pts = np.ascontiguousarray(all_pts, dtype=np.float32).ravel()
     out = np.zeros((20, 6), dtype=np.float32)
+    # Rust reads (raw.size // 144) cells and two grid coordinates per
+    # cell; anything shorter is an out-of-bounds read.
+    n_cells = raw_flat.size // 144
+    if raw_flat.size != n_cells * 144 or pts.size < n_cells * 2:
+        raise ValueError(
+            f"anchor-free tensors mismatch: raw={raw_flat.size} floats, pts={pts.size}"
+        )
 
     lib.yolo_anchor_free_post_process.argtypes = [
         ctypes.POINTER(ctypes.c_float),
@@ -298,7 +321,7 @@ def anchor_free_post_process(
 
     lib.yolo_anchor_free_post_process(
         raw_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-        raw_flat.size // 144,
+        n_cells,
         pts.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         ctypes.c_float(model_size),
         ctypes.c_float(frame_w),
