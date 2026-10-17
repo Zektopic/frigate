@@ -705,6 +705,12 @@ pub unsafe extern "C" fn motion_init_average(
     }
 }
 
+/// `avg = (1 - alpha) * avg + alpha * src` over `len` pixels, in place —
+/// the same update as `cv2.accumulateWeighted(src, avg, alpha)`.
+///
+/// # Safety
+/// `src` must be valid for `len` bytes and `avg` for `len` f32 values; the
+/// two buffers must not overlap.
 #[no_mangle]
 pub unsafe extern "C" fn motion_accumulate_weighted(
     src: *const u8,
@@ -715,48 +721,56 @@ pub unsafe extern "C" fn motion_accumulate_weighted(
     if src.is_null() || avg.is_null() || len == 0 {
         return;
     }
-    let src_slice = std::slice::from_raw_parts(src, len as usize);
-    let avg_slice = std::slice::from_raw_parts_mut(avg, len as usize);
-    let one_minus_alpha = 1.0 - alpha;
+    let len = len as usize;
+    let src_slice = std::slice::from_raw_parts(src, len);
+    let avg_slice = std::slice::from_raw_parts_mut(avg, len);
 
     #[cfg(target_arch = "x86_64")]
     {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-            let mut i = 0usize;
-            let chunks = (len as usize) / 8;
-            let alpha_vec = _mm256_set1_ps(alpha);
-            let one_minus_alpha_vec = _mm256_set1_ps(one_minus_alpha);
-
-            for _ in 0..chunks {
-                let bytes = *(src_slice.as_ptr().add(i) as *const [u8; 8]);
-                let u32_vals = [
-                    bytes[0] as u32,
-                    bytes[1] as u32,
-                    bytes[2] as u32,
-                    bytes[3] as u32,
-                    bytes[4] as u32,
-                    bytes[5] as u32,
-                    bytes[6] as u32,
-                    bytes[7] as u32,
-                ];
-                let src_i32 = _mm256_loadu_si256(u32_vals.as_ptr() as *const __m256i);
-                let src_f32 = _mm256_cvtepi32_ps(src_i32);
-
-                let avg_f32 = _mm256_loadu_ps(avg_slice.as_ptr().add(i));
-                let res = _mm256_fmadd_ps(alpha_vec, src_f32, _mm256_mul_ps(one_minus_alpha_vec, avg_f32));
-                _mm256_storeu_ps(avg_slice.as_mut_ptr().add(i), res);
-                i += 8;
-            }
-
-            for j in i..(len as usize) {
-                avg_slice[j] = one_minus_alpha * avg_slice[j] + alpha * (src_slice[j] as f32);
-            }
-            return;
+        if is_x86_feature_detected!("avx2") {
+            return accumulate_weighted_avx2(src_slice, avg_slice, alpha);
         }
     }
+    accumulate_weighted_scalar(src_slice, avg_slice, alpha)
+}
 
-    for i in 0..(len as usize) {
-        avg_slice[i] = one_minus_alpha * avg_slice[i] + alpha * (src_slice[i] as f32);
+/// Portable kernel for [`motion_accumulate_weighted`].
+fn accumulate_weighted_scalar(src: &[u8], avg: &mut [f32], alpha: f32) {
+    let one_minus_alpha = 1.0 - alpha;
+    for (a, &s) in avg.iter_mut().zip(src) {
+        *a = one_minus_alpha * *a + alpha * s as f32;
+    }
+}
+
+/// AVX2 kernel for [`motion_accumulate_weighted`], 8 pixels per iteration.
+///
+/// The `target_feature` attribute is what lets the intrinsics inline.
+/// The previous version called them from a plain function after a runtime
+/// check, so every `_mm256_*` became an out-of-line call (6 calls per 8
+/// pixels) and the "SIMD" path ran ~16-36x slower than
+/// `cv2.accumulateWeighted`.  It also dropped the FMA so the vector body
+/// and the scalar tail round identically.
+///
+/// # Safety
+/// Caller must have verified AVX2 is available at runtime.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn accumulate_weighted_avx2(src: &[u8], avg: &mut [f32], alpha: f32) {
+    let len = src.len().min(avg.len());
+    let one_minus_alpha = 1.0 - alpha;
+    let alpha_v = _mm256_set1_ps(alpha);
+    let oma_v = _mm256_set1_ps(one_minus_alpha);
+    let mut i = 0usize;
+    while i + 8 <= len {
+        let s8 = _mm_loadl_epi64(src.as_ptr().add(i) as *const __m128i);
+        let s = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(s8));
+        let a = _mm256_loadu_ps(avg.as_ptr().add(i));
+        let r = _mm256_add_ps(_mm256_mul_ps(oma_v, a), _mm256_mul_ps(alpha_v, s));
+        _mm256_storeu_ps(avg.as_mut_ptr().add(i), r);
+        i += 8;
+    }
+    for j in i..len {
+        avg[j] = one_minus_alpha * avg[j] + alpha * src[j] as f32;
     }
 }
 
@@ -1124,6 +1138,24 @@ mod simd_parity_tests {
                     simd[i],
                     scalar[i]
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn accumulate_weighted_scalar_matches_avx2() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+        for &len in &[1usize, 7, 8, 9, 31, 32, 33, 1000] {
+            let src = pseudo_random(len, 0x4242);
+            let avg0: Vec<f32> = (0..len).map(|i| (i % 251) as f32 + 0.25).collect();
+            for &alpha in &[0.0f32, 0.01, 0.2, 1.0] {
+                let mut simd = avg0.clone();
+                let mut scalar = avg0.clone();
+                unsafe { accumulate_weighted_avx2(&src, &mut simd, alpha) };
+                accumulate_weighted_scalar(&src, &mut scalar, alpha);
+                assert_eq!(simd, scalar, "accumulate mismatch len={len} alpha={alpha}");
             }
         }
     }
