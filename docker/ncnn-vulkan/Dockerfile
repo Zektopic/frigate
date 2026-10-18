@@ -41,7 +41,7 @@ RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 # Final stage
 FROM ghcr.io/blakeblackshear/frigate:stable
-RUN pip install --break-system-packages ncnn
+RUN pip install --break-system-packages --no-deps ncnn portalocker tqdm
 
 # Copy Rust detector and libraries from builder
 COPY --from=ncnn-builder /libncnn.so /opt/frigate/libncnn.so

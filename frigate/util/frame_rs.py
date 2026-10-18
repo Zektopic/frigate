@@ -73,8 +73,45 @@ def _configure_signatures(lib: ctypes.CDLL) -> None:
     lib.yuv420_to_rgb.argtypes = [u8_p, u8_p, u8_p, u8_p, u32, u32]
     lib.yuv420_to_rgb.restype = None
 
+    i32_p = ctypes.POINTER(ctypes.c_int32)
+
     lib.nhwc_to_nchw_f32.argtypes = [f32_p, f32_p, u32, u32, u32]
     lib.nhwc_to_nchw_f32.restype = None
+
+    lib.intersects_any_i32.argtypes = [i32_p, i32_p, sz]
+    lib.intersects_any_i32.restype = i32
+
+    lib.inside_any_i32.argtypes = [i32_p, i32_p, sz]
+    lib.inside_any_i32.restype = i32
+
+    lib.reduce_boxes_i32.argtypes = [i32_p, sz, f32, i32_p]
+    lib.reduce_boxes_i32.restype = sz
+
+    lib.cluster_candidates_i32.argtypes = [i32_p, sz, i32, i32, i32, i32_p, i32_p]
+    lib.cluster_candidates_i32.restype = sz
+
+    lib.consolidate_detections_i32.argtypes = [i32_p, sz, f32, i32_p]
+    lib.consolidate_detections_i32.restype = sz
+
+    lib.yuv420_region_to_rgb_resize.argtypes = [
+        u8_p, u32, u32, i32, i32, i32, i32, u32, u32, i32, u8_p,
+    ]
+    lib.yuv420_region_to_rgb_resize.restype = None
+
+    lib.ncc_u8.argtypes = [u8_p, u8_p, sz]
+    lib.ncc_u8.restype = f64
+
+    lib.average_and_median_boxes_i32.argtypes = [i32_p, sz, f64_p, i32_p]
+    lib.average_and_median_boxes_i32.restype = None
+
+    lib.percentile_15_85_i32.argtypes = [i32_p, sz, f64_p]
+    lib.percentile_15_85_i32.restype = None
+
+    lib.laplacian_variance_u8.argtypes = [u8_p, u32, u32, u32]
+    lib.laplacian_variance_u8.restype = f64
+
+    lib.batch_cosine_similarity_f32.argtypes = [f32_p, f32_p, sz, sz, f32_p]
+    lib.batch_cosine_similarity_f32.restype = None
 
     lib._signatures_configured = True
 
@@ -547,3 +584,298 @@ def nhwc_to_nchw_f32_rust(tensor_input):
         ctypes.c_uint32(c),
     )
     return dst
+
+
+def intersects_any_rust(box_a, boxes) -> bool:
+    """Return True if `box_a` [x1, y1, x2, y2] intersects any box in `boxes`."""
+    from itertools import chain
+
+    n = len(boxes)
+    if n == 0:
+        return False
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+    _configure_signatures(lib)
+
+    arr_a = (ctypes.c_int32 * 4)(int(box_a[0]), int(box_a[1]), int(box_a[2]), int(box_a[3]))
+    arr_b = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
+    return bool(lib.intersects_any_i32(arr_a, arr_b, ctypes.c_size_t(n)))
+
+
+def inside_any_rust(box_a, boxes) -> bool:
+    """Return True if `box_a` [x1, y1, x2, y2] is inside any box in `boxes`."""
+    from itertools import chain
+
+    n = len(boxes)
+    if n == 0:
+        return False
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+    _configure_signatures(lib)
+
+    arr_a = (ctypes.c_int32 * 4)(int(box_a[0]), int(box_a[1]), int(box_a[2]), int(box_a[3]))
+    arr_b = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
+    return bool(lib.inside_any_i32(arr_a, arr_b, ctypes.c_size_t(n)))
+
+
+def reduce_boxes_rust(boxes, iou_threshold: float = 0.0) -> list[list[int]]:
+    """Greedy iterative bounding-box union reduction in Rust."""
+    from itertools import chain
+
+    n = len(boxes)
+    if n == 0:
+        return []
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+    _configure_signatures(lib)
+
+    arr_in = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
+    arr_out = (ctypes.c_int32 * (n * 4))()
+    k = int(
+        lib.reduce_boxes_i32(
+            arr_in, ctypes.c_size_t(n), ctypes.c_float(iou_threshold), arr_out
+        )
+    )
+    return [
+        [int(arr_out[i * 4]), int(arr_out[i * 4 + 1]), int(arr_out[i * 4 + 2]), int(arr_out[i * 4 + 3])]
+        for i in range(k)
+    ]
+
+
+def cluster_candidates_rust(
+    frame_shape: tuple[int, int], min_region: int, boxes
+) -> list[list[int]]:
+    """Partition candidate boxes into connected detection clusters in Rust."""
+    from itertools import chain
+
+    n = len(boxes)
+    if n == 0:
+        return []
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+    _configure_signatures(lib)
+
+    arr_in = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
+    out_flat = (ctypes.c_int32 * n)()
+    out_lens = (ctypes.c_int32 * n)()
+    num_clusters = int(
+        lib.cluster_candidates_i32(
+            arr_in,
+            ctypes.c_size_t(n),
+            ctypes.c_int32(int(frame_shape[0])),
+            ctypes.c_int32(int(frame_shape[1])),
+            ctypes.c_int32(int(min_region)),
+            out_flat,
+            out_lens,
+        )
+    )
+    clusters: list[list[int]] = []
+    pos = 0
+    for i in range(num_clusters):
+        length = int(out_lens[i])
+        clusters.append([int(out_flat[pos + j]) for j in range(length)])
+        pos += length
+    return clusters
+
+
+def consolidate_detections_rust(boxes, threshold: float = 0.7) -> list[int]:
+    """Return kept indices for `boxes` (sorted by area ascending) in Rust."""
+    from itertools import chain
+
+    n = len(boxes)
+    if n == 0:
+        return []
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+    _configure_signatures(lib)
+
+    arr_in = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
+    out_keep = (ctypes.c_int32 * n)()
+    k = int(
+        lib.consolidate_detections_i32(
+            arr_in, ctypes.c_size_t(n), ctypes.c_float(threshold), out_keep
+        )
+    )
+    return [int(out_keep[i]) for i in range(k)]
+
+
+def yuv420_region_to_rgb_resize_rust(
+    yuv_frame,
+    region: tuple[int, int, int, int],
+    dst_w: int,
+    dst_h: int,
+    is_bgr: bool = False,
+):
+    """Fused YUV420 region crop + out-of-bounds black pad + RGB/BGR conversion + bilinear resize.
+
+    Returns a (1, dst_h, dst_w, 3) uint8 numpy array ready for `create_tensor_input`.
+    """
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    src_h = (yuv_frame.shape[0] * 2) // 3
+    src_w = yuv_frame.shape[1]
+    src = np.ascontiguousarray(yuv_frame, dtype=np.uint8)
+    dst = np.empty((1, dst_h, dst_w, 3), dtype=np.uint8)
+
+    _configure_signatures(lib)
+
+    lib.yuv420_region_to_rgb_resize(
+        src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+        ctypes.c_uint32(src_w),
+        ctypes.c_uint32(src_h),
+        ctypes.c_int32(int(region[0])),
+        ctypes.c_int32(int(region[1])),
+        ctypes.c_int32(int(region[2])),
+        ctypes.c_int32(int(region[3])),
+        ctypes.c_uint32(dst_w),
+        ctypes.c_uint32(dst_h),
+        ctypes.c_int32(1 if is_bgr else 0),
+        dst.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+    )
+    return dst
+
+
+def ncc_u8_rust(patch_a, patch_b) -> float:
+    """Zero-mean Normalized Cross-Correlation (`cv2.TM_CCOEFF_NORMED`) in Rust."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    a = np.ascontiguousarray(patch_a, dtype=np.uint8)
+    b = np.ascontiguousarray(patch_b, dtype=np.uint8)
+    if a.size != b.size or a.size == 0:
+        return 0.0
+
+    _configure_signatures(lib)
+    return float(
+        lib.ncc_u8(
+            a.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+            b.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+            ctypes.c_size_t(a.size),
+        )
+    )
+
+
+def average_boxes_rust(boxes) -> list[float]:
+    """Compute coordinate-wise float mean of `boxes` in Rust."""
+    from itertools import chain
+
+    n = len(boxes)
+    if n == 0:
+        raise ValueError("boxes must not be empty")
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+    _configure_signatures(lib)
+
+    arr_in = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
+    out_avg = (ctypes.c_double * 4)()
+    lib.average_and_median_boxes_i32(
+        arr_in, ctypes.c_size_t(n), out_avg, ctypes.POINTER(ctypes.c_int32)()
+    )
+    return [float(out_avg[0]), float(out_avg[1]), float(out_avg[2]), float(out_avg[3])]
+
+
+def median_of_boxes_rust(boxes) -> list[int]:
+    """Return the box with the median area in `boxes` in Rust."""
+    from itertools import chain
+
+    n = len(boxes)
+    if n == 0:
+        raise ValueError("boxes must not be empty")
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+    _configure_signatures(lib)
+
+    arr_in = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
+    out_med = (ctypes.c_int32 * 4)()
+    lib.average_and_median_boxes_i32(
+        arr_in, ctypes.c_size_t(n), ctypes.POINTER(ctypes.c_double)(), out_med
+    )
+    return [int(out_med[0]), int(out_med[1]), int(out_med[2]), int(out_med[3])]
+
+
+def percentile_15_85_rust(xmins, ymins, xmaxs, ymaxs) -> tuple[float, float, float, float]:
+    """Compute (p15_xmin, p15_ymin, p85_xmax, p85_ymax) with linear interpolation in Rust."""
+    from itertools import chain
+
+    n = len(xmins)
+    if n == 0:
+        raise ValueError("coordinate lists must not be empty")
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+    _configure_signatures(lib)
+
+    arr_in = (ctypes.c_int32 * (n * 4))(
+        *(int(v) for v in chain.from_iterable(zip(xmins, ymins, xmaxs, ymaxs)))
+    )
+    out_pct = (ctypes.c_double * 4)()
+    lib.percentile_15_85_i32(arr_in, ctypes.c_size_t(n), out_pct)
+    return (float(out_pct[0]), float(out_pct[1]), float(out_pct[2]), float(out_pct[3]))
+
+
+def laplacian_variance_u8_rust(image) -> float:
+    """Streaming single-pass 3x3 Laplacian variance (`cv2.Laplacian(image, cv2.CV_64F).var()`) in Rust."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    if image.ndim == 2:
+        h, w = image.shape
+        c = 1
+    elif image.ndim == 3:
+        h, w, c = image.shape
+    else:
+        raise ValueError(f"Expected 2D or 3D image, got {image.shape}")
+
+    src = np.ascontiguousarray(image, dtype=np.uint8)
+    _configure_signatures(lib)
+    return float(
+        lib.laplacian_variance_u8(
+            src.ctypes.data_as(ctypes.POINTER(ctypes.c_uint8)),
+            ctypes.c_uint32(w),
+            ctypes.c_uint32(h),
+            ctypes.c_uint32(c),
+        )
+    )
+
+
+def batch_cosine_similarity_f32_rust(query, gallery):
+    """Compute cosine similarity between `query` (dim,) and `gallery` (N, dim) in Rust."""
+    import numpy as np
+
+    lib = _load_lib()
+    if lib is None:
+        raise RuntimeError("Rust frame engine not available")
+
+    q = np.ascontiguousarray(query, dtype=np.float32).ravel()
+    dim = q.size
+    g = np.ascontiguousarray(gallery, dtype=np.float32).reshape(-1, dim)
+    n_gallery = g.shape[0]
+    out = np.zeros(n_gallery, dtype=np.float32)
+
+    _configure_signatures(lib)
+    lib.batch_cosine_similarity_f32(
+        q.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        g.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        ctypes.c_size_t(n_gallery),
+        ctypes.c_size_t(dim),
+        out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    )
+    return out
+

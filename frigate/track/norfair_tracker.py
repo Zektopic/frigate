@@ -476,10 +476,34 @@ class NorfairTracker(ObjectTracker):
             position["xmaxs"].append(xmax)
             position["ymaxs"].append(ymax)
             # by using percentiles here, we hopefully remove outliers
-            position["xmin"] = np.percentile(position["xmins"], 15)
-            position["ymin"] = np.percentile(position["ymins"], 15)
-            position["xmax"] = np.percentile(position["xmaxs"], 85)
-            position["ymax"] = np.percentile(position["ymaxs"], 85)
+            try:
+                from frigate.util.frame_rs import (
+                    frame_rs_available,
+                    percentile_15_85_rust,
+                )
+
+                if frame_rs_available():
+                    (
+                        position["xmin"],
+                        position["ymin"],
+                        position["xmax"],
+                        position["ymax"],
+                    ) = percentile_15_85_rust(
+                        position["xmins"],
+                        position["ymins"],
+                        position["xmaxs"],
+                        position["ymaxs"],
+                    )
+                else:
+                    position["xmin"] = np.percentile(position["xmins"], 15)
+                    position["ymin"] = np.percentile(position["ymins"], 15)
+                    position["xmax"] = np.percentile(position["xmaxs"], 85)
+                    position["ymax"] = np.percentile(position["ymaxs"], 85)
+            except Exception:
+                position["xmin"] = np.percentile(position["xmins"], 15)
+                position["ymin"] = np.percentile(position["ymins"], 15)
+                position["xmax"] = np.percentile(position["xmaxs"], 85)
+                position["ymax"] = np.percentile(position["ymaxs"], 85)
 
         return True
 

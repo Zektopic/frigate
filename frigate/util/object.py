@@ -283,6 +283,29 @@ def get_min_region_size(model_config: ModelConfig) -> int:
 
 
 def create_tensor_input(frame, model_config: ModelConfig, region):
+    if (
+        model_config.input_pixel_format in (PixelFormatEnum.rgb, PixelFormatEnum.bgr)
+        and isinstance(frame, np.ndarray)
+        and frame.ndim == 2
+        and frame.shape[0] % 3 == 0
+    ):
+        try:
+            from frigate.util.frame_rs import (
+                frame_rs_available,
+                yuv420_region_to_rgb_resize_rust,
+            )
+
+            if frame_rs_available():
+                return yuv420_region_to_rgb_resize_rust(
+                    frame,
+                    region,
+                    model_config.width,
+                    model_config.height,
+                    is_bgr=(model_config.input_pixel_format == PixelFormatEnum.bgr),
+                )
+        except Exception:
+            pass
+
     if model_config.input_pixel_format == PixelFormatEnum.rgb:
         cropped_frame = yuv_region_2_rgb(frame, region)
     elif model_config.input_pixel_format == PixelFormatEnum.bgr:
@@ -314,6 +337,16 @@ def box_inside(b1, b2):
 
 
 def reduce_boxes(boxes, iou_threshold=0.0):
+    if len(boxes) == 0:
+        return []
+    try:
+        from frigate.util.frame_rs import frame_rs_available, reduce_boxes_rust
+
+        if frame_rs_available():
+            return [tuple(c) for c in reduce_boxes_rust(boxes, iou_threshold)]
+    except Exception:
+        pass
+
     clusters = []
 
     for box in boxes:
@@ -334,6 +367,14 @@ def reduce_boxes(boxes, iou_threshold=0.0):
 
 def average_boxes(boxes: Sequence[list[int] | tuple[int, ...]]) -> list[float]:
     """Return a box that is the average of a list of boxes."""
+    try:
+        from frigate.util.frame_rs import average_boxes_rust, frame_rs_available
+
+        if frame_rs_available():
+            return average_boxes_rust(boxes)
+    except Exception:
+        pass
+
     n = len(boxes)
     return [
         sum(box[0] for box in boxes) / n,
@@ -347,11 +388,29 @@ def median_of_boxes(
     boxes: Sequence[list[int] | tuple[int, ...]],
 ) -> list[int] | tuple[int, ...]:
     """Return a box that is the median of a list of boxes."""
+    try:
+        from frigate.util.frame_rs import frame_rs_available, median_of_boxes_rust
+
+        if frame_rs_available():
+            return median_of_boxes_rust(boxes)
+    except Exception:
+        pass
+
     sorted_boxes = sorted(boxes, key=lambda x: area(x))
     return sorted_boxes[int(len(sorted_boxes) / 2.0)]
 
 
 def intersects_any(box_a, boxes):
+    if not boxes:
+        return False
+    try:
+        from frigate.util.frame_rs import frame_rs_available, intersects_any_rust
+
+        if frame_rs_available():
+            return intersects_any_rust(box_a, boxes)
+    except Exception:
+        pass
+
     for box in boxes:
         if box_overlaps(box_a, box):
             return True
@@ -359,6 +418,16 @@ def intersects_any(box_a, boxes):
 
 
 def inside_any(box_a, boxes):
+    if not boxes:
+        return False
+    try:
+        from frigate.util.frame_rs import frame_rs_available, inside_any_rust
+
+        if frame_rs_available():
+            return inside_any_rust(box_a, boxes)
+    except Exception:
+        pass
+
     for box in boxes:
         # check if box_a is inside of box
         if box_inside(box, box_a):
@@ -393,6 +462,14 @@ def get_cluster_candidates(frame_shape, min_region, boxes):
     # determined by the max_region size minus half the box + 20%
     if len(boxes) == 0:
         return []
+
+    try:
+        from frigate.util.frame_rs import cluster_candidates_rust, frame_rs_available
+
+        if frame_rs_available():
+            return cluster_candidates_rust(frame_shape, min_region, boxes)
+    except Exception:
+        pass
 
     cluster_candidates = []
     used_boxes = set()
@@ -556,6 +633,26 @@ def reduce_detections(
 
             # sort smallest to largest by area
             sorted_by_area = sorted(group, key=lambda g: g[3])
+
+            try:
+                from frigate.util.frame_rs import (
+                    consolidate_detections_rust,
+                    frame_rs_available,
+                )
+
+                if frame_rs_available():
+                    current_label = sorted_by_area[0][0]
+                    thresh = LABEL_CONSOLIDATION_MAP.get(
+                        current_label, LABEL_CONSOLIDATION_DEFAULT
+                    )
+                    kept_idxs = consolidate_detections_rust(
+                        [d[2] for d in sorted_by_area], thresh
+                    )
+                    for idx in kept_idxs:
+                        consolidated_detections.append(sorted_by_area[idx])
+                    continue
+            except Exception:
+                pass
 
             for current_detection_idx in range(len(sorted_by_area)):
                 current_detection = sorted_by_area[current_detection_idx]
