@@ -190,7 +190,15 @@ class StationaryMotionClassifier:
         curr_crop = self._extract_y_crop(yuv_frame, anchor_box)
 
         # Compute appearance and motion metrics
-        ncc = cv2.matchTemplate(curr_crop, anchor_crop, cv2.TM_CCOEFF_NORMED)[0, 0]
+        try:
+            from frigate.util.frame_rs import frame_rs_available, ncc_u8_rust
+
+            if frame_rs_available():
+                ncc = ncc_u8_rust(curr_crop, anchor_crop)
+            else:
+                ncc = cv2.matchTemplate(curr_crop, anchor_crop, cv2.TM_CCOEFF_NORMED)[0, 0]
+        except Exception:
+            ncc = cv2.matchTemplate(curr_crop, anchor_crop, cv2.TM_CCOEFF_NORMED)[0, 0]
         a64 = anchor_crop.astype(np.float64) * self._hann2d
         c64 = curr_crop.astype(np.float64) * self._hann2d
         (shift_x, shift_y), _ = cv2.phaseCorrelate(a64, c64)

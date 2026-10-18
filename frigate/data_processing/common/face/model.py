@@ -127,7 +127,18 @@ class FaceRecognizer(ABC):
         ):
             return 0.0
 
-        variance = cv2.Laplacian(input, cv2.CV_64F).var()
+        try:
+            from frigate.util.frame_rs import (
+                frame_rs_available,
+                laplacian_variance_u8_rust,
+            )
+
+            if frame_rs_available():
+                variance = laplacian_variance_u8_rust(input)
+            else:
+                variance = cv2.Laplacian(input, cv2.CV_64F).var()
+        except Exception:
+            variance = cv2.Laplacian(input, cv2.CV_64F).var()
         logger.debug(f"face detected with blurriness {variance}")
 
         if variance < 120:  # image is very blurry
@@ -320,12 +331,29 @@ class FaceNetRecognizer(FaceRecognizer):
         runner_up: float = 0
         label = ""
 
-        for name, mean_emb in self.mean_embs.items():
-            dot_product = np.dot(embedding, mean_emb)
-            magnitude_A = np.linalg.norm(embedding)
-            magnitude_B = np.linalg.norm(mean_emb)
+        names = list(self.mean_embs.keys())
+        sims = None
+        try:
+            from frigate.util.frame_rs import (
+                batch_cosine_similarity_f32_rust,
+                frame_rs_available,
+            )
 
-            cosine_similarity = dot_product / (magnitude_A * magnitude_B)
+            if frame_rs_available() and names:
+                gallery = np.stack([self.mean_embs[n] for n in names], axis=0)
+                sims = batch_cosine_similarity_f32_rust(embedding, gallery)
+        except Exception:
+            sims = None
+
+        for i, name in enumerate(names):
+            if sims is not None:
+                cosine_similarity = float(sims[i])
+            else:
+                mean_emb = self.mean_embs[name]
+                dot_product = np.dot(embedding, mean_emb)
+                magnitude_A = np.linalg.norm(embedding)
+                magnitude_B = np.linalg.norm(mean_emb)
+                cosine_similarity = dot_product / (magnitude_A * magnitude_B)
             confidence = similarity_to_confidence(
                 cosine_similarity, median=0.5, range_width=0.6
             )
@@ -436,12 +464,29 @@ class ArcFaceRecognizer(FaceRecognizer):
         runner_up: float = 0
         label = ""
 
-        for name, mean_emb in self.mean_embs.items():
-            dot_product = np.dot(embedding, mean_emb)
-            magnitude_A = np.linalg.norm(embedding)
-            magnitude_B = np.linalg.norm(mean_emb)
+        names = list(self.mean_embs.keys())
+        sims = None
+        try:
+            from frigate.util.frame_rs import (
+                batch_cosine_similarity_f32_rust,
+                frame_rs_available,
+            )
 
-            cosine_similarity = dot_product / (magnitude_A * magnitude_B)
+            if frame_rs_available() and names:
+                gallery = np.stack([self.mean_embs[n] for n in names], axis=0)
+                sims = batch_cosine_similarity_f32_rust(embedding, gallery)
+        except Exception:
+            sims = None
+
+        for i, name in enumerate(names):
+            if sims is not None:
+                cosine_similarity = float(sims[i])
+            else:
+                mean_emb = self.mean_embs[name]
+                dot_product = np.dot(embedding, mean_emb)
+                magnitude_A = np.linalg.norm(embedding)
+                magnitude_B = np.linalg.norm(mean_emb)
+                cosine_similarity = dot_product / (magnitude_A * magnitude_B)
             confidence = similarity_to_confidence(cosine_similarity)
 
             if confidence > score:

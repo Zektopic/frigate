@@ -707,4 +707,72 @@ mod ffi_guard_tests {
             assert_eq!(v, u32::MAX, "wrote past the caller's buffer at index {i}");
         }
     }
+
+    #[test]
+    fn multipart_yolo_full_3scale_post_process() {
+        // Ported from test_rust_ffi_guards.py: three YOLOv5-style NCHW scales (80x80, 40x40, 20x20)
+        // with one planted detection at scale 0, anchor 0, y=10, x=12, class=3.
+        let mut s0 = vec![0.0f32; 255 * 80 * 80];
+        let s1 = vec![0.0f32; 255 * 40 * 40];
+        let s2 = vec![0.0f32; 255 * 20 * 20];
+        let cell_stride = 80 * 80;
+        let cell_idx = 10 * 80 + 12;
+        for ch in 0..4 {
+            s0[ch * cell_stride + cell_idx] = 0.5;
+        }
+        s0[4 * cell_stride + cell_idx] = 0.9; // obj_conf
+        s0[(5 + 3) * cell_stride + cell_idx] = 0.95; // class 3
+
+        let ptrs = [s0.as_ptr(), s1.as_ptr(), s2.as_ptr()];
+        let dims = [80u32, 80, 40, 40, 20, 20];
+        let mut out = vec![
+            Detection { class_id: 0, score: 0.0, y1: 0.0, x1: 0.0, y2: 0.0, x2: 0.0 };
+            MAX_DETECTIONS
+        ];
+        let n = unsafe {
+            yolo_post_process(
+                ptrs.as_ptr(),
+                dims.as_ptr(),
+                640.0,
+                640.0,
+                0.4,
+                0.4,
+                out.as_mut_ptr(),
+                MAX_DETECTIONS as u32,
+            )
+        };
+        assert_eq!(n, 1);
+        assert_eq!(out[0].class_id, 3);
+        assert!((out[0].score - 0.9 * 0.95).abs() < 1e-5);
+    }
+
+    #[test]
+    fn fuzz_yolo26_post_process_corrupted_tensors() {
+        // Ported from test_fuzzing.py: random noise (8400x84) and NaN/Inf tensors
+        let mut state = 0xCAFE_BABE_u64;
+        let mut rnd = || {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((state >> 40) as f32 / (1u64 << 24) as f32) * 20.0 - 10.0
+        };
+        let raw_noise: Vec<f32> = (0..(8400 * 84)).map(|_| rnd()).collect();
+        let mut out = vec![0.0f32; 20 * 6];
+        unsafe {
+            yolo26_post_process(
+                raw_noise.as_ptr(), 8400, 640.0, 1.0, 1.0, 0.5, 0.5, out.as_mut_ptr(),
+            );
+        }
+
+        let mut raw_corrupt = vec![0.0f32; 100 * 84];
+        for i in 0..100 {
+            raw_corrupt[i * 84] = f32::NAN;
+            raw_corrupt[i * 84 + 1] = f32::INFINITY;
+            raw_corrupt[i * 84 + 4] = 0.9;
+        }
+        unsafe {
+            yolo26_post_process(
+                raw_corrupt.as_ptr(), 100, 640.0, 1.0, 1.0, 0.4, 0.5, out.as_mut_ptr(),
+            );
+        }
+        assert!(out.iter().all(|v| v.is_finite()));
+    }
 }

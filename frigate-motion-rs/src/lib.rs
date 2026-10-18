@@ -1252,4 +1252,61 @@ mod ffi_guard_tests {
         unsafe { motion_init_average(frame.as_ptr(), avg.as_mut_ptr(), 4) };
         assert_eq!(avg, vec![7.0; 4], "the normal path still works");
     }
+
+    #[test]
+    fn pixel_pipeline_handles_tiny_frames() {
+        // Ported from test_rust_ffi_guards.py: (1,1), (1,7), (7,1), (3,5)
+        for (h, w) in [(1u32, 1u32), (1, 7), (7, 1), (3, 5)] {
+            let len = (h * w) as usize;
+            let mut frame: Vec<u8> = (0..len).map(|i| (i * 37 % 256) as u8).collect();
+            let avg = vec![0.0f32; len];
+            let mask = vec![0u8; len];
+            let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 8];
+            let mut area = 0.0f32;
+            let _ = unsafe {
+                motion_pixel_pipeline(
+                    frame.as_mut_ptr(),
+                    avg.as_ptr(),
+                    mask.as_ptr(),
+                    w,
+                    h,
+                    10,
+                    0,
+                    1,
+                    boxes.as_mut_ptr(),
+                    8,
+                    &mut area,
+                )
+            };
+            assert!(area <= len as f32);
+        }
+    }
+
+    #[test]
+    fn accumulate_weighted_boundary_values_and_resolutions() {
+        // Ported from test_motion_accumulator_rust.py
+        let src = vec![255u8; 64 * 64];
+        let mut avg = vec![0.0f32; 64 * 64];
+        unsafe {
+            motion_accumulate_weighted(src.as_ptr(), avg.as_mut_ptr(), 0.1, (64 * 64) as u32);
+        }
+        assert!(avg.iter().all(|&v| (v - 25.5).abs() < 1e-4));
+
+        for (h, w) in [(100usize, 100usize), (480, 640)] {
+            let len = h * w;
+            let src_r: Vec<u8> = (0..len).map(|i| (i.wrapping_mul(131) & 0xFF) as u8).collect();
+            for alpha in [0.01f32, 0.05, 0.2, 0.5] {
+                let mut avg_r: Vec<f32> = (0..len).map(|i| (i % 256) as f32).collect();
+                let want: Vec<f32> = (0..len)
+                    .map(|i| (1.0 - alpha) * avg_r[i] + alpha * src_r[i] as f32)
+                    .collect();
+                unsafe {
+                    motion_accumulate_weighted(src_r.as_ptr(), avg_r.as_mut_ptr(), alpha, len as u32);
+                }
+                for i in 0..len {
+                    assert!((avg_r[i] - want[i]).abs() < 1e-4);
+                }
+            }
+        }
+    }
 }
