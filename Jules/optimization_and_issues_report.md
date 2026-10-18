@@ -159,3 +159,10 @@ Based on the recent test run, the following areas have been identified for futur
 **Issue**: Tests targeting custom SQLite extensions (like `REGEXP` in `test_sqlitevecq_regexp.py`) fail natively because the extensions are not loaded in the standard Python `sqlite3` module.
 **Optimization Road Map**:
 - Ensure the native test harness either automatically builds and loads the required `.so` extension files via `conn.load_extension()` or explicitly skips these tests when not running inside the Docker environment.
+
+## Testing Video module (frigate/test/test_video.py)
+
+1. The test `test_video.py` initially fails when running with `python3 test_runner.py frigate/test/test_video.py` due to mocked `cv2` and `numpy`.
+2. I successfully bypassed this by providing actual `numpy` and `opencv-python-headless` instead of mocking it.
+3. Once those missing dependencies are available locally (and mocking is avoided), the unit tests inside `frigate/test/test_video.py` ran correctly without any errors (`Ran 17 tests in 0.002s OK`).
+4. Other tests fail mainly because of the way `sys.modules` are overridden inside `test_runner.py` for mocking. The mocked Pydantic setup causes cascading errors across different files.
