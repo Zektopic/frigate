@@ -266,3 +266,17 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+## Test Infrastructure & Mocking Improvements
+
+### 1. Robust Local Testing Environment
+- The custom `test_runner.py` relies heavily on `sys.modules` monkey-patching for heavy dependencies (`cv2`, `numpy`, `pydantic`, `peewee`). This leads to brittle unit tests that result in false negatives natively outside of Docker.
+- **Improvement:** Adopt standard `tox` or a lightweight `docker-compose` test container specifically for CI, avoiding manual `ModuleMock` overrides. For developers preferring to run tests natively, explicitly list requirements (e.g., `requirements-test.txt`) including headless versions of heavy dependencies (e.g., `opencv-python-headless`) rather than faking them out via `sys.modules`.
+
+### 2. Frontend Test Dependencies Update
+- Vitest execution flags several warnings regarding the deprecated `punycode` module.
+- **Improvement:** Audit frontend dependencies (`whatwg-url`, `tr46`, etc.) and bump major versions to remove `punycode` and modernize the dependency tree, improving frontend test stability and removing visual noise.
+
+### 3. Better Pydantic Mocks or Removal of Mocks
+- Mocking Pydantic's `BaseModel` and `ValidationError` dynamically inside `test_runner.py` completely bypasses core configuration validation, which makes `test_profiles.py` and similar tests fail or lose assertion value.
+- **Improvement:** Let tests inherently use the real `pydantic` package. Use local virtual environments with `pip install -r requirements.txt` rather than complex `sys.modules` patching for standard Python libraries.
