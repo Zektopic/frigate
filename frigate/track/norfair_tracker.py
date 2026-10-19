@@ -4,8 +4,8 @@ import string
 from typing import Any, Sequence, cast
 
 import cv2
-import numpy as np
 import norfair.distances as _norfair_distances
+import numpy as np
 from norfair.drawing.draw_boxes import draw_boxes
 from norfair.drawing.drawer import Drawable, Drawer
 from norfair.filter import OptimizedKalmanFilterFactory
