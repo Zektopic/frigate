@@ -204,7 +204,9 @@ def yolo26_post_process(
 
     arr = np.squeeze(raw) if raw.ndim >= 3 else raw
     if arr.ndim != 2 or (arr.shape[0] != 84 and arr.shape[1] != 84):
-        raise ValueError(f"expected a (84, N) or (N, 84) YOLO26 tensor, got {raw.shape}")
+        raise ValueError(
+            f"expected a (84, N) or (N, 84) YOLO26 tensor, got {raw.shape}"
+        )
     if arr.shape[0] == 84 and arr.shape[1] != 84:
         arr = arr.T
     raw_flat = np.ascontiguousarray(arr, dtype=np.float32).ravel()

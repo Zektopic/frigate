@@ -196,7 +196,9 @@ class StationaryMotionClassifier:
             if frame_rs_available():
                 ncc = ncc_u8_rust(curr_crop, anchor_crop)
             else:
-                ncc = cv2.matchTemplate(curr_crop, anchor_crop, cv2.TM_CCOEFF_NORMED)[0, 0]
+                ncc = cv2.matchTemplate(curr_crop, anchor_crop, cv2.TM_CCOEFF_NORMED)[
+                    0, 0
+                ]
         except Exception:
             ncc = cv2.matchTemplate(curr_crop, anchor_crop, cv2.TM_CCOEFF_NORMED)[0, 0]
         a64 = anchor_crop.astype(np.float64) * self._hann2d

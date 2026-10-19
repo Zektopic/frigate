@@ -63,6 +63,24 @@ class BaseEmbedding(ABC):
             return np.ascontiguousarray(frame[:, :, ::-1])
         return frame
 
+    def _to_rgb_u8(self, raw: Any) -> np.ndarray:
+        """Any face input -> RGB uint8 HWC array.
+
+        NumPy arrays are treated as BGR (OpenCV crops and cv2.imread library
+        images); bytes, paths, URLs and PIL images are decoded to RGB.
+        """
+        if isinstance(raw, np.ndarray):
+            img = raw
+            if img.ndim == 2:
+                img = np.repeat(img[:, :, None], 3, axis=2)
+            else:
+                # drop alpha (BGRA), then BGR -> RGB
+                img = self._bgr_to_rgb(img[:, :, :3])
+            if img.dtype != np.uint8:
+                img = np.clip(img, 0, 255).astype(np.uint8)
+            return np.ascontiguousarray(img)
+        return np.asarray(self._process_image(raw).convert("RGB"), dtype=np.uint8)
+
     def _process_image(self, image, output: str = "RGB") -> Image.Image:
         if isinstance(image, str):
             if image.startswith("http"):

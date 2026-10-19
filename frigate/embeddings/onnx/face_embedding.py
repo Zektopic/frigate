@@ -28,6 +28,80 @@ ARCFACE_INPUT_SIZE = 112
 FACENET_INPUT_SIZE = 160
 
 
+def bilinear_resize_u8_numpy(img: np.ndarray, dst_w: int, dst_h: int) -> np.ndarray:
+    """Exact NumPy port of the Rust `bilinear_resize_u8` kernel (frigate-frame-rs).
+
+    Same sampling (top-left aligned, ``src = dst * scale``), same f32
+    arithmetic and the same truncating cast to uint8, so embeddings don't
+    depend on whether the Rust library is available.
+    """
+    src_h, src_w = img.shape[:2]
+    if src_w == dst_w and src_h == dst_h:
+        return img.copy()
+
+    sx = np.arange(dst_w, dtype=np.float64) * (src_w / dst_w)
+    sy = np.arange(dst_h, dtype=np.float64) * (src_h / dst_h)
+    x0 = np.minimum(sx.astype(np.int64), src_w - 1)
+    y0 = np.minimum(sy.astype(np.int64), src_h - 1)
+    x1 = np.minimum(x0 + 1, src_w - 1)
+    y1 = np.minimum(y0 + 1, src_h - 1)
+    fx = (sx - x0).astype(np.float32)
+    fy = (sy - y0).astype(np.float32)
+
+    src = img.astype(np.float32)
+    if src.ndim == 2:
+        src = src[:, :, None]
+    fx = fx[None, :, None]
+    fy = fy[:, None, None]
+
+    v00 = src[y0][:, x0]
+    v10 = src[y0][:, x1]
+    v01 = src[y1][:, x0]
+    v11 = src[y1][:, x1]
+    top = v00 + (v10 - v00) * fx
+    bot = v01 + (v11 - v01) * fx
+    out = top + (bot - top) * fy
+    # Rust `as u8` truncates toward zero and saturates
+    out = np.clip(out, 0, 255).astype(np.uint8)
+    return out[:, :, 0] if img.ndim == 2 else out
+
+
+def _resize_u8(img: np.ndarray, dst_w: int, dst_h: int) -> np.ndarray:
+    """Resize with the Rust kernel when available, else its exact NumPy port."""
+    try:
+        from frigate.util.frame_rs import bilinear_resize_u8_rust, frame_rs_available
+
+        if frame_rs_available():
+            return bilinear_resize_u8_rust(img, dst_w, dst_h)
+    except (ImportError, OSError, RuntimeError, ValueError):
+        pass
+    return bilinear_resize_u8_numpy(img, dst_w, dst_h)
+
+
+def letterbox_face_u8(rgb: np.ndarray, target_size: int) -> np.ndarray:
+    """Fit an RGB uint8 face crop into a square, centered, normalized to [-1, 1].
+
+    Returns float32 HWC. Every input (live crops, library images, API
+    uploads) goes through this, so they are embedded identically.
+    """
+    height, width = rgb.shape[:2]
+    if width != target_size or height != target_size:
+        if width > height:
+            new_w = target_size
+            new_h = int(((height / width) * target_size) // 4 * 4)
+        else:
+            new_w = int(((width / height) * target_size) // 4 * 4)
+            new_h = target_size
+        rgb = _resize_u8(rgb, max(new_w, 1), max(new_h, 1))
+
+    og_h, og_w, channels = rgb.shape
+    frame = np.zeros((target_size, target_size, channels), dtype=np.float32)
+    x_center = (target_size - og_w) // 2
+    y_center = (target_size - og_h) // 2
+    frame[y_center : y_center + og_h, x_center : x_center + og_w] = rgb
+    return (frame / 127.5) - 1.0
+
+
 class FaceNetEmbedding(BaseEmbedding):
     def __init__(self):
         GITHUB_ENDPOINT = os.environ.get("GITHUB_ENDPOINT", "https://github.com")
@@ -76,56 +150,7 @@ class FaceNetEmbedding(BaseEmbedding):
             self.tensor_output_details = self.runner.get_output_details()
 
     def _resize_and_letterbox(self, raw_input, target_size: int) -> np.ndarray:
-        rgb_input = self._bgr_to_rgb(raw_input)
-        og = None
-
-        if (
-            isinstance(rgb_input, np.ndarray)
-            and rgb_input.ndim == 3
-            and rgb_input.dtype == np.uint8
-        ):
-            try:
-                from frigate.util.frame_rs import (
-                    bilinear_resize_u8_rust,
-                    frame_rs_available,
-                )
-
-                if frame_rs_available():
-                    height, width, _ = rgb_input.shape
-                    if width != target_size or height != target_size:
-                        if width > height:
-                            new_w = target_size
-                            new_h = int(((height / width) * target_size) // 4 * 4)
-                        else:
-                            new_w = int(((width / height) * target_size) // 4 * 4)
-                            new_h = target_size
-                        if new_w > 0 and new_h > 0:
-                            og = bilinear_resize_u8_rust(
-                                rgb_input, new_w, new_h
-                            ).astype(np.float32)
-                    else:
-                        og = rgb_input.astype(np.float32)
-            except Exception:
-                og = None
-
-        if og is None:
-            pil = self._process_image(rgb_input)
-            width, height = pil.size
-            if width != target_size or height != target_size:
-                if width > height:
-                    new_height = int(((height / width) * target_size) // 4 * 4)
-                    pil = pil.resize((target_size, new_height))
-                else:
-                    new_width = int(((width / height) * target_size) // 4 * 4)
-                    pil = pil.resize((new_width, target_size))
-            og = np.array(pil).astype(np.float32)
-
-        og_h, og_w, channels = og.shape
-        frame = np.zeros((target_size, target_size, channels), dtype=np.float32)
-        x_center = (target_size - og_w) // 2
-        y_center = (target_size - og_h) // 2
-        frame[y_center : y_center + og_h, x_center : x_center + og_w] = og
-        return (frame / 127.5) - 1.0
+        return letterbox_face_u8(self._to_rgb_u8(raw_input), target_size)
 
     def _preprocess_inputs(self, raw_inputs):
         frame = self._resize_and_letterbox(raw_inputs[0], FACENET_INPUT_SIZE)
@@ -184,85 +209,7 @@ class ArcfaceEmbedding(BaseEmbedding):
             )
 
     def _preprocess_inputs(self, raw_inputs):
-        rgb_input = self._bgr_to_rgb(raw_inputs[0])
-        og = None
-
-        if (
-            isinstance(rgb_input, np.ndarray)
-            and rgb_input.ndim == 3
-            and rgb_input.dtype == np.uint8
-        ):
-            try:
-                from frigate.util.frame_rs import (
-                    bilinear_resize_u8_rust,
-                    frame_rs_available,
-                    nhwc_to_nchw_f32_rust,
-                )
-
-                if frame_rs_available():
-                    height, width, _ = rgb_input.shape
-                    if width != ARCFACE_INPUT_SIZE or height != ARCFACE_INPUT_SIZE:
-                        if width > height:
-                            new_w = ARCFACE_INPUT_SIZE
-                            new_h = int(((height / width) * ARCFACE_INPUT_SIZE) // 4 * 4)
-                        else:
-                            new_w = int(((width / height) * ARCFACE_INPUT_SIZE) // 4 * 4)
-                            new_h = ARCFACE_INPUT_SIZE
-                        if new_w > 0 and new_h > 0:
-                            og = bilinear_resize_u8_rust(
-                                rgb_input, new_w, new_h
-                            ).astype(np.float32)
-                    else:
-                        og = rgb_input.astype(np.float32)
-
-                    if og is not None:
-                        og_h, og_w, channels = og.shape
-                        frame = np.zeros(
-                            (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE, channels),
-                            dtype=np.float32,
-                        )
-                        x_center = (ARCFACE_INPUT_SIZE - og_w) // 2
-                        y_center = (ARCFACE_INPUT_SIZE - og_h) // 2
-                        frame[
-                            y_center : y_center + og_h, x_center : x_center + og_w
-                        ] = og
-                        frame = (frame / 127.5) - 1.0
-                        frame = nhwc_to_nchw_f32_rust(frame)
-                        frame = np.expand_dims(frame, axis=0)
-                        return [{"data": frame}]
-            except Exception:
-                og = None
-
-        pil = self._process_image(rgb_input)
-
-        # handle images larger than input size
-        width, height = pil.size
-        if width != ARCFACE_INPUT_SIZE or height != ARCFACE_INPUT_SIZE:
-            if width > height:
-                new_height = int(((height / width) * ARCFACE_INPUT_SIZE) // 4 * 4)
-                pil = pil.resize((ARCFACE_INPUT_SIZE, new_height))
-            else:
-                new_width = int(((width / height) * ARCFACE_INPUT_SIZE) // 4 * 4)
-                pil = pil.resize((new_width, ARCFACE_INPUT_SIZE))
-
-        og = np.array(pil).astype(np.float32)
-
-        # Image must be FACE_EMBEDDING_SIZExFACE_EMBEDDING_SIZE
-        og_h, og_w, channels = og.shape
-        frame = np.zeros(
-            (ARCFACE_INPUT_SIZE, ARCFACE_INPUT_SIZE, channels), dtype=np.float32
-        )
-
-        # compute center offset
-        x_center = (ARCFACE_INPUT_SIZE - og_w) // 2
-        y_center = (ARCFACE_INPUT_SIZE - og_h) // 2
-
-        # copy img image into center of result image
-        frame[y_center : y_center + og_h, x_center : x_center + og_w] = og
-
-        # run arcface normalization
-        frame = (frame / 127.5) - 1.0
-
-        frame = np.transpose(frame, (2, 0, 1))
+        frame = letterbox_face_u8(self._to_rgb_u8(raw_inputs[0]), ARCFACE_INPUT_SIZE)
+        frame = np.ascontiguousarray(np.transpose(frame, (2, 0, 1)))
         frame = np.expand_dims(frame, axis=0)
         return [{"data": frame}]
