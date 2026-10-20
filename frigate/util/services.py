@@ -21,10 +21,12 @@ import py3nvml.py3nvml as nvml
 import requests
 
 from frigate.const import (
+    DEFAULT_SHM_FRAMES,
     DRIVER_AMD,
     DRIVER_ENV_VAR,
     FFMPEG_HWACCEL_NVIDIA,
     FFMPEG_HWACCEL_VAAPI,
+    LOW_RESOURCE_SHM_FRAMES,
     SHM_FRAMES_VAR,
 )
 from frigate.util.builtin import clean_camera_user_pass, escape_special_characters
@@ -1339,6 +1341,30 @@ def get_fs_type(path: str) -> str:
     return fsType
 
 
+def get_requested_shm_frame_count(config) -> int:
+    """Return how many shared memory frames each camera should get.
+
+    Precedence: ``low_resource.shm_frames`` > ``SHM_MAX_FRAMES`` env var >
+    the low-resource default (when enabled) > the regular default.
+    """
+    low_resource = getattr(config, "low_resource", None)
+
+    if low_resource is not None and low_resource.shm_frames is not None:
+        return int(low_resource.shm_frames)
+
+    env_value = os.environ.get(SHM_FRAMES_VAR)
+    if env_value:
+        try:
+            return int(env_value)
+        except ValueError:
+            logger.warning("Ignoring invalid %s value %r", SHM_FRAMES_VAR, env_value)
+
+    if low_resource is not None and low_resource.enabled:
+        return LOW_RESOURCE_SHM_FRAMES
+
+    return DEFAULT_SHM_FRAMES
+
+
 def calculate_shm_requirements(config) -> dict:
     try:
         storage_stats = shutil.disk_usage("/dev/shm")
@@ -1371,8 +1397,9 @@ def calculate_shm_requirements(config) -> dict:
         1,
     )
 
+    requested_frame_count = get_requested_shm_frame_count(config)
     shm_frame_count = min(
-        int(os.environ.get(SHM_FRAMES_VAR, "50")),
+        requested_frame_count,
         int(available_shm / cam_total_frame_size),
     )
 
@@ -1387,5 +1414,6 @@ def calculate_shm_requirements(config) -> dict:
         "available": round(available_shm, 1),
         "camera_frame_size": cam_total_frame_size,
         "shm_frame_count": shm_frame_count,
+        "requested_frame_count": requested_frame_count,
         "min_shm": min_shm,
     }

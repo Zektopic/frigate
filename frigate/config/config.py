@@ -66,6 +66,7 @@ from .classification import (
 from .database import DatabaseConfig
 from .env import EnvVars
 from .logger import LoggerConfig
+from .low_resource import LowResourceConfig, apply_low_resource_defaults
 from .mqtt import MqttConfig
 from .network import NetworkingConfig
 from .profile import ProfileDefinitionConfig
@@ -605,6 +606,12 @@ class FrigateConfig(FrigateBaseModel):
         description="Configuration for named camera groups used to organize cameras in the UI.",
     )
 
+    low_resource: LowResourceConfig = Field(
+        default_factory=LowResourceConfig,
+        title="Low-resource mode",
+        description="Tuning for small hosts (old dual/quad-core CPUs, 2-4 GB RAM, Raspberry Pi class boards).",
+    )
+
     profiles: Dict[str, ProfileDefinitionConfig] = Field(
         default_factory=dict,
         title="Profiles",
@@ -623,6 +630,14 @@ class FrigateConfig(FrigateBaseModel):
     @property
     def plus_api(self) -> PlusApi:
         return self._plus_api
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_low_resource_mode(cls, data: Any) -> Any:
+        # Fill cheaper defaults into the raw config before field validation
+        # so they behave exactly like user-set globals (and propagate to
+        # cameras), while explicit user values still win.
+        return apply_low_resource_defaults(data)
 
     @model_validator(mode="after")
     def post_validation(self, info: ValidationInfo) -> Self:
