@@ -117,6 +117,7 @@ const sidebars: SidebarsConfig = {
           "configuration/authentication",
           "configuration/notifications",
           "configuration/profiles",
+          "configuration/low_resource",
           "configuration/go2rtc",
           "configuration/ffmpeg_presets",
           "configuration/pwa",
