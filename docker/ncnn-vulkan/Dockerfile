@@ -41,7 +41,10 @@ RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 # Final stage
 FROM ghcr.io/blakeblackshear/frigate:stable
-RUN pip install --break-system-packages --no-deps ncnn portalocker tqdm
+# Pinned: --no-deps skips resolver checks, so an unpinned upgrade could
+# silently pull an incompatible or compromised release into the image
+RUN pip install --break-system-packages --no-deps \
+    ncnn==1.0.20260526 portalocker==4.4.1 tqdm==4.70.1
 
 # Copy Rust detector and libraries from builder
 COPY --from=ncnn-builder /libncnn.so /opt/frigate/libncnn.so

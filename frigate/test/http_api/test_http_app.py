@@ -90,6 +90,54 @@ class TestHttpApp(BaseTestHttp):
             mqtt = response.json()["mqtt"]
             assert mqtt["password"] == REDACTED_CREDENTIAL_SENTINEL
 
+    def _config_with_go2rtc_credentials(self):
+        self.minimal_config["go2rtc"] = {
+            "streams": {"front": "rtsp://john.doe:streampass@10.0.0.2:554/live"},
+            "rtsp": {"username": "restream", "password": "rtsppass"},
+            "api": {"username": "api", "password": "apipass"},
+            "webrtc": {
+                "ice_servers": [
+                    {
+                        "urls": ["turn:turn.example.com:3478"],
+                        "username": "turnuser",
+                        "credential": "turnpass",
+                    }
+                ]
+            },
+        }
+        return super().create_app()
+
+    def test_config_response_hides_go2rtc_credentials_from_viewer(self):
+        app = self._config_with_go2rtc_credentials()
+
+        with AuthTestClient(app) as client:
+            response = client.get(
+                "/config",
+                headers={"remote-user": "viewer", "remote-role": "viewer"},
+            )
+            assert response.status_code == 200
+            body = response.text
+            for secret in ("streampass", "rtsppass", "apipass", "turnpass"):
+                assert secret not in body, secret
+            go2rtc = response.json()["go2rtc"]
+            assert go2rtc["rtsp"]["password"] == REDACTED_CREDENTIAL_SENTINEL
+            assert go2rtc["api"]["password"] == REDACTED_CREDENTIAL_SENTINEL
+            assert (
+                go2rtc["webrtc"]["ice_servers"][0]["credential"]
+                == REDACTED_CREDENTIAL_SENTINEL
+            )
+
+    def test_config_response_keeps_go2rtc_listener_credentials_for_admin(self):
+        app = self._config_with_go2rtc_credentials()
+
+        with AuthTestClient(app) as client:
+            response = client.get("/config")
+            assert response.status_code == 200
+            go2rtc = response.json()["go2rtc"]
+            assert go2rtc["rtsp"]["password"] == "rtsppass"
+            # stream urls are always masked, even for admin
+            assert "streampass" not in response.text
+
     ####################################################################################################################
     ###################################  POST /genai/probe Endpoint   ##################################################
     ####################################################################################################################
