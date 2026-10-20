@@ -175,7 +175,10 @@ class TrackedObject:
                     thumb_update = True
                 else:
                     logger.debug(
-                        f"{self.camera_config.name}: Object frame time {obj_data['frame_time']} is not equal to the current frame time {current_frame_time}, not updating thumbnail"
+                        "%s: Object frame time %s is not equal to the current frame time %s, not updating thumbnail",
+                        self.camera_config.name,
+                        obj_data["frame_time"],
+                        current_frame_time,
                     )
 
         # check zones
@@ -246,14 +249,28 @@ class TrackedObject:
                         ):
                             in_speed_zone = True
 
-                        logger.debug(
-                            f"Camera: {self.camera_config.name}, tracked object ID: {self.obj_data['id']}, "
-                            f"zone: {name}, pixel velocity: {str(tuple(np.round(self.obj_data['estimate_velocity']).flatten().astype(int)))}, "
-                            f"speed magnitude: {speed_magnitude}, velocity angle: {self.velocity_angle}, "
-                            f"estimated speed: {self.current_estimated_speed:.1f}, "
-                            f"average speed: {self.average_estimated_speed:.1f}, "
-                            f"length: {len(self.speed_history)}"
-                        )
+                        # the pixel velocity summary costs several numpy calls,
+                        # so only build it when debug logging is on
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Camera: %s, tracked object ID: %s, zone: %s, "
+                                "pixel velocity: %s, speed magnitude: %s, "
+                                "velocity angle: %s, estimated speed: %.1f, "
+                                "average speed: %.1f, length: %d",
+                                self.camera_config.name,
+                                self.obj_data["id"],
+                                name,
+                                tuple(
+                                    np.round(self.obj_data["estimate_velocity"])
+                                    .flatten()
+                                    .astype(int)
+                                ),
+                                speed_magnitude,
+                                self.velocity_angle,
+                                self.current_estimated_speed,
+                                self.average_estimated_speed,
+                                len(self.speed_history),
+                            )
 
                     # Check zone entry conditions - for speed zones, require both inertia and speed
                     if zone_score >= zone.inertia:
@@ -272,8 +289,7 @@ class TrackedObject:
 
                         # loitering time is configured as seconds, convert to count of frames
                         if loitering_score >= (
-                            self.camera_config.zones[name].loitering_time
-                            * self.camera_config.detect.fps
+                            zone.loitering_time * self.camera_config.detect.fps
                         ):
                             current_zones.append(name)
 
@@ -374,13 +390,22 @@ class TrackedObject:
                     self.path_data.append((bottom_center, obj_data["frame_time"]))
                     path_update = True
                     logger.debug(
-                        f"Point tracking: {obj_data['id']}, {bottom_center}, {obj_data['frame_time']}"
+                        "Point tracking: %s, %s, %s",
+                        obj_data["id"],
+                        bottom_center,
+                        obj_data["frame_time"],
                     )
 
         self.obj_data.update(obj_data)
         self.current_zones = current_zones
         logger.debug(
-            f"{self.camera_config.name}: Updating {obj_data['id']}: thumb update? {thumb_update}, significant change? {significant_change}, path update? {path_update}, autotracker update? {autotracker_update} "
+            "%s: Updating %s: thumb update? %s, significant change? %s, path update? %s, autotracker update? %s",
+            self.camera_config.name,
+            obj_data["id"],
+            thumb_update,
+            significant_change,
+            path_update,
+            autotracker_update,
         )
         return (thumb_update, significant_change, path_update, autotracker_update)
 
