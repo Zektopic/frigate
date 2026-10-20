@@ -1,7 +1,8 @@
-/// SIMD-accelerated YOLO post-processing for Frigate NVR.
-///
-/// Replaces the pure-Python nested loops in `__post_process_multipart_yolo`
-/// and `_nms` with vectorized Rust.  Exposes a flat C ABI for Python `ctypes`.
+//! YOLO post-processing for Frigate NVR.
+//!
+//! Replaces the pure-Python nested loops in `__post_process_multipart_yolo`
+//! and `_nms` with Rust.  Exposes a flat C ABI for Python `ctypes`
+//! (see `frigate/detectors/rust_yolo.py`).
 
 // ── C ABI types ────────────────────────────────────────────────────
 
@@ -34,27 +35,38 @@ const STRIDES: [f32; 3] = [8.0, 16.0, 32.0];
 
 // ── YOLO multipart grid decoding ───────────────────────────────────
 
+/// Pixel-space box `(x1, y1, x2, y2)`.
+type PixelBox = (f32, f32, f32, f32);
+
+/// Detection candidates accumulated across output scales, before NMS.
+#[derive(Default)]
+struct Candidates {
+    boxes: Vec<PixelBox>,
+    scores: Vec<f32>,
+    class_ids: Vec<i32>,
+}
+
+/// Decode one `(3 * 85, ny, nx)` YOLO output scale and append every cell
+/// whose `objectness * best class score` reaches `score_thresh` to `out`.
+///
+/// `grid` is `(ny, nx)` and `frame` is the `(width, height)` boxes are
+/// clipped to.
 #[inline(always)]
 fn decode_yolo_scale(
     output: &[f32],
-    ny: usize,
-    nx: usize,
+    grid: (usize, usize),
     stride: f32,
     anchors: &[(f32, f32); 3],
-    width: f32,
-    height: f32,
+    frame: (f32, f32),
     score_thresh: f32,
-) -> (Vec<(f32, f32, f32, f32)>, Vec<f32>, Vec<i32>) {
-    let mut boxes = Vec::with_capacity(1024);
-    let mut scores = Vec::with_capacity(1024);
-    let mut class_ids = Vec::with_capacity(1024);
-
-    let num_anchors = 3;
+    out: &mut Candidates,
+) {
+    let (ny, nx) = grid;
+    let (width, height) = frame;
     let cell_stride = ny * nx;
     let per_anchor_stride = 85 * cell_stride;
 
-    for a_idx in 0..num_anchors {
-        let (anchor_w, anchor_h) = anchors[a_idx];
+    for (a_idx, &(anchor_w, anchor_h)) in anchors.iter().enumerate() {
         let anchor_base = a_idx * per_anchor_stride;
         let obj_conf_base = anchor_base + 4 * cell_stride;
 
@@ -106,14 +118,12 @@ fn decode_yolo_scale(
                     continue;
                 }
 
-                boxes.push((x1, y1, x2, y2));
-                scores.push(conf);
-                class_ids.push(best_class);
+                out.boxes.push((x1, y1, x2, y2));
+                out.scores.push(conf);
+                out.class_ids.push(best_class);
             }
         }
     }
-
-    (boxes, scores, class_ids)
 }
 
 // ── Greedy NMS ─────────────────────────────────────────────────────
@@ -181,11 +191,29 @@ fn box_iou(a: &(f32, f32, f32, f32), b: &(f32, f32, f32, f32), area_a: f32, area
     let h = (yy2 - yy1).max(0.0);
     let inter = w * h;
     let denom = area_a + area_b - inter;
-    if denom <= 0.0 { 0.0 } else { inter / denom }
+    if denom <= 0.0 {
+        0.0
+    } else {
+        inter / denom
+    }
 }
 
 // ── Public C ABI ───────────────────────────────────────────────────
 
+/// Decode the three YOLO (v3/v4/v5-style, 3 anchors × 85 channels) output
+/// scales, run class-agnostic greedy NMS and write up to `max_dets`
+/// detections with coordinates normalized by `width` / `height`.
+///
+/// Returns the number of detections written.
+///
+/// # Safety
+/// * `ny_nx` must be valid for reads of 6 `u32`s: `(ny, nx)` per scale.
+/// * `outputs` must be valid for reads of 3 pointers.  Each must be null
+///   (the scale is skipped) or valid for reads of `ny * nx * 3 * 85` `f32`s,
+///   using that scale's `(ny, nx)`.
+/// * `out_dets` must be valid for writes of `max_dets` [`Detection`]s.
+///
+/// A null `outputs`, `ny_nx` or `out_dets`, or `max_dets == 0`, returns 0.
 #[no_mangle]
 pub unsafe extern "C" fn yolo_post_process(
     outputs: *const *const f32,
@@ -202,9 +230,7 @@ pub unsafe extern "C" fn yolo_post_process(
     }
 
     let dims = std::slice::from_raw_parts(ny_nx, 6);
-    let mut all_boxes: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(4096);
-    let mut all_scores: Vec<f32> = Vec::with_capacity(4096);
-    let mut all_class_ids: Vec<i32> = Vec::with_capacity(4096);
+    let mut candidates = Candidates::default();
 
     for scale in 0..3 {
         let ny = dims[scale * 2] as usize;
@@ -218,15 +244,22 @@ pub unsafe extern "C" fn yolo_post_process(
         }
         let output = std::slice::from_raw_parts(scale_ptr, len);
 
-        let (boxes, scores, class_ids) = decode_yolo_scale(
-            output, ny, nx, STRIDES[scale], &ANCHORS[scale],
-            width, height, score_thresh,
+        decode_yolo_scale(
+            output,
+            (ny, nx),
+            STRIDES[scale],
+            &ANCHORS[scale],
+            (width, height),
+            score_thresh,
+            &mut candidates,
         );
-        all_boxes.extend(boxes);
-        all_scores.extend(scores);
-        all_class_ids.extend(class_ids);
     }
 
+    let Candidates {
+        boxes: all_boxes,
+        scores: all_scores,
+        class_ids: all_class_ids,
+    } = candidates;
     let keep = greedy_nms(&all_boxes, &all_scores, iou_thresh, max_dets as usize);
     let n = keep.len().min(max_dets as usize);
     let out = std::slice::from_raw_parts_mut(out_dets, n);
@@ -244,6 +277,17 @@ pub unsafe extern "C" fn yolo_post_process(
     n as u32
 }
 
+/// Greedy NMS over `n` boxes; writes the kept indices, best score first.
+///
+/// Returns the number of indices written (at most `max_indices`).  Boxes
+/// with a NaN score are never kept.
+///
+/// # Safety
+/// * `boxes` must be valid for reads of `n * 4` `f32`s (`x1, y1, x2, y2`).
+/// * `scores` must be valid for reads of `n` `f32`s.
+/// * `out_indices` must be valid for writes of `max_indices` `u32`s.
+///
+/// Null pointers, `n == 0` or `max_indices == 0` return 0.
 #[no_mangle]
 pub unsafe extern "C" fn nms_boxes(
     boxes: *const f32,
@@ -266,7 +310,7 @@ pub unsafe extern "C" fn nms_boxes(
     let b = std::slice::from_raw_parts(boxes, n * 4);
     let s = std::slice::from_raw_parts(scores, n);
     let boxes_vec: Vec<(f32, f32, f32, f32)> = (0..n)
-        .map(|i| (b[i*4], b[i*4+1], b[i*4+2], b[i*4+3]))
+        .map(|i| (b[i * 4], b[i * 4 + 1], b[i * 4 + 2], b[i * 4 + 3]))
         .collect();
     let keep: Vec<usize> = greedy_nms(&boxes_vec, s, iou_threshold, max_indices)
         .into_iter()
@@ -285,12 +329,16 @@ pub unsafe extern "C" fn nms_boxes(
     written as u32
 }
 
-
 // ── YOLO26 decoded-output post-processing ──────────────────────────
 
 /// Post-process YOLO26 decoded output: bbox conversion + NMS.
 /// Input: raw (84, N) f32 — rows 0-3 are cx,cy,w,h, rows 4-83 are class scores.
 /// Output: (20, 6) f32 in Frigate format [class_id, score, x1, y1, x2, y2].
+///
+/// # Safety
+/// * `out_dets` must be null (nothing is done) or valid for writes of
+///   `MAX_DETECTIONS * 6` (= 120) `f32`s; it is always zeroed first.
+/// * `raw` must be null or valid for reads of `n * 84` `f32`s.
 #[no_mangle]
 pub unsafe extern "C" fn yolo26_post_process(
     raw: *const f32,
@@ -300,7 +348,7 @@ pub unsafe extern "C" fn yolo26_post_process(
     frame_h: f32,
     score_thresh: f32,
     nms_thresh: f32,
-    out_dets: *mut f32,  // (20, 6) pre-allocated
+    out_dets: *mut f32, // (20, 6) pre-allocated
 ) {
     let n = n as usize;
 
@@ -312,7 +360,9 @@ pub unsafe extern "C" fn yolo26_post_process(
 
     // Zero output first, so every early return below leaves the caller
     // with a well-defined "no detections" result.
-    for v in out.iter_mut() { *v = 0.0; }
+    for v in out.iter_mut() {
+        *v = 0.0;
+    }
 
     // Form the input slice only once we know it is non-null and
     // non-empty — from_raw_parts on a null pointer is UB even for a
@@ -339,27 +389,39 @@ pub unsafe extern "C" fn yolo26_post_process(
         let x2 = (cx + bw / 2.0).min(model_size);
         let y2 = (cy + bh / 2.0).min(model_size);
 
-        if x2 <= x1 || y2 <= y1 { continue; }
+        if x2 <= x1 || y2 <= y1 {
+            continue;
+        }
 
         // Find best class score
         let mut best_class: i32 = 0;
         let mut best_score: f32 = 0.0;
         for c in 0..80 {
             let s = raw[base + 4 + c];
-            if s > best_score { best_score = s; best_class = c as i32; }
+            if s > best_score {
+                best_score = s;
+                best_class = c as i32;
+            }
         }
 
-        if best_score < score_thresh { continue; }
+        if best_score < score_thresh {
+            continue;
+        }
 
         boxes.push((x1, y1, x2, y2));
         best_scores.push(best_score);
         class_ids.push(best_class);
     }
 
-    if boxes.is_empty() { return; }
+    if boxes.is_empty() {
+        return;
+    }
 
     // Step 2: NMS (greedy, same algorithm as Python worker)
-    let areas: Vec<f32> = boxes.iter().map(|(x1,y1,x2,y2)| (x2-x1)*(y2-y1)).collect();
+    let areas: Vec<f32> = boxes
+        .iter()
+        .map(|(x1, y1, x2, y2)| (x2 - x1) * (y2 - y1))
+        .collect();
     let mut order: Vec<usize> = (0..boxes.len()).collect();
     order.sort_unstable_by(|&a, &b| score_desc(best_scores[a], best_scores[b]));
 
@@ -368,7 +430,9 @@ pub unsafe extern "C" fn yolo26_post_process(
     let sy = frame_h / model_size;
 
     for &i in &order {
-        if keep.len() >= 20 { break; }
+        if keep.len() >= 20 {
+            break;
+        }
         let mut suppressed = false;
         for &j in &keep {
             let (ax1, ay1, ax2, ay2) = boxes[i];
@@ -381,7 +445,10 @@ pub unsafe extern "C" fn yolo26_post_process(
             let h = (yy2 - yy1).max(0.0);
             let inter = w * h;
             let iou = inter / (areas[i] + areas[j] - inter);
-            if iou > nms_thresh { suppressed = true; break; }
+            if iou > nms_thresh {
+                suppressed = true;
+                break;
+            }
         }
         if !suppressed {
             keep.push(i);
@@ -443,40 +510,57 @@ mod tests {
         let cell_stride = ny * nx;
         let mut output = vec![0.0f32; 3 * 85 * cell_stride];
         let cell_idx = 5 * nx + 5;
-        output[0 * cell_stride + cell_idx] = 0.0; // dx
-        output[1 * cell_stride + cell_idx] = 0.0; // dy
-        output[2 * cell_stride + cell_idx] = 0.5; // dw
-        output[3 * cell_stride + cell_idx] = 0.5; // dh
-        output[4 * cell_stride + cell_idx] = 0.9; // obj_conf
-        output[5 * cell_stride + cell_idx] = 1.0; // class 0
+        // channel-major layout: channel c of this cell is at c * cell_stride
+        let channels = [0.0, 0.0, 0.5, 0.5, 0.9, 1.0]; // dx, dy, dw, dh, obj, class 0
+        for (c, &v) in channels.iter().enumerate() {
+            output[c * cell_stride + cell_idx] = v;
+        }
 
-        let (boxes, scores, _) = decode_yolo_scale(
-            &output, ny, nx, 8.0, &ANCHORS[0], 640.0, 640.0, 0.1,
+        let mut found = Candidates::default();
+        decode_yolo_scale(
+            &output,
+            (ny, nx),
+            8.0,
+            &ANCHORS[0],
+            (640.0, 640.0),
+            0.1,
+            &mut found,
         );
-        assert!(!boxes.is_empty());
-        assert!(scores[0] > 0.5);
+        assert!(!found.boxes.is_empty());
+        assert!(found.scores[0] > 0.5);
+        assert_eq!(found.class_ids[0], 0);
     }
 }
 
 // ── YOLOv8/YOLO11 anchor-free post-process ─────────────────────────
 // Replaces the numpy _process() function in the ONNX plugin worker.
 
-const DFL_BINS: [f32; 16] = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
+const DFL_BINS: [f32; 16] = [
+    0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
+];
 
 /// YOLOv8/YOLO11 anchor-free post-process: sigmoid + DFL + grid decode + NMS.
 /// `raw` has shape (N, 144) where 144 = 64(reg) + 80(cls).
 /// `all_pts` is concatenated grid points for all 3 scales.
+///
+/// Returns the number of detections written.
+///
+/// # Safety
+/// * `out_dets` must be null (returns 0) or valid for writes of
+///   `MAX_DETECTIONS * 6` (= 120) `f32`s; it is always zeroed first.
+/// * `raw` must be null or valid for reads of `n_total * 144` `f32`s.
+/// * `all_pts` must be null or valid for reads of `n_total * 2` `f32`s.
 #[no_mangle]
 pub unsafe extern "C" fn yolo_anchor_free_post_process(
     raw: *const f32,
     n_total: u32,
-    all_pts: *const f32,    // (n_total, 2) pre-computed grid points
+    all_pts: *const f32, // (n_total, 2) pre-computed grid points
     model_size: f32,
     frame_w: f32,
     frame_h: f32,
     score_thresh: f32,
     nms_thresh: f32,
-    out_dets: *mut f32,      // (20, 6)
+    out_dets: *mut f32, // (20, 6)
 ) -> u32 {
     let n = n_total as usize;
 
@@ -484,7 +568,9 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
         return 0;
     }
     let out = std::slice::from_raw_parts_mut(out_dets, MAX_DETECTIONS * DETECTION_STRIDE);
-    for v in out.iter_mut() { *v = 0.0; }
+    for v in out.iter_mut() {
+        *v = 0.0;
+    }
 
     // Guard before slicing: from_raw_parts on a null pointer is UB
     // even at zero length.
@@ -507,10 +593,17 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
         for c in 0..80 {
             let logit = raw[base + 64 + c];
             // sigmoid
-            let s = if logit < -20.0 { 0.0 }
-                else if logit > 20.0 { 1.0 }
-                else { 1.0 / (1.0 + (-logit).exp()) };
-            if s > best_s { best_s = s; best_c = c as i32; }
+            let s = if logit < -20.0 {
+                0.0
+            } else if logit > 20.0 {
+                1.0
+            } else {
+                1.0 / (1.0 + (-logit).exp())
+            };
+            if s > best_s {
+                best_s = s;
+                best_c = c as i32;
+            }
         }
         if best_s >= score_thresh {
             candidates.push(i);
@@ -519,7 +612,9 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
         }
     }
 
-    if candidates.is_empty() { return 0; }
+    if candidates.is_empty() {
+        return 0;
+    }
 
     // Step 2: DFL decode for candidates only
     let mut boxes: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(candidates.len());
@@ -530,19 +625,18 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
         let base = idx * 144;
         // DFL: reg[0..64] → 4 values via softmax over 16 bins
         let mut dist = [0.0f32; 4];
-        for d in 0..4 {
-            let off = d * 16;
-            let mut max_val = raw[base + off];
-            for b in 1..16 { max_val = max_val.max(raw[base + off + b]); }
+        for (d, side) in dist.iter_mut().enumerate() {
+            let bins = &raw[base + d * 16..base + (d + 1) * 16];
+            let max_val = bins[1..].iter().fold(bins[0], |m, &v| m.max(v));
             let mut sum = 0.0f32;
             let mut exp_vals = [0.0f32; 16];
-            for b in 0..16 {
-                let e = (raw[base + off + b] - max_val).exp();
-                exp_vals[b] = e;
+            for (slot, &v) in exp_vals.iter_mut().zip(bins) {
+                let e = (v - max_val).exp();
+                *slot = e;
                 sum += e;
             }
-            for b in 0..16 {
-                dist[d] += (exp_vals[b] / sum) * DFL_BINS[b];
+            for (&e, &bin) in exp_vals.iter().zip(DFL_BINS.iter()) {
+                *side += (e / sum) * bin;
             }
         }
 
@@ -553,39 +647,57 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
         let x2 = (px + dist[2]).max(0.0).min(model_size);
         let y2 = (py + dist[3]).max(0.0).min(model_size);
 
-        if x2 <= x1 || y2 <= y1 { continue; }
+        if x2 <= x1 || y2 <= y1 {
+            continue;
+        }
 
         boxes.push((x1, y1, x2, y2));
         final_scores.push(cand_scores[k]);
         final_classes.push(cand_classes[k]);
     }
 
-    if boxes.is_empty() { return 0; }
+    if boxes.is_empty() {
+        return 0;
+    }
 
     // Step 3: NMS
     let n_boxes = boxes.len();
-    let areas: Vec<f32> = boxes.iter().map(|(x1,y1,x2,y2)| (x2-x1)*(y2-y1)).collect();
+    let areas: Vec<f32> = boxes
+        .iter()
+        .map(|(x1, y1, x2, y2)| (x2 - x1) * (y2 - y1))
+        .collect();
     let mut order: Vec<usize> = (0..n_boxes).collect();
     order.sort_unstable_by(|&a, &b| score_desc(final_scores[a], final_scores[b]));
 
     // Top-K (max 1000)
-    let order = if order.len() > 1000 { order[..1000].to_vec() } else { order };
+    let order = if order.len() > 1000 {
+        order[..1000].to_vec()
+    } else {
+        order
+    };
 
     let mut keep: Vec<usize> = Vec::with_capacity(20);
     let sx = frame_w / model_size;
     let sy = frame_h / model_size;
 
     for &i in &order {
-        if keep.len() >= 20 { break; }
+        if keep.len() >= 20 {
+            break;
+        }
         let sup = keep.iter().any(|&j| {
-            let (ax1,ay1,ax2,ay2) = boxes[i];
-            let (bx1,by1,bx2,by2) = boxes[j];
-            let xx1 = ax1.max(bx1); let yy1 = ay1.max(by1);
-            let xx2 = ax2.min(bx2); let yy2 = ay2.min(by2);
-            let w = (xx2 - xx1).max(0.0); let h = (yy2 - yy1).max(0.0);
+            let (ax1, ay1, ax2, ay2) = boxes[i];
+            let (bx1, by1, bx2, by2) = boxes[j];
+            let xx1 = ax1.max(bx1);
+            let yy1 = ay1.max(by1);
+            let xx2 = ax2.min(bx2);
+            let yy2 = ay2.min(by2);
+            let w = (xx2 - xx1).max(0.0);
+            let h = (yy2 - yy1).max(0.0);
             (w * h) / (areas[i] + areas[j] - w * h) > nms_thresh
         });
-        if !sup { keep.push(i); }
+        if !sup {
+            keep.push(i);
+        }
     }
 
     let written = keep.len().min(MAX_DETECTIONS);
@@ -593,9 +705,11 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
         let (x1, y1, x2, y2) = boxes[idx];
         let o = k * DETECTION_STRIDE;
         out[o] = final_classes[idx] as f32;
-        out[o+1] = final_scores[idx];
-        out[o+2] = y1 * sy; out[o+3] = x1 * sx;
-        out[o+4] = y2 * sy; out[o+5] = x2 * sx;
+        out[o + 1] = final_scores[idx];
+        out[o + 2] = y1 * sy;
+        out[o + 3] = x1 * sx;
+        out[o + 4] = y2 * sy;
+        out[o + 5] = x2 * sx;
     }
     // Report what was written, not what was kept.
     written as u32
@@ -613,9 +727,21 @@ mod ffi_guard_tests {
     fn yolo26_rejects_null_input_and_still_zeroes_output() {
         let mut out = vec![9.9f32; 20 * 6];
         unsafe {
-            yolo26_post_process(std::ptr::null(), 100, 640.0, 1.0, 1.0, 0.4, 0.5, out.as_mut_ptr())
+            yolo26_post_process(
+                std::ptr::null(),
+                100,
+                640.0,
+                1.0,
+                1.0,
+                0.4,
+                0.5,
+                out.as_mut_ptr(),
+            )
         };
-        assert!(out.iter().all(|&v| v == 0.0), "guard path must zero the output");
+        assert!(
+            out.iter().all(|&v| v == 0.0),
+            "guard path must zero the output"
+        );
     }
 
     #[test]
@@ -623,7 +749,16 @@ mod ffi_guard_tests {
         let raw = vec![0f32; 84];
         // Must not fault.
         unsafe {
-            yolo26_post_process(raw.as_ptr(), 1, 640.0, 1.0, 1.0, 0.4, 0.5, std::ptr::null_mut())
+            yolo26_post_process(
+                raw.as_ptr(),
+                1,
+                640.0,
+                1.0,
+                1.0,
+                0.4,
+                0.5,
+                std::ptr::null_mut(),
+            )
         };
     }
 
@@ -641,17 +776,35 @@ mod ffi_guard_tests {
     fn nms_boxes_rejects_null_and_zero() {
         let mut out = vec![0u32; 8];
         assert_eq!(
-            unsafe { nms_boxes(std::ptr::null(), std::ptr::null(), 4, 0.5, out.as_mut_ptr(), 8) },
+            unsafe {
+                nms_boxes(
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    4,
+                    0.5,
+                    out.as_mut_ptr(),
+                    8,
+                )
+            },
             0
         );
-        let boxes = vec![0f32; 16];
-        let scores = vec![0.9f32; 4];
+        let boxes = [0f32; 16];
+        let scores = [0.9f32; 4];
         assert_eq!(
             unsafe { nms_boxes(boxes.as_ptr(), scores.as_ptr(), 0, 0.5, out.as_mut_ptr(), 8) },
             0
         );
         assert_eq!(
-            unsafe { nms_boxes(boxes.as_ptr(), scores.as_ptr(), 4, 0.5, std::ptr::null_mut(), 8) },
+            unsafe {
+                nms_boxes(
+                    boxes.as_ptr(),
+                    scores.as_ptr(),
+                    4,
+                    0.5,
+                    std::ptr::null_mut(),
+                    8,
+                )
+            },
             0
         );
     }
@@ -662,7 +815,9 @@ mod ffi_guard_tests {
     fn nms_boxes_survives_nan_scores() {
         let mut state = 0x1234_5678_u64;
         let mut rnd = || {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (state >> 40) as f32 / (1u64 << 24) as f32
         };
         for n in [21usize, 25, 32, 33, 50, 64, 100, 1000] {
@@ -677,7 +832,14 @@ mod ffi_guard_tests {
                 }
                 let mut out = vec![u32::MAX; 100];
                 let k = unsafe {
-                    nms_boxes(boxes.as_ptr(), scores.as_ptr(), n as u32, 0.5, out.as_mut_ptr(), 100)
+                    nms_boxes(
+                        boxes.as_ptr(),
+                        scores.as_ptr(),
+                        n as u32,
+                        0.5,
+                        out.as_mut_ptr(),
+                        100,
+                    )
                 };
                 for &idx in &out[..k as usize] {
                     assert!(!scores[idx as usize].is_nan(), "NaN-scored box was kept");
@@ -692,16 +854,23 @@ mod ffi_guard_tests {
     fn nms_boxes_never_writes_past_max_indices() {
         // Four boxes far apart, so NMS keeps all of them...
         let boxes: Vec<f32> = vec![
-            0.0, 0.0, 10.0, 10.0,
-            100.0, 100.0, 110.0, 110.0,
-            200.0, 200.0, 210.0, 210.0,
-            300.0, 300.0, 310.0, 310.0,
+            0.0, 0.0, 10.0, 10.0, 100.0, 100.0, 110.0, 110.0, 200.0, 200.0, 210.0, 210.0, 300.0,
+            300.0, 310.0, 310.0,
         ];
-        let scores = vec![0.9f32, 0.8, 0.7, 0.6];
+        let scores = [0.9f32, 0.8, 0.7, 0.6];
         // ...but the caller only offers room for two.
         const CAP: usize = 2;
         let mut out = vec![u32::MAX; CAP + 4];
-        let n = unsafe { nms_boxes(boxes.as_ptr(), scores.as_ptr(), 4, 0.5, out.as_mut_ptr(), CAP as u32) };
+        let n = unsafe {
+            nms_boxes(
+                boxes.as_ptr(),
+                scores.as_ptr(),
+                4,
+                0.5,
+                out.as_mut_ptr(),
+                CAP as u32,
+            )
+        };
         assert!(n as usize <= CAP, "returned {n}, capacity was {CAP}");
         for (i, &v) in out.iter().enumerate().skip(CAP) {
             assert_eq!(v, u32::MAX, "wrote past the caller's buffer at index {i}");
@@ -726,7 +895,14 @@ mod ffi_guard_tests {
         let ptrs = [s0.as_ptr(), s1.as_ptr(), s2.as_ptr()];
         let dims = [80u32, 80, 40, 40, 20, 20];
         let mut out = vec![
-            Detection { class_id: 0, score: 0.0, y1: 0.0, x1: 0.0, y2: 0.0, x2: 0.0 };
+            Detection {
+                class_id: 0,
+                score: 0.0,
+                y1: 0.0,
+                x1: 0.0,
+                y2: 0.0,
+                x2: 0.0
+            };
             MAX_DETECTIONS
         ];
         let n = unsafe {
@@ -751,14 +927,23 @@ mod ffi_guard_tests {
         // Ported from test_fuzzing.py: random noise (8400x84) and NaN/Inf tensors
         let mut state = 0xCAFE_BABE_u64;
         let mut rnd = || {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((state >> 40) as f32 / (1u64 << 24) as f32) * 20.0 - 10.0
         };
         let raw_noise: Vec<f32> = (0..(8400 * 84)).map(|_| rnd()).collect();
         let mut out = vec![0.0f32; 20 * 6];
         unsafe {
             yolo26_post_process(
-                raw_noise.as_ptr(), 8400, 640.0, 1.0, 1.0, 0.5, 0.5, out.as_mut_ptr(),
+                raw_noise.as_ptr(),
+                8400,
+                640.0,
+                1.0,
+                1.0,
+                0.5,
+                0.5,
+                out.as_mut_ptr(),
             );
         }
 
@@ -770,7 +955,14 @@ mod ffi_guard_tests {
         }
         unsafe {
             yolo26_post_process(
-                raw_corrupt.as_ptr(), 100, 640.0, 1.0, 1.0, 0.4, 0.5, out.as_mut_ptr(),
+                raw_corrupt.as_ptr(),
+                100,
+                640.0,
+                1.0,
+                1.0,
+                0.4,
+                0.5,
+                out.as_mut_ptr(),
             );
         }
         assert!(out.iter().all(|v| v.is_finite()));

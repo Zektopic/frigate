@@ -1,7 +1,9 @@
-/// SIMD-accelerated motion detection engine for Frigate NVR.
-///
-/// Replaces the CPU-heavy OpenCV+scipy path with architecture-aware
-/// SIMD routines.  Exposes a flat C ABI so Python can call via `ctypes`.
+//! SIMD-accelerated motion pixel pipeline for Frigate NVR.
+//!
+//! `motion_pixel_pipeline` stands in for the OpenCV + scipy blur, absdiff,
+//! threshold, dilate and contour steps of `ImprovedMotionDetector.detect()`.
+//! Exposes a flat C ABI so Python can call it via `ctypes`
+//! (see `frigate/motion/rust_engine.py`).
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
@@ -63,92 +65,6 @@ unsafe fn gaussian_blur_3x3(src: &[u8], dst: &mut [u8], tmp: &mut [u8], w: usize
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  Histogram-based percentile + contrast stretch
-// ═══════════════════════════════════════════════════════════════════
-
-/// Compute the p-th percentile (0..100) of a u8 slice using a 256-bin histogram.
-#[inline]
-fn percentile_u8(data: &[u8], p: f32) -> u8 {
-    let mut hist = [0u32; 256];
-    for &v in data {
-        hist[v as usize] += 1;
-    }
-    let target = (data.len() as f32 * p / 100.0).ceil() as u32;
-    let mut accum: u32 = 0;
-    for (i, &count) in hist.iter().enumerate() {
-        accum += count;
-        if accum >= target {
-            return i as u8;
-        }
-    }
-    255
-}
-
-/// Apply contrast stretch: clip to [min_val, max_val], then scale to [0, 255].
-/// Processes 32 pixels per SIMD iteration.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2", enable = "sse4.1")]
-unsafe fn contrast_stretch_avx2_impl(buf: &mut [u8], min_val: u8, max_val: u8, len: usize) {
-    if min_val >= max_val {
-        return;
-    }
-    let min_v = min_val as f32;
-    let range = (max_val - min_val) as f32;
-    let scale = 255.0 / range;
-    let scale_vec = _mm256_set1_ps(scale);
-    let min_vec = _mm256_set1_ps(min_v);
-    let zero = _mm256_setzero_ps();
-    let ff = _mm256_set1_ps(255.0);
-
-    let mut i = 0usize;
-    let simd_end = (len / 8) * 8;
-
-    while i < simd_end {
-        // Load 8 u8 → expand to f32
-        let v8 = _mm_loadl_epi64(buf.as_ptr().add(i) as *const __m128i);
-        let v32 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(v8));
-
-        // clip, scale, clamp
-        let clipped = _mm256_max_ps(v32, min_vec);
-        let scaled = _mm256_mul_ps(_mm256_sub_ps(clipped, min_vec), scale_vec);
-        let clamped = _mm256_min_ps(_mm256_max_ps(scaled, zero), ff);
-
-        // f32 → i32 → pack to u8
-        let vi32 = _mm256_cvtps_epi32(clamped);
-        // pack 8×i32 → 8×u16 → 8×u8
-        let vi16 = _mm_packus_epi32(
-            _mm256_castsi256_si128(vi32),
-            _mm256_extracti128_si256::<1>(vi32),
-        );
-        let vi8 = _mm_packus_epi16(vi16, vi16);
-        _mm_storel_epi64(buf.as_mut_ptr().add(i) as *mut __m128i, vi8);
-
-        i += 8;
-    }
-
-    // Scalar tail
-    for j in i..len {
-        let v = buf[j] as f32;
-        let v = v.max(min_v);
-        let v = ((v - min_v) * scale).clamp(0.0, 255.0);
-        buf[j] = v as u8;
-    }
-}
-
-unsafe fn contrast_stretch_scalar(buf: &mut [u8], min_val: u8, max_val: u8, len: usize) {
-    if min_val >= max_val {
-        return;
-    }
-    let min_v = min_val as f32;
-    let range = (max_val - min_val) as f32;
-    let scale = 255.0 / range;
-    for v in buf.iter_mut().take(len) {
-        let f = (*v as f32).max(min_v);
-        *v = ((f - min_v) * scale).clamp(0.0, 255.0) as u8;
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
 //  Scalar kernels — always compiled.
 //
 //  These are the reference implementations.  On x86_64 the AVX2
@@ -169,15 +85,11 @@ fn absdiff_scalar(a: &[u8], b: &[u8], dst: &mut [u8], len: usize) {
 
 fn threshold_mask_scalar(buf: &mut [u8], mask: &[u8], thresh: u8, len: usize) {
     for j in 0..len {
-        buf[j] = if buf[j] >= thresh && mask[j] == 0 { 255 } else { 0 };
-    }
-}
-
-fn update_average_scalar(avg: &mut [f32], frame: &[u8], mask: &[u8], len: usize) {
-    for j in 0..len {
-        if mask[j] == 0 {
-            avg[j] = avg[j] * 0.99 + frame[j] as f32 * 0.01;
-        }
+        buf[j] = if buf[j] >= thresh && mask[j] == 0 {
+            255
+        } else {
+            0
+        };
     }
 }
 
@@ -187,16 +99,6 @@ fn update_average_scalar(avg: &mut [f32], frame: &[u8], mask: &[u8], len: usize)
 //  result in a static after the first call, so the per-frame cost is
 //  a single relaxed atomic load.
 // ═══════════════════════════════════════════════════════════════════
-
-unsafe fn contrast_stretch_simd(buf: &mut [u8], min_val: u8, max_val: u8, len: usize) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("sse4.1") {
-            return contrast_stretch_avx2_impl(buf, min_val, max_val, len);
-        }
-    }
-    contrast_stretch_scalar(buf, min_val, max_val, len)
-}
 
 unsafe fn absdiff_avx2(a: &[u8], b: &[u8], dst: &mut [u8], len: usize) {
     #[cfg(target_arch = "x86_64")]
@@ -216,16 +118,6 @@ unsafe fn threshold_mask_avx2(buf: &mut [u8], mask: &[u8], thresh: u8, len: usiz
         }
     }
     threshold_mask_scalar(buf, mask, thresh, len)
-}
-
-unsafe fn update_average_avx2(avg: &mut [f32], frame: &[u8], mask: &[u8], len: usize) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            return update_average_avx2_impl(avg, frame, mask, len);
-        }
-    }
-    update_average_scalar(avg, frame, mask, len)
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -273,18 +165,29 @@ unsafe fn threshold_mask_avx2_impl(buf: &mut [u8], mask: &[u8], thresh: u8, len:
         // equivalent of v >= t.
         let ge = _mm256_cmpeq_epi8(_mm256_max_epu8(v, thresh_vec), v);
         // mask == 0 ? (mask=0 means UNMASKED = process this pixel)
-        let unmasked = _mm256_cmpeq_epi8(m, zero);    // m == 0 (unmasked)
-        // combine: (val >= thresh) AND (unmasked)
+        let unmasked = _mm256_cmpeq_epi8(m, zero); // m == 0 (unmasked)
+                                                   // combine: (val >= thresh) AND (unmasked)
         let res = _mm256_and_si256(ge, unmasked);
         _mm256_storeu_si256(buf.as_mut_ptr().add(i) as *mut __m256i, res);
         i += 32;
     }
     for j in i..len {
-        buf[j] = if buf[j] >= thresh && mask[j] == 0 { 255 } else { 0 };
+        buf[j] = if buf[j] >= thresh && mask[j] == 0 {
+            255
+        } else {
+            0
+        };
     }
 }
 
-unsafe fn dilate_3x3(buf: &mut [u8], tmp: &mut [u8], w: usize, h: usize) {
+/// One iteration of binary dilation with a 3×3 *cross* (4-neighbour)
+/// structuring element: a pixel becomes 255 if it or its left, right, upper
+/// or lower neighbour is 255.  Diagonal neighbours are not considered, so
+/// this is not `cv2.dilate(img, None)` (3×3 rectangle).  The difference is
+/// documented on [`motion_pixel_pipeline`].
+///
+/// `tmp` must hold at least `w * h` bytes.
+fn dilate_cross_3x3(buf: &mut [u8], tmp: &mut [u8], w: usize, h: usize) {
     let len = w * h;
     tmp[..len].copy_from_slice(&buf[..len]);
     for y in 0..h {
@@ -293,261 +196,29 @@ unsafe fn dilate_3x3(buf: &mut [u8], tmp: &mut [u8], w: usize, h: usize) {
             if buf[idx] == 255 {
                 continue;
             }
-            let mut fg = false;
-            if x > 0 && tmp[idx - 1] == 255 {
-                fg = true;
-            } else if x + 1 < w && tmp[idx + 1] == 255 {
-                fg = true;
-            } else if y > 0 && tmp[idx - w] == 255 {
-                fg = true;
-            } else if y + 1 < h && tmp[idx + w] == 255 {
-                fg = true;
-            }
+            let fg = (x > 0 && tmp[idx - 1] == 255)
+                || (x + 1 < w && tmp[idx + 1] == 255)
+                || (y > 0 && tmp[idx - w] == 255)
+                || (y + 1 < h && tmp[idx + w] == 255);
             if fg {
-                *buf.get_unchecked_mut(idx) = 255;
+                buf[idx] = 255;
             }
-        }
-    }
-}
-
-fn find_contours_bounding_boxes(
-    pixels: &[u8], w: usize, h: usize, min_area: i32,
-) -> Vec<(i32, i32, i32, i32)> {
-    let mut visited = vec![false; w * h];
-    let mut boxes: Vec<(i32, i32, i32, i32)> = Vec::with_capacity(64);
-    for y in 0..h {
-        for x in 0..w {
-            let idx = y * w + x;
-            if pixels[idx] != 255 || visited[idx] {
-                continue;
-            }
-            let mut stack: Vec<(usize, usize)> = Vec::with_capacity(256);
-            stack.push((x, y));
-            visited[idx] = true;
-            let mut min_x = x;
-            let mut min_y = y;
-            let mut max_x = x;
-            let mut max_y = y;
-            let mut area: i32 = 0;
-            while let Some((cx, cy)) = stack.pop() {
-                area += 1;
-                if cx < min_x { min_x = cx; }
-                if cx > max_x { max_x = cx; }
-                if cy < min_y { min_y = cy; }
-                if cy > max_y { max_y = cy; }
-                let neighbors: [(isize, isize); 4] = [
-                    (cx as isize - 1, cy as isize),
-                    (cx as isize + 1, cy as isize),
-                    (cx as isize, cy as isize - 1),
-                    (cx as isize, cy as isize + 1),
-                ];
-                for (nx, ny) in neighbors {
-                    if nx >= 0 && (nx as usize) < w
-                        && ny >= 0 && (ny as usize) < h
-                    {
-                        let nidx = (ny as usize) * w + (nx as usize);
-                        if !visited[nidx] && pixels[nidx] == 255 {
-                            visited[nidx] = true;
-                            stack.push((nx as usize, ny as usize));
-                        }
-                    }
-                }
-            }
-            if area >= min_area {
-                boxes.push((
-                    min_x as i32, min_y as i32,
-                    (max_x + 1) as i32, (max_y + 1) as i32,
-                ));
-            }
-        }
-    }
-    boxes
-}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn update_average_avx2_impl(
-    avg: &mut [f32], frame: &[u8], mask: &[u8], len: usize,
-) {
-    let mut i = 0usize;
-    while i + 7 < len {
-        let f8 = _mm_loadl_epi64(frame.as_ptr().add(i) as *const __m128i);
-        let f32_lo = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(f8));
-        let a = _mm256_loadu_ps(avg.as_ptr().add(i));
-        let m8 = _mm_loadl_epi64(mask.as_ptr().add(i) as *const __m128i);
-        let m32 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(m8));
-        let m_eq0 = _mm256_cmp_ps::<0>(m32, _mm256_setzero_ps());
-        let alpha = _mm256_set1_ps(0.01);
-        let one_minus_alpha = _mm256_set1_ps(0.99);
-        let blended = _mm256_add_ps(
-            _mm256_mul_ps(a, one_minus_alpha),
-            _mm256_mul_ps(f32_lo, alpha),
-        );
-        let res = _mm256_blendv_ps(a, blended, m_eq0);
-        _mm256_storeu_ps(avg.as_mut_ptr().add(i), res);
-        i += 8;
-    }
-    for j in i..len {
-        if mask[j] == 0 {
-            avg[j] = avg[j] * 0.99 + frame[j] as f32 * 0.01;
         }
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  Full motion pipeline — single FFI entry point
+//  Pixel pipeline — single FFI entry point
 // ═══════════════════════════════════════════════════════════════════
 
-/// Run the complete motion detection pipeline in one FFI call.
-///
-/// This replicates `ImprovedMotionDetector.detect()`:
-/// 1. (optional) contrast stretch via histogram percentiles
-/// 2. Apply mask (mask[i] != 0 → set pixel to 0)
-/// 3. 3×3 Gaussian blur
-/// 4. Absolute difference vs running average
-/// 5. Binary threshold
-/// 6. 3×3 dilate
-/// 7. Connected-component contour extraction
-/// 8. Update running average (unmasked pixels, alpha=0.01)
-///
-/// # Safety
-/// All pointers must be valid for `w * h` elements (u8 for frame/mask,
-/// f32 for avg_frame).  `out_boxes` has room for `max_boxes` entries.
-///
-/// Returns the number of boxes written.
-#[no_mangle]
-pub unsafe extern "C" fn motion_detect_full(
-    frame: *const u8,        // grayscale u8, w×h
-    avg_frame: *mut f32,     // running avg, w×h f32 (updated in-place)
-    mask: *const u8,         // binary mask, w×h u8 (0=process, 1=skip)
-    w: u32,
-    h: u32,
-    thresh: u8,              // binary threshold (0-255)
-    min_area: u32,           // min contour area in pixels
-    improve_contrast: u8,    // 0=skip, 1=apply contrast stretch
-    blur_enabled: u8,        // 0=skip, 1=apply 3×3 gaussian blur
-    out_boxes: *mut MotionBox,
-    max_boxes: u32,
-    out_calibrated: *mut u8, // 0=still calibrating, 1=calibrated
-) -> u32 {
-    let w = w as usize;
-    let h = h as usize;
-    let len = w * h;
-
-    // Guard the FFI boundary: from_raw_parts on a null pointer is UB
-    // even at zero length, and a zero-sized frame underflows the
-    // neighbourhood index arithmetic in the blur/dilate kernels.
-    if frame.is_null() || avg_frame.is_null() || mask.is_null() || out_boxes.is_null()
-        || w == 0 || h == 0 || max_boxes == 0
-    {
-        return 0;
-    }
-
-    let frame = std::slice::from_raw_parts(frame, len);
-    let avg_frame = std::slice::from_raw_parts_mut(avg_frame, len);
-    let mask = std::slice::from_raw_parts(mask, len);
-
-    // Working buffer — allocated once, reused across stages
-    let mut buf: Vec<u8> = Vec::with_capacity(len);
-    buf.extend_from_slice(frame);
-    let mut tmp: Vec<u8> = vec![0u8; len];
-
-    // Stage 1: Contrast stretch (optional)
-    if improve_contrast != 0 {
-        let p4 = percentile_u8(&buf, 4.0);
-        let p96 = percentile_u8(&buf, 96.0);
-        if p4 < p96 {
-            // contrast_stretch_simd dispatches to AVX2 or scalar at runtime
-            unsafe { contrast_stretch_simd(&mut buf, p4, p96, len); }
-        }
-    }
-
-    // Stage 2: Apply mask — mask[i]!=0 means "skip this pixel" (set to 0)
-    // This matches Python: resized_frame[self.mask] = [0]
-    for i in 0..len {
-        if mask[i] != 0 {
-            buf[i] = 0; // masked pixels become black (won't trigger motion)
-        }
-    }
-
-    // Stage 3: Gaussian blur (optional)
-    if blur_enabled != 0 {
-        let mut blur_tmp = vec![0u8; len];
-        unsafe { gaussian_blur_3x3(&buf, &mut tmp, &mut blur_tmp, w, h); }
-        std::mem::swap(&mut buf, &mut tmp); // buf now has blurred result
-    }
-
-    // Stage 4-5: Absdiff + threshold
-    // Convert avg_frame (f32) → u8
-    let mut avg_u8: Vec<u8> = vec![0u8; len];
-    for i in 0..len {
-        avg_u8[i] = avg_frame[i].clamp(0.0, 255.0) as u8;
-    }
-
-    unsafe { absdiff_avx2(&buf, &avg_u8, &mut tmp, len); }
-
-    // Stage 5: Threshold + mask (in-place on diff result)
-    let mut diff = tmp; // reuse buffer
-    unsafe { threshold_mask_avx2(&mut diff, mask, thresh, len); }
-
-    // Stage 6: Dilate
-    let mut dilated = vec![0u8; len];
-    unsafe { dilate_3x3(&mut diff, &mut dilated, w, h); }
-
-    // Stage 7: Contours → boxes
-    let boxes = find_contours_bounding_boxes(&diff, w, h, min_area as i32);
-    let total_area: f32 = boxes.iter().map(|(x1,y1,x2,y2)| ((x2-x1)*(y2-y1)) as f32).sum();
-    let pct_motion = total_area / (len as f32);
-
-    // Calibration: considered calibrated if <5% motion AND <=4 boxes
-    let calibrated = (pct_motion < 0.05 && boxes.len() <= 4) as u8;
-    if !out_calibrated.is_null() {
-        *out_calibrated = calibrated;
-    }
-
-    // Stage 8: Update running average
-    unsafe { update_average_avx2(avg_frame, frame, mask, len); }
-
-    // Write output boxes
-    let n = (boxes.len() as u32).min(max_boxes);
-    let out_slice = std::slice::from_raw_parts_mut(out_boxes, n as usize);
-    for (i, (x1, y1, x2, y2)) in boxes.into_iter().take(n as usize).enumerate() {
-        out_slice[i] = MotionBox { x1, y1, x2, y2 };
-    }
-    n
-}
-
-/// Legacy entry point — kept for backward compat with existing Python bindings.
-#[no_mangle]
-pub unsafe extern "C" fn motion_detect(
-    frame: *const u8,
-    avg_frame: *mut f32,
-    mask: *const u8,
-    w: u32,
-    h: u32,
-    thresh: u8,
-    min_area: u32,
-    alpha: f32,
-    out_boxes: *mut MotionBox,
-    max_boxes: u32,
-) -> u32 {
-    let _ = alpha;
-    motion_detect_full(
-        frame, avg_frame, mask, w, h, thresh, min_area,
-        0, // no contrast
-        0, // no blur
-        out_boxes, max_boxes,
-        std::ptr::null_mut(),
-    )
-}
-
-/// Initialize (or reset) the running-average buffer from a frame.
-/// Contour extraction that also accumulates total foreground area.
-/// Same flood-fill as `find_contours_bounding_boxes` but sums the pixel
-/// count of every component (matching Python's `total_contour_area`
+/// 4-connected flood-fill contour extraction that also accumulates the
+/// total foreground area: the pixel count of every component (matching Python's `total_contour_area`
 /// accumulation across ALL contours, not just kept ones).
 fn find_contours_with_area(
-    pixels: &[u8], w: usize, h: usize, min_area: i32,
+    pixels: &[u8],
+    w: usize,
+    h: usize,
+    min_area: i32,
 ) -> (Vec<(i32, i32, i32, i32)>, f32) {
     let mut visited = vec![false; w * h];
     let mut boxes: Vec<(i32, i32, i32, i32)> = Vec::with_capacity(64);
@@ -568,10 +239,18 @@ fn find_contours_with_area(
             let mut area: i32 = 0;
             while let Some((cx, cy)) = stack.pop() {
                 area += 1;
-                if cx < min_x { min_x = cx; }
-                if cx > max_x { max_x = cx; }
-                if cy < min_y { min_y = cy; }
-                if cy > max_y { max_y = cy; }
+                if cx < min_x {
+                    min_x = cx;
+                }
+                if cx > max_x {
+                    max_x = cx;
+                }
+                if cy < min_y {
+                    min_y = cy;
+                }
+                if cy > max_y {
+                    max_y = cy;
+                }
                 let neighbors: [(isize, isize); 4] = [
                     (cx as isize - 1, cy as isize),
                     (cx as isize + 1, cy as isize),
@@ -579,9 +258,7 @@ fn find_contours_with_area(
                     (cx as isize, cy as isize + 1),
                 ];
                 for (nx, ny) in neighbors {
-                    if nx >= 0 && (nx as usize) < w
-                        && ny >= 0 && (ny as usize) < h
-                    {
+                    if nx >= 0 && (nx as usize) < w && ny >= 0 && (ny as usize) < h {
                         let nidx = (ny as usize) * w + (nx as usize);
                         if !visited[nidx] && pixels[nidx] == 255 {
                             visited[nidx] = true;
@@ -593,8 +270,10 @@ fn find_contours_with_area(
             total_area += area as f32;
             if area >= min_area {
                 boxes.push((
-                    min_x as i32, min_y as i32,
-                    (max_x + 1) as i32, (max_y + 1) as i32,
+                    min_x as i32,
+                    min_y as i32,
+                    (max_x + 1) as i32,
+                    (max_y + 1) as i32,
                 ));
             }
         }
@@ -611,10 +290,26 @@ fn find_contours_with_area(
 /// matches what the diff saw (Python then averages the blurred frame,
 /// exactly like the OpenCV path).
 ///
+/// This approximates the OpenCV path; it is not bit-identical to it:
+/// * blur is a 3×3 binomial `[1 2 1]/4` kernel, not
+///   `scipy.ndimage.gaussian_filter(sigma=1, radius=blur_radius)`;
+/// * a pixel is foreground when `diff >= thresh` (OpenCV `THRESH_BINARY`
+///   uses `diff > thresh`);
+/// * dilation uses a 3×3 cross, not `cv2.dilate`'s 3×3 rectangle;
+/// * components are 4-connected flood fills whose area is the pixel count
+///   and are kept when `area >= min_area`, whereas OpenCV traces 8-connected
+///   outer contours, measures `cv2.contourArea` and keeps `area > min_area`.
+///
 /// # Safety
-/// `frame` (mut), `avg_frame` (read-only) and `mask` must each be valid
-/// for `w * h` elements.  `out_boxes` holds `max_boxes` entries;
-/// `out_total_area` is a single f32.
+/// * `frame` must be valid for reads and writes of `w * h` bytes and must
+///   not alias `avg_frame`, `mask` or `out_boxes`.
+/// * `avg_frame` must be valid for reads of `w * h` `f32`s and `mask` for
+///   reads of `w * h` bytes.
+/// * `out_boxes` must be valid for writes of `max_boxes` [`MotionBox`]es.
+/// * `out_total_area` must be null or valid for a write of one `f32`.
+///
+/// Null pointers (other than `out_total_area`), `w == 0`, `h == 0` and
+/// `max_boxes == 0` are rejected and return 0.
 ///
 /// Returns the number of boxes written.
 #[no_mangle]
@@ -638,8 +333,13 @@ pub unsafe extern "C" fn motion_pixel_pipeline(
     // Guard the FFI boundary: from_raw_parts on a null pointer is UB
     // even at zero length, and a zero-sized frame underflows the
     // neighbourhood index arithmetic in the blur/dilate kernels.
-    if frame.is_null() || avg_frame.is_null() || mask.is_null() || out_boxes.is_null()
-        || w == 0 || h == 0 || max_boxes == 0
+    if frame.is_null()
+        || avg_frame.is_null()
+        || mask.is_null()
+        || out_boxes.is_null()
+        || w == 0
+        || h == 0
+        || max_boxes == 0
     {
         if !out_total_area.is_null() {
             *out_total_area = 0.0;
@@ -672,7 +372,7 @@ pub unsafe extern "C" fn motion_pixel_pipeline(
 
     // 4. dilate 3×3, one iteration
     let mut tmp = vec![0u8; len];
-    dilate_3x3(&mut diff, &mut tmp, w, h);
+    dilate_cross_3x3(&mut diff, &mut tmp, w, h);
 
     // 5. contours → boxes + total foreground area
     let (boxes, total_area) = find_contours_with_area(&diff, w, h, min_area as i32);
@@ -689,91 +389,6 @@ pub unsafe extern "C" fn motion_pixel_pipeline(
     n
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn motion_init_average(
-    frame: *const u8,
-    avg_frame: *mut f32,
-    len: u32,
-) {
-    if frame.is_null() || avg_frame.is_null() || len == 0 {
-        return;
-    }
-    let frame = std::slice::from_raw_parts(frame, len as usize);
-    let avg = std::slice::from_raw_parts_mut(avg_frame, len as usize);
-    for i in 0..(len as usize) {
-        avg[i] = frame[i] as f32;
-    }
-}
-
-/// `avg = (1 - alpha) * avg + alpha * src` over `len` pixels, in place.
-/// This is the same update as `cv2.accumulateWeighted(src, avg, alpha)`.
-///
-/// # Safety
-/// `src` must be valid for `len` bytes and `avg` for `len` f32 values; the
-/// two buffers must not overlap.
-#[no_mangle]
-pub unsafe extern "C" fn motion_accumulate_weighted(
-    src: *const u8,
-    avg: *mut f32,
-    alpha: f32,
-    len: u32,
-) {
-    if src.is_null() || avg.is_null() || len == 0 {
-        return;
-    }
-    let len = len as usize;
-    let src_slice = std::slice::from_raw_parts(src, len);
-    let avg_slice = std::slice::from_raw_parts_mut(avg, len);
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            return accumulate_weighted_avx2(src_slice, avg_slice, alpha);
-        }
-    }
-    accumulate_weighted_scalar(src_slice, avg_slice, alpha)
-}
-
-/// Portable kernel for [`motion_accumulate_weighted`].
-fn accumulate_weighted_scalar(src: &[u8], avg: &mut [f32], alpha: f32) {
-    let one_minus_alpha = 1.0 - alpha;
-    for (a, &s) in avg.iter_mut().zip(src) {
-        *a = one_minus_alpha * *a + alpha * s as f32;
-    }
-}
-
-/// AVX2 kernel for [`motion_accumulate_weighted`], 8 pixels per iteration.
-///
-/// The `target_feature` attribute is what lets the intrinsics inline.
-/// The previous version called them from a plain function after a runtime
-/// check, so every `_mm256_*` became an out-of-line call (6 calls per 8
-/// pixels) and the "SIMD" path ran ~16-36x slower than
-/// `cv2.accumulateWeighted`.  It also dropped the FMA so the vector body
-/// and the scalar tail round identically.
-///
-/// # Safety
-/// Caller must have verified AVX2 is available at runtime.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn accumulate_weighted_avx2(src: &[u8], avg: &mut [f32], alpha: f32) {
-    let len = src.len().min(avg.len());
-    let one_minus_alpha = 1.0 - alpha;
-    let alpha_v = _mm256_set1_ps(alpha);
-    let oma_v = _mm256_set1_ps(one_minus_alpha);
-    let mut i = 0usize;
-    while i + 8 <= len {
-        let s8 = _mm_loadl_epi64(src.as_ptr().add(i) as *const __m128i);
-        let s = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(s8));
-        let a = _mm256_loadu_ps(avg.as_ptr().add(i));
-        let r = _mm256_add_ps(_mm256_mul_ps(oma_v, a), _mm256_mul_ps(alpha_v, s));
-        _mm256_storeu_ps(avg.as_mut_ptr().add(i), r);
-        i += 8;
-    }
-    for j in i..len {
-        avg[j] = one_minus_alpha * avg[j] + alpha * src[j] as f32;
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════════
 //  Tests
 // ═══════════════════════════════════════════════════════════════════
@@ -783,41 +398,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_percentile() {
-        let data: Vec<u8> = (0..100u8).collect();
-        // histogram-based percentile may differ from numpy by ±1 due to no interpolation
-        let p4 = percentile_u8(&data, 4.0);
-        let p96 = percentile_u8(&data, 96.0);
-        let p50 = percentile_u8(&data, 50.0);
-        assert!(p4 == 3 || p4 == 4, "p4={p4}");
-        assert!(p96 == 95 || p96 == 96, "p96={p96}");
-        assert!(p50 == 49 || p50 == 50, "p50={p50}");
-    }
-
-    #[test]
     fn test_gaussian_blur_flat() {
         let src = vec![128u8; 100]; // 10×10 flat image
         let mut dst = vec![0u8; 100];
         let mut tmp = vec![0u8; 100];
-        unsafe { gaussian_blur_3x3(&src, &mut dst, &mut tmp, 10, 10); }
+        unsafe {
+            gaussian_blur_3x3(&src, &mut dst, &mut tmp, 10, 10);
+        }
         assert_eq!(&dst, &src); // flat image unchanged by blur
-    }
-
-    #[test]
-    fn test_contrast_stretch() {
-        let mut buf: Vec<u8> = (0..64u8).collect();
-        let len = buf.len();
-        unsafe { contrast_stretch_simd(&mut buf, 16, 48, len); }
-        // After stretch: values 0-15 become 0, 48-63 become 255, middle scaled
-        assert_eq!(buf[0], 0);
-        assert_eq!(buf[63], 255);
     }
 
     #[test]
     fn test_absdiff_identical() {
         let data: Vec<u8> = (0..64u8).collect();
         let mut dst = vec![0u8; 64];
-        unsafe { absdiff_avx2(&data, &data, &mut dst, 64); }
+        unsafe {
+            absdiff_avx2(&data, &data, &mut dst, 64);
+        }
         assert!(dst.iter().all(|&v| v == 0));
     }
 
@@ -825,144 +422,59 @@ mod tests {
     fn test_threshold_mask() {
         let mut buf: Vec<u8> = (0..64u8).collect();
         let mask: Vec<u8> = vec![0u8; 64]; // all zeros = unmasked = process all
-        unsafe { threshold_mask_avx2(&mut buf, &mask, 32, 64); }
-        for i in 0..64 {
-            if i >= 32 { assert_eq!(buf[i], 255, "pixel {i} should be 255"); }
-            else { assert_eq!(buf[i], 0, "pixel {i} should be 0"); }
+        unsafe {
+            threshold_mask_avx2(&mut buf, &mask, 32, 64);
+        }
+        for (i, &v) in buf.iter().enumerate() {
+            let expected = if i >= 32 { 255 } else { 0 };
+            assert_eq!(v, expected, "pixel {i}");
         }
     }
 
     #[test]
+    fn dilate_cross_3x3_skips_diagonals() {
+        // A single foreground pixel grows into a plus sign, not a 3×3 block.
+        let (w, h) = (5usize, 5usize);
+        let mut buf = vec![0u8; w * h];
+        buf[2 * w + 2] = 255;
+        let mut tmp = vec![0u8; w * h];
+        dilate_cross_3x3(&mut buf, &mut tmp, w, h);
+        let on: Vec<(usize, usize)> = (0..w * h)
+            .filter(|&i| buf[i] == 255)
+            .map(|i| (i % w, i / w))
+            .collect();
+        assert_eq!(on, vec![(2, 1), (1, 2), (2, 2), (3, 2), (2, 3)]);
+    }
+
+    #[test]
     fn test_contours_single_rect() {
-        let w = 10usize; let h = 10usize;
+        let w = 10usize;
+        let h = 10usize;
         let mut pixels = vec![0u8; w * h];
-        for y in 3..6 { for x in 3..6 { pixels[y * w + x] = 255; } }
-        let boxes = find_contours_bounding_boxes(&pixels, w, h, 0);
+        for y in 3..6 {
+            for x in 3..6 {
+                pixels[y * w + x] = 255;
+            }
+        }
+        let boxes = find_contours_with_area(&pixels, w, h, 0).0;
         assert_eq!(boxes.len(), 1);
         assert_eq!(boxes[0], (3, 3, 6, 6));
     }
 
     #[test]
     fn test_contours_min_area_filter() {
-        let w = 10usize; let h = 10usize;
+        let w = 10usize;
+        let h = 10usize;
         let mut pixels = vec![0u8; w * h];
-        pixels[1 * w + 1] = 255; // 1-pixel dot
-        for y in 5..9 { for x in 5..9 { pixels[y * w + x] = 255; } } // 4×4 rect
-        let boxes = find_contours_bounding_boxes(&pixels, w, h, 10);
+        pixels[w + 1] = 255; // 1-pixel dot at (1, 1)
+        for y in 5..9 {
+            for x in 5..9 {
+                pixels[y * w + x] = 255;
+            }
+        } // 4×4 rect
+        let boxes = find_contours_with_area(&pixels, w, h, 10).0;
         assert_eq!(boxes.len(), 1);
         assert_eq!(boxes[0], (5, 5, 9, 9));
-    }
-
-    #[test]
-    fn test_full_pipeline_no_motion() {
-        let w = 16u32; let h = 16u32;
-        let len = (w * h) as usize;
-        let frame: Vec<u8> = vec![100u8; len];
-        let mut avg: Vec<f32> = vec![100.0f32; len];
-        let mask: Vec<u8> = vec![0u8; len];
-        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 16];
-        let mut calibrated: u8 = 0;
-
-        let n = unsafe {
-            motion_detect_full(
-                frame.as_ptr(), avg.as_mut_ptr(), mask.as_ptr(),
-                w, h, 25, 30, 0, 0,
-                boxes.as_mut_ptr(), 16, &mut calibrated,
-            )
-        };
-        assert_eq!(n, 0, "no motion expected on identical frame");
-        assert_eq!(calibrated, 1, "should be calibrated with no motion");
-    }
-
-    #[test]
-    fn step_by_step_debug() {
-        let w = 64usize;
-        let h = 64usize;
-        let len = w * h;
-        let avg = vec![100.0f32; len];
-        let mut frame = vec![100u8; len];
-        for y in 20..40 { for x in 20..40 { frame[y * w + x] = 200; } }
-        let mask = vec![0u8; len];
-        let mut buf: Vec<u8> = frame.clone();
-
-        // Stage 1: mask
-        for i in 0..len { if mask[i] != 0 { buf[i] = 0; } }
-        eprintln!("After mask: buf[22*64+22]={}", buf[22*64+22]);
-
-        // Stage 4: absdiff
-        let mut avg_u8 = vec![0u8; len];
-        for i in 0..len { avg_u8[i] = avg[i].clamp(0.0, 255.0) as u8; }
-        let mut diff = vec![0u8; len];
-        unsafe { absdiff_avx2(&buf, &avg_u8, &mut diff, len); }
-        eprintln!("After absdiff: non_zero={}, max={}", diff.iter().filter(|&&v| v>0).count(), diff.iter().max().unwrap());
-        eprintln!("diff[22*64+22]={}", diff[22*64+22]);
-
-        // Stage 5: threshold
-        let thresh: u8 = 15;
-        unsafe { threshold_mask_avx2(&mut diff, &mask, thresh, len); }
-        let white = diff.iter().filter(|&&v| v==255).count();
-        eprintln!("After threshold({thresh}): {white} white pixels");
-        eprintln!("diff[22*64+22]={}", diff[22*64+22]);
-
-        // Stage 6: dilate
-        let mut dilated = vec![0u8; len];
-        unsafe { dilate_3x3(&mut diff, &mut dilated, w, h); }
-        eprintln!("After dilate: {} white pixels", diff.iter().filter(|&&v| v==255).count());
-
-        // Stage 7: contours
-        let boxes = find_contours_bounding_boxes(&diff, w, h, 10);
-        eprintln!("Contours found: {}", boxes.len());
-        assert!(boxes.len() > 0, "Should find at least 1 contour");
-    }
-}
-
-#[cfg(test)]
-mod debug_tests {
-    use super::*;
-
-    #[test]
-    fn debug_motion_pipeline() {
-        let w = 64u32;
-        let h = 64u32;
-        let len = (w * h) as usize;
-        
-        // Background: all 100
-        let mut avg = vec![100.0f32; len];
-        
-        // Frame: background + a bright 20x20 square (simulating motion)
-        let mut frame = vec![100u8; len];
-        for y in 20..40 {
-            for x in 20..40 {
-                frame[y as usize * 64 + x as usize] = 200;
-            }
-        }
-        
-        // Mask: all zeros (process everything)
-        let mask = vec![0u8; len];
-        
-        // Output
-        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 64];
-        let mut calibrated: u8 = 0;
-        
-        let n = unsafe {
-            motion_detect_full(
-                frame.as_ptr(), avg.as_mut_ptr(), mask.as_ptr(),
-                w, h, 15, 10, 
-                0, // NO contrast (we want raw diff)
-                0, // NO blur (simpler test)
-                boxes.as_mut_ptr(), 64, &mut calibrated,
-            )
-        };
-        
-        println!("Detections: {n}, calibrated: {calibrated}");
-        assert!(n > 0, "Should detect the bright rectangle as motion");
-        for i in 0..(n as usize).min(5) {
-            let b = &boxes[i];
-            println!("  box {i}: x1={}, y1={}, x2={}, y2={}", b.x1, b.y1, b.x2, b.y2);
-            // The box should roughly cover the 20x20 rectangle at (20,20)-(40,40)
-            assert!(b.x1 >= 18 && b.x1 <= 22, "x1 should be ~20, got {}", b.x1);
-            assert!(b.y1 >= 18 && b.y1 <= 22, "y1 should be ~20, got {}", b.y1);
-        }
     }
 }
 
@@ -972,24 +484,49 @@ mod pixel_pipeline_tests {
 
     #[test]
     fn detects_motion_without_touching_average() {
-        let w = 64usize; let h = 64usize; let len = w * h;
+        let w = 64usize;
+        let h = 64usize;
+        let len = w * h;
         let avg = vec![100.0f32; len];
         let avg_before = avg.clone();
         let mut frame = vec![100u8; len];
-        for y in 20..40 { for x in 20..40 { frame[y*w+x] = 200; } }
+        for y in 20..40 {
+            for x in 20..40 {
+                frame[y * w + x] = 200;
+            }
+        }
         let mask = vec![0u8; len];
-        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut boxes = vec![
+            MotionBox {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0
+            };
+            32
+        ];
         let mut total_area: f32 = 0.0;
 
         let n = unsafe {
             motion_pixel_pipeline(
-                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                w as u32, h as u32, 15, 10, 1,
-                boxes.as_mut_ptr(), 32, &mut total_area,
+                frame.as_mut_ptr(),
+                avg.as_ptr(),
+                mask.as_ptr(),
+                w as u32,
+                h as u32,
+                15,
+                10,
+                1,
+                boxes.as_mut_ptr(),
+                32,
+                &mut total_area,
             )
         };
         assert!(n >= 1, "should find the bright square");
-        assert!(total_area >= 350.0, "area ~400px expected, got {total_area}");
+        assert!(
+            total_area >= 350.0,
+            "area ~400px expected, got {total_area}"
+        );
         assert_eq!(avg, avg_before, "average must not be modified");
         let b = &boxes[0];
         assert!(b.x1 >= 17 && b.x1 <= 22, "x1={}", b.x1);
@@ -998,17 +535,35 @@ mod pixel_pipeline_tests {
 
     #[test]
     fn no_motion_on_identical_frame() {
-        let w = 32usize; let h = 32usize; let len = w * h;
+        let w = 32usize;
+        let h = 32usize;
+        let len = w * h;
         let avg = vec![100.0f32; len];
         let mut frame = vec![100u8; len];
         let mask = vec![0u8; len];
-        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut boxes = vec![
+            MotionBox {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0
+            };
+            32
+        ];
         let mut total_area: f32 = 0.0;
         let n = unsafe {
             motion_pixel_pipeline(
-                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                w as u32, h as u32, 15, 10, 1,
-                boxes.as_mut_ptr(), 32, &mut total_area,
+                frame.as_mut_ptr(),
+                avg.as_ptr(),
+                mask.as_ptr(),
+                w as u32,
+                h as u32,
+                15,
+                10,
+                1,
+                boxes.as_mut_ptr(),
+                32,
+                &mut total_area,
             )
         };
         assert_eq!(n, 0);
@@ -1017,42 +572,43 @@ mod pixel_pipeline_tests {
 
     #[test]
     fn respects_mask() {
-        let w = 32usize; let h = 32usize; let len = w * h;
+        let w = 32usize;
+        let h = 32usize;
+        let len = w * h;
         let avg = vec![100.0f32; len];
         let mut frame = vec![100u8; len];
-        for y in 5..15 { for x in 5..15 { frame[y*w+x] = 220; } }
+        for y in 5..15 {
+            for x in 5..15 {
+                frame[y * w + x] = 220;
+            }
+        }
         let mask = vec![1u8; len]; // fully masked → no motion allowed
-        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut boxes = vec![
+            MotionBox {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0
+            };
+            32
+        ];
         let mut total_area: f32 = 0.0;
         let n = unsafe {
             motion_pixel_pipeline(
-                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                w as u32, h as u32, 15, 10, 0,
-                boxes.as_mut_ptr(), 32, &mut total_area,
+                frame.as_mut_ptr(),
+                avg.as_ptr(),
+                mask.as_ptr(),
+                w as u32,
+                h as u32,
+                15,
+                10,
+                0,
+                boxes.as_mut_ptr(),
+                32,
+                &mut total_area,
             )
         };
         assert_eq!(n, 0, "masked pixels must not produce motion");
-    }
-
-    #[test]
-    fn test_accumulate_weighted() {
-        let len = 64usize;
-        let src: Vec<u8> = (0..len).map(|i| (i * 3 % 256) as u8).collect();
-        let mut avg = vec![50.0f32; len];
-        let alpha = 0.05f32;
-
-        let expected: Vec<f32> = (0..len)
-            .map(|i| (1.0 - alpha) * 50.0 + alpha * (src[i] as f32))
-            .collect();
-
-        unsafe {
-            motion_accumulate_weighted(src.as_ptr(), avg.as_mut_ptr(), alpha, len as u32);
-        }
-
-        for i in 0..len {
-            let diff = (avg[i] - expected[i]).abs();
-            assert!(diff < 1e-4, "at index {}: avg={} expected={}", i, avg[i], expected[i]);
-        }
     }
 }
 
@@ -1073,7 +629,9 @@ mod simd_parity_tests {
         let mut state = seed;
         (0..n)
             .map(|_| {
-                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 (state >> 33) as u8
             })
             .collect()
@@ -1113,71 +671,10 @@ mod simd_parity_tests {
                 let mut scalar = base.clone();
                 unsafe { threshold_mask_avx2_impl(&mut simd, &mask, thresh, len) };
                 threshold_mask_scalar(&mut scalar, &mask, thresh, len);
-                assert_eq!(simd, scalar, "threshold mismatch at len={len} thresh={thresh}");
-            }
-        }
-    }
-
-    #[test]
-    fn update_average_scalar_matches_avx2() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-        for &len in &LENS {
-            let frame = pseudo_random(len, 0x5555);
-            let mask: Vec<u8> = (0..len).map(|i| if i % 4 == 0 { 1 } else { 0 }).collect();
-            let avg0: Vec<f32> = (0..len).map(|i| (i % 256) as f32).collect();
-            let mut simd = avg0.clone();
-            let mut scalar = avg0.clone();
-            unsafe { update_average_avx2_impl(&mut simd, &frame, &mask, len) };
-            update_average_scalar(&mut scalar, &frame, &mask, len);
-            for i in 0..len {
-                assert!(
-                    (simd[i] - scalar[i]).abs() < 1e-4,
-                    "avg mismatch at len={len} i={i}: {} vs {}",
-                    simd[i],
-                    scalar[i]
+                assert_eq!(
+                    simd, scalar,
+                    "threshold mismatch at len={len} thresh={thresh}"
                 );
-            }
-        }
-    }
-
-    #[test]
-    fn accumulate_weighted_scalar_matches_avx2() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-        for &len in &[1usize, 7, 8, 9, 31, 32, 33, 1000] {
-            let src = pseudo_random(len, 0x4242);
-            let avg0: Vec<f32> = (0..len).map(|i| (i % 251) as f32 + 0.25).collect();
-            for &alpha in &[0.0f32, 0.01, 0.2, 1.0] {
-                let mut simd = avg0.clone();
-                let mut scalar = avg0.clone();
-                unsafe { accumulate_weighted_avx2(&src, &mut simd, alpha) };
-                accumulate_weighted_scalar(&src, &mut scalar, alpha);
-                assert_eq!(simd, scalar, "accumulate mismatch len={len} alpha={alpha}");
-            }
-        }
-    }
-
-    #[test]
-    fn contrast_stretch_scalar_matches_avx2() {
-        if !(is_x86_feature_detected!("avx2") && is_x86_feature_detected!("sse4.1")) {
-            return;
-        }
-        for &len in &LENS {
-            for &(lo, hi) in &[(0u8, 255u8), (16, 48), (100, 101), (60, 200)] {
-                let base = pseudo_random(len, 0x7777);
-                let mut simd = base.clone();
-                let mut scalar = base.clone();
-                unsafe { contrast_stretch_avx2_impl(&mut simd, lo, hi, len) };
-                unsafe { contrast_stretch_scalar(&mut scalar, lo, hi, len) };
-                // f32→u8 truncation can differ by 1 ULP between the
-                // vectorized and scalar rounding paths.
-                for i in 0..len {
-                    let d = (simd[i] as i16 - scalar[i] as i16).abs();
-                    assert!(d <= 1, "contrast mismatch len={len} ({lo},{hi}) i={i}: {} vs {}", simd[i], scalar[i]);
-                }
             }
         }
     }
@@ -1198,29 +695,60 @@ mod ffi_guard_tests {
 
     #[test]
     fn pixel_pipeline_rejects_null_pointers() {
-        let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 4];
+        let mut boxes = [MotionBox {
+            x1: 0,
+            y1: 0,
+            x2: 0,
+            y2: 0,
+        }; 4];
         let mut area = -1.0f32;
         let n = unsafe {
             motion_pixel_pipeline(
-                std::ptr::null_mut(), std::ptr::null(), std::ptr::null(),
-                64, 64, 30, 10, 1, boxes.as_mut_ptr(), 4, &mut area,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+                64,
+                64,
+                30,
+                10,
+                1,
+                boxes.as_mut_ptr(),
+                4,
+                &mut area,
             )
         };
         assert_eq!(n, 0);
-        assert_eq!(area, 0.0, "out_total_area must be initialized on the guard path");
+        assert_eq!(
+            area, 0.0,
+            "out_total_area must be initialized on the guard path"
+        );
     }
 
     #[test]
     fn pixel_pipeline_rejects_zero_dimensions() {
         let mut frame = vec![0u8; 16];
-        let avg = vec![0f32; 16];
-        let mask = vec![0u8; 16];
-        let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 4];
+        let avg = [0f32; 16];
+        let mask = [0u8; 16];
+        let mut boxes = [MotionBox {
+            x1: 0,
+            y1: 0,
+            x2: 0,
+            y2: 0,
+        }; 4];
         for (w, h) in [(0u32, 8u32), (8, 0), (0, 0)] {
             let n = unsafe {
                 motion_pixel_pipeline(
-                    frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                    w, h, 30, 10, 1, boxes.as_mut_ptr(), 4, std::ptr::null_mut(),
+                    frame.as_mut_ptr(),
+                    avg.as_ptr(),
+                    mask.as_ptr(),
+                    w,
+                    h,
+                    30,
+                    10,
+                    1,
+                    boxes.as_mut_ptr(),
+                    4,
+                    std::ptr::null_mut(),
                 )
             };
             assert_eq!(n, 0, "expected no boxes for {w}x{h}");
@@ -1231,26 +759,23 @@ mod ffi_guard_tests {
     fn pixel_pipeline_rejects_null_output_buffer() {
         let mut frame = vec![0u8; 64];
         let avg = vec![0f32; 64];
-        let mask = vec![0u8; 64];
+        let mask = [0u8; 64];
         let n = unsafe {
             motion_pixel_pipeline(
-                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                8, 8, 30, 10, 1, std::ptr::null_mut(), 4, std::ptr::null_mut(),
+                frame.as_mut_ptr(),
+                avg.as_ptr(),
+                mask.as_ptr(),
+                8,
+                8,
+                30,
+                10,
+                1,
+                std::ptr::null_mut(),
+                4,
+                std::ptr::null_mut(),
             )
         };
         assert_eq!(n, 0);
-    }
-
-    #[test]
-    fn init_average_rejects_null_and_zero_len() {
-        // Must not fault.
-        unsafe { motion_init_average(std::ptr::null(), std::ptr::null_mut(), 0) };
-        let frame = vec![7u8; 4];
-        let mut avg = vec![0f32; 4];
-        unsafe { motion_init_average(frame.as_ptr(), avg.as_mut_ptr(), 0) };
-        assert_eq!(avg, vec![0.0; 4], "zero len must be a no-op");
-        unsafe { motion_init_average(frame.as_ptr(), avg.as_mut_ptr(), 4) };
-        assert_eq!(avg, vec![7.0; 4], "the normal path still works");
     }
 
     #[test]
@@ -1261,7 +786,12 @@ mod ffi_guard_tests {
             let mut frame: Vec<u8> = (0..len).map(|i| (i * 37 % 256) as u8).collect();
             let avg = vec![0.0f32; len];
             let mask = vec![0u8; len];
-            let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 8];
+            let mut boxes = [MotionBox {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0,
+            }; 8];
             let mut area = 0.0f32;
             let _ = unsafe {
                 motion_pixel_pipeline(
@@ -1279,34 +809,6 @@ mod ffi_guard_tests {
                 )
             };
             assert!(area <= len as f32);
-        }
-    }
-
-    #[test]
-    fn accumulate_weighted_boundary_values_and_resolutions() {
-        // Ported from test_motion_accumulator_rust.py
-        let src = vec![255u8; 64 * 64];
-        let mut avg = vec![0.0f32; 64 * 64];
-        unsafe {
-            motion_accumulate_weighted(src.as_ptr(), avg.as_mut_ptr(), 0.1, (64 * 64) as u32);
-        }
-        assert!(avg.iter().all(|&v| (v - 25.5).abs() < 1e-4));
-
-        for (h, w) in [(100usize, 100usize), (480, 640)] {
-            let len = h * w;
-            let src_r: Vec<u8> = (0..len).map(|i| (i.wrapping_mul(131) & 0xFF) as u8).collect();
-            for alpha in [0.01f32, 0.05, 0.2, 0.5] {
-                let mut avg_r: Vec<f32> = (0..len).map(|i| (i % 256) as f32).collect();
-                let want: Vec<f32> = (0..len)
-                    .map(|i| (1.0 - alpha) * avg_r[i] + alpha * src_r[i] as f32)
-                    .collect();
-                unsafe {
-                    motion_accumulate_weighted(src_r.as_ptr(), avg_r.as_mut_ptr(), alpha, len as u32);
-                }
-                for i in 0..len {
-                    assert!((avg_r[i] - want[i]).abs() < 1e-4);
-                }
-            }
         }
     }
 }
