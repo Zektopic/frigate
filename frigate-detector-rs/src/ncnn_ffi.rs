@@ -247,10 +247,9 @@ impl NcnnFfi {
             (self.mat_destroy)(in_mat);
             if ri != 0 || re != 0 || out_mat.is_null() {
                 (self.extractor_destroy)(ex);
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("ncnn forward failed (input={ri}, extract={re})"),
-                ));
+                return Err(io::Error::other(format!(
+                    "ncnn forward failed (input={ri}, extract={re})"
+                )));
             }
 
             let w = (self.mat_get_w)(out_mat) as usize;
@@ -267,10 +266,9 @@ impl NcnnFfi {
             (self.mat_destroy)(out_mat);
             (self.extractor_destroy)(ex);
             if out.is_empty() {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("ncnn output not f32 (elemsize={elemsize})"),
-                ));
+                return Err(io::Error::other(format!(
+                    "ncnn output not f32 (elemsize={elemsize})"
+                )));
             }
             Ok(out)
         }
@@ -301,7 +299,7 @@ fn f16_to_f32(bits: u16) -> f32 {
                     m <<= 1;
                     e -= 1;
                 }
-                (sign << 16) | ((e as u32) << 23) | ((m as u32 & 0x3ff) << 13)
+                (sign << 16) | ((e as u32) << 23) | ((m & 0x3ff) << 13)
             }
         }
         0x1f => (sign << 16) | 0x7f80_0000 | (frac << 13), // inf / nan
@@ -320,20 +318,24 @@ mod tests {
         let cases: [(u16, f32); 6] = [
             (0x0000, 0.0),
             (0x3c00, 1.0),
-            (0x3555, 0.333251953125),
+            (0x3555, 1365.0 / 4096.0), // nearest f16 to 1/3
             (0xc100, -2.5),
             (0x7c00, f32::INFINITY),
-            (0x0001, 5.960464477539063e-8),
+            (0x0001, 1.0 / 16_777_216.0), // smallest subnormal, 2^-24
         ];
+        // Every f16 is exactly representable as f32, so compare exactly.  (The
+        // old `abs() <= EPSILON` tolerance accepted anything below 1.2e-7,
+        // so it could not catch a wrong subnormal.)
         for (bits, want) in cases {
             let got = f16_to_f32(bits);
-            let ok = if want.is_infinite() {
-                got == want
-            } else {
-                (got - want).abs() <= f32::EPSILON * want.abs().max(1.0)
-            };
-            assert!(ok, "bits {bits:#06x}: got {got}, want {want}");
+            assert_eq!(
+                got.to_bits(),
+                want.to_bits(),
+                "bits {bits:#06x}: got {got}, want {want}"
+            );
         }
+        assert_eq!(f16_to_f32(0x8000).to_bits(), (-0.0f32).to_bits());
+        assert_eq!(f16_to_f32(0x03ff), 1023.0 / 16_777_216.0); // largest subnormal
         assert!(f16_to_f32(0x7e00).is_nan());
     }
 }

@@ -727,8 +727,8 @@ mod ffi_guard_tests {
     #[test]
     fn pixel_pipeline_rejects_zero_dimensions() {
         let mut frame = vec![0u8; 16];
-        let avg = vec![0f32; 16];
-        let mask = vec![0u8; 16];
+        let avg = [0f32; 16];
+        let mask = [0u8; 16];
         let mut boxes = [MotionBox {
             x1: 0,
             y1: 0,
@@ -759,7 +759,7 @@ mod ffi_guard_tests {
     fn pixel_pipeline_rejects_null_output_buffer() {
         let mut frame = vec![0u8; 64];
         let avg = vec![0f32; 64];
-        let mask = vec![0u8; 64];
+        let mask = [0u8; 64];
         let n = unsafe {
             motion_pixel_pipeline(
                 frame.as_mut_ptr(),

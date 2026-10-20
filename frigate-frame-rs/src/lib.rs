@@ -147,19 +147,23 @@ fn normalize_u8_to_f32_scalar(src: &[u8], dst: &mut [f32], len: usize) {
     }
 }
 
-// ── NHWC → NCHW transpose (single-batch) ───────────────────────────
-
-// ── Combined pipeline: resize + normalize + transpose ───────────────
-
 // ── YUV420 crop + repack ───────────────────────────────────────────
 
-/// Crop a region from a planar YUV420 frame and pack into a contiguous
-/// output buffer (Y plane first, then interleaved U/V bytes).
+/// Crop a region from a planar YUV420 (I420) frame and pack it into a
+/// contiguous I420 buffer: the cropped Y plane, then the cropped U plane,
+/// then the cropped V plane.
 ///
 /// Replaces the 7-slice-copy numpy path in `yuv_crop_and_resize`.
 ///
-/// `src` is the full-frame YUV420 buffer (Y + U + V planar).
-/// `out` receives `(crop_w * crop_h * 3 / 2)` bytes.
+/// Nothing is written when a pointer is null, a dimension is zero, or the
+/// crop window is not fully inside the `src_w × src_h` luma plane.
+///
+/// # Safety
+/// * `src` must be valid for reads of the whole frame:
+///   `src_w * src_h + 2 * (src_w / 2) * (src_h / 2)` bytes.
+/// * `out` must be valid for writes of
+///   `crop_w * crop_h + 2 * (crop_w / 2) * (crop_h / 2)` bytes and must not
+///   overlap `src`.
 #[no_mangle]
 pub unsafe extern "C" fn yuv420_crop_repack(
     src: *const u8,
@@ -230,6 +234,14 @@ pub unsafe extern "C" fn yuv420_crop_repack(
 /// nearest-neighbor upsampling U/V to full resolution.
 ///
 /// Replaces nested `np.repeat` calls in `yuv_to_3_channel_yuv`.
+///
+/// Nothing is written when a pointer is null or `w` / `h` is zero or odd.
+///
+/// # Safety
+/// * `y` must be valid for reads of `w * h` bytes, and `u` and `v` for
+///   reads of `(w / 2) * (h / 2)` bytes each.
+/// * `out` must be valid for writes of `w * h * 3` bytes and must not
+///   overlap the input planes.
 #[no_mangle]
 pub unsafe extern "C" fn yuv420_to_3channel(
     y: *const u8,
@@ -279,6 +291,11 @@ pub unsafe extern "C" fn yuv420_to_3channel(
 ///
 /// Replaces `np.transpose` + `.astype(np.float32)` + `/255` in
 /// `BaseLocalDetector._transform_input`.
+///
+/// # Safety
+/// `src` must be valid for reads of `h * w * c` bytes (HWC order) and `dst`
+/// for writes of `h * w * c` `f32`s; the buffers must not overlap.  Null
+/// pointers or a zero dimension are rejected without writing.
 #[no_mangle]
 pub unsafe extern "C" fn transform_detect_input(
     src: *const u8,
@@ -408,7 +425,15 @@ pub unsafe extern "C" fn track_distance(det: *const f64, est: *const f64) -> f64
     (dx * dx + dy * dy + wr * wr + hr * hr).sqrt()
 }
 
-/// Vectorized NxM pairwise tracker distance matrix.
+/// Pairwise tracker distance matrix: `out_matrix[i * n_ests + j]` is
+/// [`track_distance`] of detection `i` and estimate `j`.
+///
+/// # Safety
+/// * `dets` must be valid for reads of `n_dets * 4` `f64`s and `ests` for
+///   reads of `n_ests * 4` `f64`s.
+/// * `out_matrix` must be valid for writes of `n_dets * n_ests` `f64`s.
+///
+/// Null pointers or an empty side are rejected without writing.
 #[no_mangle]
 pub unsafe extern "C" fn batch_track_distance_matrix(
     dets: *const f64,
@@ -475,6 +500,11 @@ fn iou_i32(a: [i32; 4], b: [i32; 4]) -> f32 {
 /// Greedy iterative bounding-box union reduction (replaces `frigate.util.object.reduce_boxes`).
 /// Writes reduced `[x1, y1, x2, y2]` boxes into `out_boxes` (capacity `n_boxes * 4`)
 /// and returns the number of reduced clusters.
+///
+/// # Safety
+/// `boxes` must be valid for reads of `n_boxes * 4` `i32`s and `out_boxes`
+/// for writes of `n_boxes * 4` `i32`s.  Null pointers or `n_boxes == 0`
+/// return 0 without writing.
 #[no_mangle]
 pub unsafe extern "C" fn reduce_boxes_i32(
     boxes: *const i32,
@@ -534,14 +564,13 @@ fn cluster_boundary_i32(b: [i32; 4], min_region: i32) -> [i32; 4] {
     ]
 }
 
+/// Port of `frigate.util.image.calculate_region`: a square, 4-aligned
+/// region of at least `model_size` around `[xmin, ymin, xmax, ymax]`,
+/// shifted to stay inside a `(frame_h, frame_w)` frame.
 #[inline]
 fn calculate_region_i32(
-    frame_h: i32,
-    frame_w: i32,
-    xmin: i32,
-    ymin: i32,
-    xmax: i32,
-    ymax: i32,
+    (frame_h, frame_w): (i32, i32),
+    [xmin, ymin, xmax, ymax]: [i32; 4],
     model_size: i32,
     multiplier: f64,
 ) -> [i32; 4] {
@@ -571,6 +600,11 @@ fn calculate_region_i32(
 /// Writes flattened box indices into `out_flat_indices` (capacity `n_boxes`)
 /// and cluster lengths into `out_cluster_lengths` (capacity `n_boxes`).
 /// Returns the number of clusters written.
+///
+/// # Safety
+/// `boxes` must be valid for reads of `n_boxes * 4` `i32`s, and
+/// `out_flat_indices` and `out_cluster_lengths` for writes of `n_boxes`
+/// `i32`s each.  Null pointers or `n_boxes == 0` return 0 without writing.
 #[no_mangle]
 pub unsafe extern "C" fn cluster_candidates_i32(
     boxes: *const i32,
@@ -637,7 +671,10 @@ pub unsafe extern "C" fn cluster_candidates_i32(
                 }
             }
             let region = calculate_region_i32(
-                frame_h, frame_w, min_x, min_y, max_x, max_y, min_region, 1.35,
+                (frame_h, frame_w),
+                [min_x, min_y, max_x, max_y],
+                min_region,
+                1.35,
             );
 
             let mut should_cluster = true;
@@ -679,6 +716,11 @@ pub unsafe extern "C" fn cluster_candidates_i32(
 ///
 /// `boxes` has `n * 4` `i32`s (`[x1, y1, x2, y2]`) ordered from smallest area to largest.
 /// Writes indices of kept detections into `out_keep` (capacity `n`) and returns kept count.
+///
+/// # Safety
+/// `boxes` must be valid for reads of `n * 4` `i32`s and `out_keep` for
+/// writes of `n` `i32`s.  Null pointers or `n == 0` return 0 without
+/// writing.
 #[no_mangle]
 pub unsafe extern "C" fn consolidate_detections_i32(
     boxes: *const i32,
@@ -732,6 +774,10 @@ pub unsafe extern "C" fn consolidate_detections_i32(
 ///
 /// Replaces `cv2.matchTemplate(curr_gray, reference_crop, cv2.TM_CCOEFF_NORMED)`
 /// in `StationaryMotionClassifier.evaluate`.
+///
+/// # Safety
+/// `a` and `b` must each be valid for reads of `len` bytes.  Null pointers
+/// or `len == 0` return 0.0.
 #[no_mangle]
 pub unsafe extern "C" fn ncc_u8(a: *const u8, b: *const u8, len: usize) -> f64 {
     if a.is_null() || b.is_null() || len == 0 {
@@ -785,6 +831,11 @@ fn linear_percentile_sorted(sorted: &[i32], q: f64) -> f64 {
 
 /// Compute `[percentile(xmins, 15), percentile(ymins, 15), percentile(xmaxs, 85), percentile(ymaxs, 85)]`
 /// with linear interpolation matching `np.percentile` for `NorfairTracker.update_position`.
+///
+/// # Safety
+/// `boxes` must be valid for reads of `n_boxes * 4` `i32`s and `out_bounds`
+/// for writes of 4 `f64`s.  Null pointers or `n_boxes == 0` are rejected
+/// without writing.
 #[no_mangle]
 pub unsafe extern "C" fn percentile_15_85_i32(
     boxes: *const i32,
@@ -810,6 +861,10 @@ pub unsafe extern "C" fn percentile_15_85_i32(
 
 /// Streaming single-pass variance of the 3×3 discrete Laplacian (`[0,1,0; 1,-4,1; 0,1,0]`)
 /// with `BORDER_REFLECT_101` border handling, matching `cv2.Laplacian(input, cv2.CV_64F).var()`.
+///
+/// # Safety
+/// `src` must be valid for reads of `w * h * channels` bytes (interleaved
+/// HWC).  A null pointer or a zero dimension returns 0.0.
 #[no_mangle]
 pub unsafe extern "C" fn laplacian_variance_u8(
     src: *const u8,
@@ -888,6 +943,11 @@ pub unsafe extern "C" fn laplacian_variance_u8(
 
 /// Compute cosine similarity between `query` (`dim` floats) and `n_gallery` vectors
 /// in `gallery` (`n_gallery * dim` floats), writing results to `out_scores` (`n_gallery` floats).
+///
+/// # Safety
+/// `query` must be valid for reads of `dim` `f32`s, `gallery` for reads of
+/// `n_gallery * dim` `f32`s and `out_scores` for writes of `n_gallery`
+/// `f32`s.  Null pointers or a zero size are rejected without writing.
 #[no_mangle]
 pub unsafe extern "C" fn batch_cosine_similarity_f32(
     query: *const f32,
@@ -998,7 +1058,7 @@ mod tests {
 
     #[test]
     fn test_transform_detect_input() {
-        let src = vec![0u8, 128, 255, 255, 128, 0];
+        let src = [0u8, 128, 255, 255, 128, 0];
         let mut dst = vec![0.0f32; 6];
         unsafe {
             transform_detect_input(src.as_ptr(), dst.as_mut_ptr(), 1, 2, 3);
@@ -1013,9 +1073,9 @@ mod tests {
 
     #[test]
     fn test_yuv420_to_3channel() {
-        let y = vec![10u8, 20, 30, 40]; // 2x2
-        let u = vec![100u8]; // 1x1
-        let v = vec![200u8]; // 1x1
+        let y = [10u8, 20, 30, 40]; // 2x2
+        let u = [100u8]; // 1x1
+        let v = [200u8]; // 1x1
         let mut out = vec![0u8; 2 * 2 * 3];
         unsafe {
             yuv420_to_3channel(y.as_ptr(), u.as_ptr(), v.as_ptr(), 2, 2, out.as_mut_ptr());
@@ -1202,7 +1262,7 @@ mod tests {
     fn test_ncc_u8() {
         let a: Vec<u8> = (0..64u8).collect();
         let inv: Vec<u8> = (0..64u8).map(|v| 255 - v).collect();
-        let flat = vec![100u8; 64];
+        let flat = [100u8; 64];
         unsafe {
             let same = ncc_u8(a.as_ptr(), a.as_ptr(), 64);
             let opp = ncc_u8(a.as_ptr(), inv.as_ptr(), 64);
@@ -1331,7 +1391,7 @@ mod ffi_guard_tests {
 
     #[test]
     fn bilinear_resize_rejects_zero_dimensions() {
-        let src = vec![7u8; 16];
+        let src = [7u8; 16];
         let mut dst = vec![0u8; 16];
         unsafe { bilinear_resize_u8(src.as_ptr(), dst.as_mut_ptr(), 4, 0, 4, 4, 1) };
         assert!(dst.iter().all(|&v| v == 0));

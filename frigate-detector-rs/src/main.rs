@@ -237,10 +237,9 @@ fn process_rayon(
 struct Frame {
     data: Vec<u8>,
 }
-enum Msg {
-    Frame(Arc<Frame>),
-    Shutdown,
-}
+/// Post-processed detections (`MAX_DETECTIONS * 6` floats) and how many
+/// of them are set.
+type DetResult = ([f32; 120], usize);
 
 // ── Main ──────────────────────────────────────────────────────────
 
@@ -266,26 +265,25 @@ fn main() -> io::Result<()> {
     let mut ncnn = Backend::create(&args[1], &args[2], &args[3], &args[4], ms)?;
 
     // Channels
-    let (tx_frame, rx_frame): (Sender<Msg>, Receiver<Msg>) = bounded(2);
-    let (tx_result, rx_result): (Sender<([f32; 120], usize)>, Receiver<([f32; 120], usize)>) =
-        bounded(2);
+    // Dropping `tx_frame` (stdin EOF) ends the inference thread, which in
+    // turn drops `tx_result` and ends the writer thread.
+    let (tx_frame, rx_frame): (Sender<Arc<Frame>>, Receiver<Arc<Frame>>) = bounded(2);
+    let (tx_result, rx_result): (Sender<DetResult>, Receiver<DetResult>) = bounded(2);
 
     // Thread 2: Inference + post-process
-    std::thread::spawn(move || loop {
-        let frame = match rx_frame.recv() {
-            Ok(Msg::Frame(f)) => f,
-            _ => break,
-        };
-        let raw = ncnn.forward(&frame.data).unwrap_or_default();
-        let n_cells = raw.len() / if is_yolo26 { 84 } else { 144 };
-        let mut out = [0.0f32; 120];
-        let n = if is_yolo26 {
-            process_rayon(&raw, n_cells, ms as f32, 0.05, 0.45, &mut out)
-        } else {
-            0
-        };
-        if tx_result.send((out, n)).is_err() {
-            break;
+    std::thread::spawn(move || {
+        while let Ok(frame) = rx_frame.recv() {
+            let raw = ncnn.forward(&frame.data).unwrap_or_default();
+            let n_cells = raw.len() / if is_yolo26 { 84 } else { 144 };
+            let mut out = [0.0f32; 120];
+            let n = if is_yolo26 {
+                process_rayon(&raw, n_cells, ms as f32, 0.05, 0.45, &mut out)
+            } else {
+                0
+            };
+            if tx_result.send((out, n)).is_err() {
+                break;
+            }
         }
     });
 
@@ -314,11 +312,11 @@ fn main() -> io::Result<()> {
         if io::stdin().read_exact(&mut data).is_err() {
             break;
         }
-        if tx_frame.send(Msg::Frame(Arc::new(Frame { data }))).is_err() {
+        if tx_frame.send(Arc::new(Frame { data })).is_err() {
             break;
         }
         count += 1;
-        if count % 100 == 0 {
+        if count.is_multiple_of(100) {
             eprintln!(
                 "STATS frames={} fps={:.1}",
                 count,
