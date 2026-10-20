@@ -94,11 +94,7 @@ pub unsafe extern "C" fn bilinear_resize_u8(
 /// # Safety
 /// Both pointers must be valid for `len` elements of the appropriate type.
 #[no_mangle]
-pub unsafe extern "C" fn normalize_u8_to_f32(
-    src: *const u8,
-    dst: *mut f32,
-    len: u32,
-) {
+pub unsafe extern "C" fn normalize_u8_to_f32(src: *const u8, dst: *mut f32, len: u32) {
     let len = len as usize;
     if src.is_null() || dst.is_null() || len == 0 {
         return;
@@ -248,8 +244,14 @@ pub unsafe extern "C" fn yuv420_to_3channel(
     // The chroma planes are (w/2)*(h/2) (floor), so an odd width or height
     // would index one element past their end; with panic = "abort" that
     // bounds-check panic kills the process.
-    if y.is_null() || u.is_null() || v.is_null() || out.is_null()
-        || w == 0 || h == 0 || !w.is_multiple_of(2) || !h.is_multiple_of(2)
+    if y.is_null()
+        || u.is_null()
+        || v.is_null()
+        || out.is_null()
+        || w == 0
+        || h == 0
+        || !w.is_multiple_of(2)
+        || !h.is_multiple_of(2)
     {
         return;
     }
@@ -314,8 +316,7 @@ pub unsafe extern "C" fn transform_detect_input(
             for wi in 0..w {
                 let src_idx = (hi * w + wi) * c + ci;
                 let dst_idx = ci * hw + hi * w + wi;
-                *dst.get_unchecked_mut(dst_idx) =
-                    *src.get_unchecked(src_idx) as f32 * inv255;
+                *dst.get_unchecked_mut(dst_idx) = *src.get_unchecked(src_idx) as f32 * inv255;
             }
         }
     }
@@ -331,14 +332,10 @@ pub unsafe extern "C" fn transform_detect_input(
 /// # Safety
 /// `dst` must be a valid pointer pointing to a buffer of at least `frame_size` bytes.
 #[no_mangle]
-pub unsafe extern "C" fn read_ffmpeg_frame(
-    fd: i32,
-    dst: *mut u8,
-    frame_size: u32,
-) -> i32 {
-    use std::os::unix::io::FromRawFd;
+pub unsafe extern "C" fn read_ffmpeg_frame(fd: i32, dst: *mut u8, frame_size: u32) -> i32 {
     use std::fs::File;
     use std::io::Read;
+    use std::os::unix::io::FromRawFd;
 
     // Validate everything *before* touching the fd.  File::from_raw_fd
     // asserts on a negative descriptor, and this crate is a cdylib
@@ -626,10 +623,18 @@ pub unsafe extern "C" fn cluster_candidates_i32(
             let mut max_y = 0.max(box_arr[compare_idx][3]);
             for &ci in &cluster {
                 let cb = box_arr[ci];
-                if cb[0] < min_x { min_x = cb[0]; }
-                if cb[1] < min_y { min_y = cb[1]; }
-                if cb[2] > max_x { max_x = cb[2]; }
-                if cb[3] > max_y { max_y = cb[3]; }
+                if cb[0] < min_x {
+                    min_x = cb[0];
+                }
+                if cb[1] < min_y {
+                    min_y = cb[1];
+                }
+                if cb[2] > max_x {
+                    max_x = cb[2];
+                }
+                if cb[3] > max_y {
+                    max_y = cb[3];
+                }
             }
             let region = calculate_region_i32(
                 frame_h, frame_w, min_x, min_y, max_x, max_y, min_region, 1.35,
@@ -644,7 +649,10 @@ pub unsafe extern "C" fn cluster_candidates_i32(
                     let bh = (b[3] - b[1]) as f64;
                     (bw * bh) / reg_area >= 0.05
                 };
-                if reg_area <= 0.0 || !check_box(compare_idx) || !cluster.iter().all(|&ci| check_box(ci)) {
+                if reg_area <= 0.0
+                    || !check_box(compare_idx)
+                    || !cluster.iter().all(|&ci| check_box(ci))
+                {
                     should_cluster = false;
                 }
             }
@@ -822,12 +830,36 @@ pub unsafe extern "C" fn laplacian_variance_u8(
     let mut sum_sq: i64 = 0;
 
     for y in 0..h {
-        let ym1 = if y > 0 { y - 1 } else if h > 1 { 1 } else { 0 };
-        let yp1 = if y + 1 < h { y + 1 } else if h > 1 { h - 2 } else { 0 };
+        let ym1 = if y > 0 {
+            y - 1
+        } else if h > 1 {
+            1
+        } else {
+            0
+        };
+        let yp1 = if y + 1 < h {
+            y + 1
+        } else if h > 1 {
+            h - 2
+        } else {
+            0
+        };
 
         for x in 0..w {
-            let xm1 = if x > 0 { x - 1 } else if w > 1 { 1 } else { 0 };
-            let xp1 = if x + 1 < w { x + 1 } else if w > 1 { w - 2 } else { 0 };
+            let xm1 = if x > 0 {
+                x - 1
+            } else if w > 1 {
+                1
+            } else {
+                0
+            };
+            let xp1 = if x + 1 < w {
+                x + 1
+            } else if w > 1 {
+                w - 2
+            } else {
+                0
+            };
 
             let c_base = (y * w + x) * ch;
             let t_base = (ym1 * w + x) * ch;
@@ -982,8 +1014,8 @@ mod tests {
     #[test]
     fn test_yuv420_to_3channel() {
         let y = vec![10u8, 20, 30, 40]; // 2x2
-        let u = vec![100u8];             // 1x1
-        let v = vec![200u8];             // 1x1
+        let u = vec![100u8]; // 1x1
+        let v = vec![200u8]; // 1x1
         let mut out = vec![0u8; 2 * 2 * 3];
         unsafe {
             yuv420_to_3channel(y.as_ptr(), u.as_ptr(), v.as_ptr(), 2, 2, out.as_mut_ptr());
@@ -1016,14 +1048,8 @@ mod tests {
         }
 
         // Batch 2x2 matrix parity with scalar track_distance
-        let dets = [
-            10.0f64, 20.0, 110.0, 220.0,
-            60.0, 20.0, 160.0, 220.0,
-        ];
-        let ests = [
-            10.0f64, 20.0, 110.0, 220.0,
-            10.0, 20.0, 210.0, 220.0,
-        ];
+        let dets = [10.0f64, 20.0, 110.0, 220.0, 60.0, 20.0, 160.0, 220.0];
+        let ests = [10.0f64, 20.0, 110.0, 220.0, 10.0, 20.0, 210.0, 220.0];
         let mut mat = [0.0f64; 4];
         unsafe {
             batch_track_distance_matrix(dets.as_ptr(), 2, ests.as_ptr(), 2, mat.as_mut_ptr());
@@ -1065,8 +1091,7 @@ mod tests {
     #[test]
     fn test_reduce_boxes_i32() {
         let boxes = [
-            10, 10, 50, 50,
-            20, 20, 60, 60, // overlaps with first (IoU > 0)
+            10, 10, 50, 50, 20, 20, 60, 60, // overlaps with first (IoU > 0)
             100, 100, 140, 140, // disjoint
         ];
         let mut out = [0i32; 12];
@@ -1104,7 +1129,11 @@ mod tests {
         };
 
         // 1. test_cluster_candidates
-        let c1 = run(&[[100, 100, 200, 200], [202, 150, 252, 200], [900, 900, 950, 950]]);
+        let c1 = run(&[
+            [100, 100, 200, 200],
+            [202, 150, 252, 200],
+            [900, 900, 950, 950],
+        ]);
         assert_eq!(c1.len(), 2);
 
         // 2. test_cluster_candidates_partition_boxes
@@ -1155,10 +1184,7 @@ mod tests {
         assert_eq!(keep[0], 1);
 
         // Vertically stacked cars from test_video.py -> neither dropped
-        let stacked = [
-            954, 312, 1247, 475,
-            970, 380, 1273, 610,
-        ];
+        let stacked = [954, 312, 1247, 475, 970, 380, 1273, 610];
         let n2 = unsafe { consolidate_detections_i32(stacked.as_ptr(), 2, 0.7, keep.as_mut_ptr()) };
         assert_eq!(n2, 2);
 
@@ -1167,7 +1193,8 @@ mod tests {
             248, 340, 328, 385, // tiny (3600)
             164, 279, 816, 719, // huge (286880)
         ];
-        let n3 = unsafe { consolidate_detections_i32(diff_size.as_ptr(), 2, 0.7, keep.as_mut_ptr()) };
+        let n3 =
+            unsafe { consolidate_detections_i32(diff_size.as_ptr(), 2, 0.7, keep.as_mut_ptr()) };
         assert_eq!(n3, 2);
     }
 
@@ -1189,10 +1216,7 @@ mod tests {
     #[test]
     fn test_percentiles_i32() {
         let boxes = [
-            10, 20, 100, 200,
-            20, 30, 110, 210,
-            30, 40, 120, 220,
-            100, 200, 300, 400,
+            10, 20, 100, 200, 20, 30, 110, 210, 30, 40, 120, 220, 100, 200, 300, 400,
         ];
         let mut pct = [0.0f64; 4];
         unsafe {
@@ -1218,7 +1242,10 @@ mod tests {
         unsafe {
             assert_eq!(laplacian_variance_u8(flat.as_ptr(), 32, 32, 3), 0.0);
             let v = laplacian_variance_u8(checker.as_ptr(), 32, 32, 1);
-            assert!(v > 100_000.0, "expected high variance on checkerboard, got {v}");
+            assert!(
+                v > 100_000.0,
+                "expected high variance on checkerboard, got {v}"
+            );
         }
     }
 
@@ -1226,14 +1253,17 @@ mod tests {
     fn test_batch_cosine_similarity_f32() {
         let query = [1.0f32, 0.0, 0.0];
         let gallery = [
-            1.0f32, 0.0, 0.0,
-            0.0, 1.0, 0.0,
-            -1.0, 0.0, 0.0,
-            0.0, 0.0, 0.0,
+            1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         ];
         let mut scores = [0.0f32; 4];
         unsafe {
-            batch_cosine_similarity_f32(query.as_ptr(), gallery.as_ptr(), 4, 3, scores.as_mut_ptr());
+            batch_cosine_similarity_f32(
+                query.as_ptr(),
+                gallery.as_ptr(),
+                4,
+                3,
+                scores.as_mut_ptr(),
+            );
         }
         assert!((scores[0] - 1.0).abs() < 1e-6);
         assert!(scores[1].abs() < 1e-6);
@@ -1241,7 +1271,6 @@ mod tests {
         assert_eq!(scores[3], 0.0);
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════
 //  AVX2 ↔ scalar parity for normalize_u8_to_f32.
@@ -1292,7 +1321,10 @@ mod ffi_guard_tests {
 
     #[test]
     fn read_ffmpeg_frame_rejects_null_and_zero() {
-        assert_eq!(unsafe { read_ffmpeg_frame(-1, std::ptr::null_mut(), 128) }, -1);
+        assert_eq!(
+            unsafe { read_ffmpeg_frame(-1, std::ptr::null_mut(), 128) },
+            -1
+        );
         let mut buf = vec![0u8; 8];
         assert_eq!(unsafe { read_ffmpeg_frame(-1, buf.as_mut_ptr(), 0) }, -1);
     }
@@ -1319,25 +1351,45 @@ mod ffi_guard_tests {
         let src = vec![0u8; 16 * 16 * 3 / 2];
         let mut out = vec![0xABu8; 64];
         unsafe { yuv420_crop_repack(src.as_ptr(), 16, 16, 12, 0, 8, 8, out.as_mut_ptr()) };
-        assert!(out.iter().all(|&v| v == 0xAB), "must not write on an out-of-range crop");
+        assert!(
+            out.iter().all(|&v| v == 0xAB),
+            "must not write on an out-of-range crop"
+        );
     }
 
     #[test]
     fn tier_a_kernels_reject_null_and_zero() {
         unsafe {
-            assert_eq!(reduce_boxes_i32(std::ptr::null(), 4, 0.0, std::ptr::null_mut()), 0);
+            assert_eq!(
+                reduce_boxes_i32(std::ptr::null(), 4, 0.0, std::ptr::null_mut()),
+                0
+            );
             assert_eq!(
                 cluster_candidates_i32(
-                    std::ptr::null(), 4, 1000, 1000, 160, std::ptr::null_mut(), std::ptr::null_mut()
+                    std::ptr::null(),
+                    4,
+                    1000,
+                    1000,
+                    160,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut()
                 ),
                 0
             );
-            assert_eq!(consolidate_detections_i32(std::ptr::null(), 4, 0.7, std::ptr::null_mut()), 0);
+            assert_eq!(
+                consolidate_detections_i32(std::ptr::null(), 4, 0.7, std::ptr::null_mut()),
+                0
+            );
             assert_eq!(ncc_u8(std::ptr::null(), std::ptr::null(), 64), 0.0);
             percentile_15_85_i32(std::ptr::null(), 0, std::ptr::null_mut());
             assert_eq!(laplacian_variance_u8(std::ptr::null(), 0, 0, 0), 0.0);
-            batch_cosine_similarity_f32(std::ptr::null(), std::ptr::null(), 0, 0, std::ptr::null_mut());
+            batch_cosine_similarity_f32(
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                0,
+                std::ptr::null_mut(),
+            );
         }
     }
 }
-

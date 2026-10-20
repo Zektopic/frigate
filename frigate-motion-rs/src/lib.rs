@@ -85,7 +85,11 @@ fn absdiff_scalar(a: &[u8], b: &[u8], dst: &mut [u8], len: usize) {
 
 fn threshold_mask_scalar(buf: &mut [u8], mask: &[u8], thresh: u8, len: usize) {
     for j in 0..len {
-        buf[j] = if buf[j] >= thresh && mask[j] == 0 { 255 } else { 0 };
+        buf[j] = if buf[j] >= thresh && mask[j] == 0 {
+            255
+        } else {
+            0
+        };
     }
 }
 
@@ -161,14 +165,18 @@ unsafe fn threshold_mask_avx2_impl(buf: &mut [u8], mask: &[u8], thresh: u8, len:
         // equivalent of v >= t.
         let ge = _mm256_cmpeq_epi8(_mm256_max_epu8(v, thresh_vec), v);
         // mask == 0 ? (mask=0 means UNMASKED = process this pixel)
-        let unmasked = _mm256_cmpeq_epi8(m, zero);    // m == 0 (unmasked)
-        // combine: (val >= thresh) AND (unmasked)
+        let unmasked = _mm256_cmpeq_epi8(m, zero); // m == 0 (unmasked)
+                                                   // combine: (val >= thresh) AND (unmasked)
         let res = _mm256_and_si256(ge, unmasked);
         _mm256_storeu_si256(buf.as_mut_ptr().add(i) as *mut __m256i, res);
         i += 32;
     }
     for j in i..len {
-        buf[j] = if buf[j] >= thresh && mask[j] == 0 { 255 } else { 0 };
+        buf[j] = if buf[j] >= thresh && mask[j] == 0 {
+            255
+        } else {
+            0
+        };
     }
 }
 
@@ -207,7 +215,10 @@ fn dilate_cross_3x3(buf: &mut [u8], tmp: &mut [u8], w: usize, h: usize) {
 /// total foreground area: the pixel count of every component (matching Python's `total_contour_area`
 /// accumulation across ALL contours, not just kept ones).
 fn find_contours_with_area(
-    pixels: &[u8], w: usize, h: usize, min_area: i32,
+    pixels: &[u8],
+    w: usize,
+    h: usize,
+    min_area: i32,
 ) -> (Vec<(i32, i32, i32, i32)>, f32) {
     let mut visited = vec![false; w * h];
     let mut boxes: Vec<(i32, i32, i32, i32)> = Vec::with_capacity(64);
@@ -228,10 +239,18 @@ fn find_contours_with_area(
             let mut area: i32 = 0;
             while let Some((cx, cy)) = stack.pop() {
                 area += 1;
-                if cx < min_x { min_x = cx; }
-                if cx > max_x { max_x = cx; }
-                if cy < min_y { min_y = cy; }
-                if cy > max_y { max_y = cy; }
+                if cx < min_x {
+                    min_x = cx;
+                }
+                if cx > max_x {
+                    max_x = cx;
+                }
+                if cy < min_y {
+                    min_y = cy;
+                }
+                if cy > max_y {
+                    max_y = cy;
+                }
                 let neighbors: [(isize, isize); 4] = [
                     (cx as isize - 1, cy as isize),
                     (cx as isize + 1, cy as isize),
@@ -239,9 +258,7 @@ fn find_contours_with_area(
                     (cx as isize, cy as isize + 1),
                 ];
                 for (nx, ny) in neighbors {
-                    if nx >= 0 && (nx as usize) < w
-                        && ny >= 0 && (ny as usize) < h
-                    {
+                    if nx >= 0 && (nx as usize) < w && ny >= 0 && (ny as usize) < h {
                         let nidx = (ny as usize) * w + (nx as usize);
                         if !visited[nidx] && pixels[nidx] == 255 {
                             visited[nidx] = true;
@@ -253,8 +270,10 @@ fn find_contours_with_area(
             total_area += area as f32;
             if area >= min_area {
                 boxes.push((
-                    min_x as i32, min_y as i32,
-                    (max_x + 1) as i32, (max_y + 1) as i32,
+                    min_x as i32,
+                    min_y as i32,
+                    (max_x + 1) as i32,
+                    (max_y + 1) as i32,
                 ));
             }
         }
@@ -314,8 +333,13 @@ pub unsafe extern "C" fn motion_pixel_pipeline(
     // Guard the FFI boundary: from_raw_parts on a null pointer is UB
     // even at zero length, and a zero-sized frame underflows the
     // neighbourhood index arithmetic in the blur/dilate kernels.
-    if frame.is_null() || avg_frame.is_null() || mask.is_null() || out_boxes.is_null()
-        || w == 0 || h == 0 || max_boxes == 0
+    if frame.is_null()
+        || avg_frame.is_null()
+        || mask.is_null()
+        || out_boxes.is_null()
+        || w == 0
+        || h == 0
+        || max_boxes == 0
     {
         if !out_total_area.is_null() {
             *out_total_area = 0.0;
@@ -378,7 +402,9 @@ mod tests {
         let src = vec![128u8; 100]; // 10×10 flat image
         let mut dst = vec![0u8; 100];
         let mut tmp = vec![0u8; 100];
-        unsafe { gaussian_blur_3x3(&src, &mut dst, &mut tmp, 10, 10); }
+        unsafe {
+            gaussian_blur_3x3(&src, &mut dst, &mut tmp, 10, 10);
+        }
         assert_eq!(&dst, &src); // flat image unchanged by blur
     }
 
@@ -386,7 +412,9 @@ mod tests {
     fn test_absdiff_identical() {
         let data: Vec<u8> = (0..64u8).collect();
         let mut dst = vec![0u8; 64];
-        unsafe { absdiff_avx2(&data, &data, &mut dst, 64); }
+        unsafe {
+            absdiff_avx2(&data, &data, &mut dst, 64);
+        }
         assert!(dst.iter().all(|&v| v == 0));
     }
 
@@ -394,7 +422,9 @@ mod tests {
     fn test_threshold_mask() {
         let mut buf: Vec<u8> = (0..64u8).collect();
         let mask: Vec<u8> = vec![0u8; 64]; // all zeros = unmasked = process all
-        unsafe { threshold_mask_avx2(&mut buf, &mask, 32, 64); }
+        unsafe {
+            threshold_mask_avx2(&mut buf, &mask, 32, 64);
+        }
         for (i, &v) in buf.iter().enumerate() {
             let expected = if i >= 32 { 255 } else { 0 };
             assert_eq!(v, expected, "pixel {i}");
@@ -418,9 +448,14 @@ mod tests {
 
     #[test]
     fn test_contours_single_rect() {
-        let w = 10usize; let h = 10usize;
+        let w = 10usize;
+        let h = 10usize;
         let mut pixels = vec![0u8; w * h];
-        for y in 3..6 { for x in 3..6 { pixels[y * w + x] = 255; } }
+        for y in 3..6 {
+            for x in 3..6 {
+                pixels[y * w + x] = 255;
+            }
+        }
         let boxes = find_contours_with_area(&pixels, w, h, 0).0;
         assert_eq!(boxes.len(), 1);
         assert_eq!(boxes[0], (3, 3, 6, 6));
@@ -428,15 +463,19 @@ mod tests {
 
     #[test]
     fn test_contours_min_area_filter() {
-        let w = 10usize; let h = 10usize;
+        let w = 10usize;
+        let h = 10usize;
         let mut pixels = vec![0u8; w * h];
         pixels[w + 1] = 255; // 1-pixel dot at (1, 1)
-        for y in 5..9 { for x in 5..9 { pixels[y * w + x] = 255; } } // 4×4 rect
+        for y in 5..9 {
+            for x in 5..9 {
+                pixels[y * w + x] = 255;
+            }
+        } // 4×4 rect
         let boxes = find_contours_with_area(&pixels, w, h, 10).0;
         assert_eq!(boxes.len(), 1);
         assert_eq!(boxes[0], (5, 5, 9, 9));
     }
-
 }
 
 #[cfg(test)]
@@ -445,24 +484,49 @@ mod pixel_pipeline_tests {
 
     #[test]
     fn detects_motion_without_touching_average() {
-        let w = 64usize; let h = 64usize; let len = w * h;
+        let w = 64usize;
+        let h = 64usize;
+        let len = w * h;
         let avg = vec![100.0f32; len];
         let avg_before = avg.clone();
         let mut frame = vec![100u8; len];
-        for y in 20..40 { for x in 20..40 { frame[y*w+x] = 200; } }
+        for y in 20..40 {
+            for x in 20..40 {
+                frame[y * w + x] = 200;
+            }
+        }
         let mask = vec![0u8; len];
-        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut boxes = vec![
+            MotionBox {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0
+            };
+            32
+        ];
         let mut total_area: f32 = 0.0;
 
         let n = unsafe {
             motion_pixel_pipeline(
-                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                w as u32, h as u32, 15, 10, 1,
-                boxes.as_mut_ptr(), 32, &mut total_area,
+                frame.as_mut_ptr(),
+                avg.as_ptr(),
+                mask.as_ptr(),
+                w as u32,
+                h as u32,
+                15,
+                10,
+                1,
+                boxes.as_mut_ptr(),
+                32,
+                &mut total_area,
             )
         };
         assert!(n >= 1, "should find the bright square");
-        assert!(total_area >= 350.0, "area ~400px expected, got {total_area}");
+        assert!(
+            total_area >= 350.0,
+            "area ~400px expected, got {total_area}"
+        );
         assert_eq!(avg, avg_before, "average must not be modified");
         let b = &boxes[0];
         assert!(b.x1 >= 17 && b.x1 <= 22, "x1={}", b.x1);
@@ -471,17 +535,35 @@ mod pixel_pipeline_tests {
 
     #[test]
     fn no_motion_on_identical_frame() {
-        let w = 32usize; let h = 32usize; let len = w * h;
+        let w = 32usize;
+        let h = 32usize;
+        let len = w * h;
         let avg = vec![100.0f32; len];
         let mut frame = vec![100u8; len];
         let mask = vec![0u8; len];
-        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut boxes = vec![
+            MotionBox {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0
+            };
+            32
+        ];
         let mut total_area: f32 = 0.0;
         let n = unsafe {
             motion_pixel_pipeline(
-                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                w as u32, h as u32, 15, 10, 1,
-                boxes.as_mut_ptr(), 32, &mut total_area,
+                frame.as_mut_ptr(),
+                avg.as_ptr(),
+                mask.as_ptr(),
+                w as u32,
+                h as u32,
+                15,
+                10,
+                1,
+                boxes.as_mut_ptr(),
+                32,
+                &mut total_area,
             )
         };
         assert_eq!(n, 0);
@@ -490,23 +572,44 @@ mod pixel_pipeline_tests {
 
     #[test]
     fn respects_mask() {
-        let w = 32usize; let h = 32usize; let len = w * h;
+        let w = 32usize;
+        let h = 32usize;
+        let len = w * h;
         let avg = vec![100.0f32; len];
         let mut frame = vec![100u8; len];
-        for y in 5..15 { for x in 5..15 { frame[y*w+x] = 220; } }
+        for y in 5..15 {
+            for x in 5..15 {
+                frame[y * w + x] = 220;
+            }
+        }
         let mask = vec![1u8; len]; // fully masked → no motion allowed
-        let mut boxes = vec![MotionBox{x1:0,y1:0,x2:0,y2:0}; 32];
+        let mut boxes = vec![
+            MotionBox {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0
+            };
+            32
+        ];
         let mut total_area: f32 = 0.0;
         let n = unsafe {
             motion_pixel_pipeline(
-                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                w as u32, h as u32, 15, 10, 0,
-                boxes.as_mut_ptr(), 32, &mut total_area,
+                frame.as_mut_ptr(),
+                avg.as_ptr(),
+                mask.as_ptr(),
+                w as u32,
+                h as u32,
+                15,
+                10,
+                0,
+                boxes.as_mut_ptr(),
+                32,
+                &mut total_area,
             )
         };
         assert_eq!(n, 0, "masked pixels must not produce motion");
     }
-
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -526,7 +629,9 @@ mod simd_parity_tests {
         let mut state = seed;
         (0..n)
             .map(|_| {
-                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 (state >> 33) as u8
             })
             .collect()
@@ -566,11 +671,13 @@ mod simd_parity_tests {
                 let mut scalar = base.clone();
                 unsafe { threshold_mask_avx2_impl(&mut simd, &mask, thresh, len) };
                 threshold_mask_scalar(&mut scalar, &mask, thresh, len);
-                assert_eq!(simd, scalar, "threshold mismatch at len={len} thresh={thresh}");
+                assert_eq!(
+                    simd, scalar,
+                    "threshold mismatch at len={len} thresh={thresh}"
+                );
             }
         }
     }
-
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -588,16 +695,33 @@ mod ffi_guard_tests {
 
     #[test]
     fn pixel_pipeline_rejects_null_pointers() {
-        let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 4];
+        let mut boxes = [MotionBox {
+            x1: 0,
+            y1: 0,
+            x2: 0,
+            y2: 0,
+        }; 4];
         let mut area = -1.0f32;
         let n = unsafe {
             motion_pixel_pipeline(
-                std::ptr::null_mut(), std::ptr::null(), std::ptr::null(),
-                64, 64, 30, 10, 1, boxes.as_mut_ptr(), 4, &mut area,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+                64,
+                64,
+                30,
+                10,
+                1,
+                boxes.as_mut_ptr(),
+                4,
+                &mut area,
             )
         };
         assert_eq!(n, 0);
-        assert_eq!(area, 0.0, "out_total_area must be initialized on the guard path");
+        assert_eq!(
+            area, 0.0,
+            "out_total_area must be initialized on the guard path"
+        );
     }
 
     #[test]
@@ -605,12 +729,26 @@ mod ffi_guard_tests {
         let mut frame = vec![0u8; 16];
         let avg = vec![0f32; 16];
         let mask = vec![0u8; 16];
-        let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 4];
+        let mut boxes = [MotionBox {
+            x1: 0,
+            y1: 0,
+            x2: 0,
+            y2: 0,
+        }; 4];
         for (w, h) in [(0u32, 8u32), (8, 0), (0, 0)] {
             let n = unsafe {
                 motion_pixel_pipeline(
-                    frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                    w, h, 30, 10, 1, boxes.as_mut_ptr(), 4, std::ptr::null_mut(),
+                    frame.as_mut_ptr(),
+                    avg.as_ptr(),
+                    mask.as_ptr(),
+                    w,
+                    h,
+                    30,
+                    10,
+                    1,
+                    boxes.as_mut_ptr(),
+                    4,
+                    std::ptr::null_mut(),
                 )
             };
             assert_eq!(n, 0, "expected no boxes for {w}x{h}");
@@ -624,8 +762,17 @@ mod ffi_guard_tests {
         let mask = vec![0u8; 64];
         let n = unsafe {
             motion_pixel_pipeline(
-                frame.as_mut_ptr(), avg.as_ptr(), mask.as_ptr(),
-                8, 8, 30, 10, 1, std::ptr::null_mut(), 4, std::ptr::null_mut(),
+                frame.as_mut_ptr(),
+                avg.as_ptr(),
+                mask.as_ptr(),
+                8,
+                8,
+                30,
+                10,
+                1,
+                std::ptr::null_mut(),
+                4,
+                std::ptr::null_mut(),
             )
         };
         assert_eq!(n, 0);
@@ -639,7 +786,12 @@ mod ffi_guard_tests {
             let mut frame: Vec<u8> = (0..len).map(|i| (i * 37 % 256) as u8).collect();
             let avg = vec![0.0f32; len];
             let mask = vec![0u8; len];
-            let mut boxes = [MotionBox { x1: 0, y1: 0, x2: 0, y2: 0 }; 8];
+            let mut boxes = [MotionBox {
+                x1: 0,
+                y1: 0,
+                x2: 0,
+                y2: 0,
+            }; 8];
             let mut area = 0.0f32;
             let _ = unsafe {
                 motion_pixel_pipeline(
@@ -659,5 +811,4 @@ mod ffi_guard_tests {
             assert!(area <= len as f32);
         }
     }
-
 }
