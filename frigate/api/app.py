@@ -67,6 +67,7 @@ from frigate.util.config import (
     apply_section_update,
     find_config_file,
     redact_credential,
+    redact_go2rtc_credentials,
 )
 from frigate.util.schema import get_config_schema
 from frigate.util.services import (
@@ -384,6 +385,12 @@ def config(request: Request):
                 cleaned.append(clean_camera_user_pass(item))
 
         config["go2rtc"]["streams"][stream_name] = cleaned
+
+    # go2rtc's own rtsp/api listener credentials and WebRTC TURN credentials
+    # are only needed when an admin edits the config; never hand them to
+    # other roles
+    if request.headers.get("remote-role") != "admin":
+        redact_go2rtc_credentials(config.get("go2rtc", {}))
 
     config["plus"] = {"enabled": request.app.frigate_config.plus_api.is_active()}
     config["model"]["colormap"] = config_obj.model.colormap
