@@ -266,3 +266,6 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+### Agent Test Environment Improvements
+- Fix Makefile `run_tests` to avoid overlayfs issues locally during `docker buildx build`.
