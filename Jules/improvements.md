@@ -266,3 +266,17 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+
+## Testing Status and Roadmap (Update 4)
+
+### 1. Test Results Summary
+- **Python Backend Tests**: Ran backend tests (`python3 test_runner.py`). The tests for `test_util_path.py` passed after un-mocking `pathvalidate` and installing it natively. The tests for `test_video.py` passed after un-mocking `cv2` and `numpy` and installing the real `numpy<2` and `opencv-python-headless` dependencies.
+- **Test Runner Reliability**: Tests using the fallback local execution engine (`test_runner.py`) are highly brittle when heavy libraries like `pydantic`, `cv2`, `numpy`, and `pathvalidate` are mocked via `sys.modules`.
+
+### 2. Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend Mocking Strategy
+- **Refactor sys.modules mocking**: Universal mocks in `test_runner.py` (like `sys.modules["cv2"] = MagicMock()`) are too brittle for testing core logic. The test suite should prefer real, lightweight dependencies (like `pathvalidate`) and strictly type-checked dummy classes for larger C-extensions instead of relying on `MagicMock`.
+
+#### B. Dependency Requirements
+- **Local Test Environment**: Create a `requirements-dev.txt` file listing essential testing dependencies (e.g., `pathvalidate`, `numpy<2`, `opencv-python-headless`) to allow developers to run the test suite locally without relying on incomplete mock objects when Docker BuildKit fails.

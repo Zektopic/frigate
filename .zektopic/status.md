@@ -312,3 +312,8 @@ Rust components were built and tested natively using Cargo.
 
 ## Overall Assessment
 The codebase heavily relies on Docker for correct test execution due to complex dependencies (C-extensions, Rust modules, custom SQLite builds). The fallback native test runner (`test_runner.py`) uses extensive monkey-patching which makes it brittle and error-prone when testing lower-level logic that depends on specific library behaviors (like `numpy` shape manipulation or SQLite extensions).
+
+## Test Env Update 2
+- Fixed `test_video.py` missing `cv2` and `numpy` dependencies by installing `numpy<2` and `opencv-python-headless`.
+- Identified that universal `sys.modules` mocks in `test_runner.py` prevent testing core application logic effectively natively.
+- Documented actionable roadmap in `Jules/improvements.md`.
