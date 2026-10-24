@@ -159,3 +159,18 @@ Based on the recent test run, the following areas have been identified for futur
 **Issue**: Tests targeting custom SQLite extensions (like `REGEXP` in `test_sqlitevecq_regexp.py`) fail natively because the extensions are not loaded in the standard Python `sqlite3` module.
 **Optimization Road Map**:
 - Ensure the native test harness either automatically builds and loads the required `.so` extension files via `conn.load_extension()` or explicitly skips these tests when not running inside the Docker environment.
+
+## Testing & Optimization Report - $(date)
+
+### Issues Discovered
+1. **Mock Environment Fragility:** Running backend tests via `test_runner.py` outside of the Docker environment produces 95 failures and 230 errors. The fundamental issue is that using `sys.modules` patching to inject `MagicMock` instances for `cv2`, `numpy`, and Pydantic v2 breaks concrete assertion evaluations. E.g., `mock.sanitize_filename()` returns strings that fail `None` assertions in `test_util_path.py`, and mock shapes in OpenCV functions cause `TypeError`s during matrix math.
+2. **Type Checking Errors:** Mypy scanning discovered 117 static analysis errors in the backend codebase, primarily related to unused type ignores and missing overload matching in `frigate/data_processing/real_time/face.py`.
+3. **Frontend Deprecation Warnings:** The frontend test suite heavily logs `DEP0040` for the `punycode` module.
+
+### Optimizations and Improvements Roadmap
+- **Overhaul Native Testing Strategy:** Stop relying on `test_runner.py`'s extensive monkey-patching for missing C-extensions and Pydantic v2. Instead, optimize the developer experience by explicitly documenting the required native dependencies (e.g. `numpy<2`, `opencv-python-headless`) or creating a lightweight `test-requirements.txt` to let tests run with real libraries, yielding true correctness validation.
+- **Strict Typing Compliance:**
+  - Fix `frigate/data_processing/real_time/face.py:106` by explicitly casting or validating the OpenCV `imwrite` inputs to match expected numpy array properties.
+  - Remove all unused `# type: ignore` directives flagged by mypy across `frigate/data_processing/`.
+  - Fix the generic instance access errors in `frigate/camera/maintainer.py`.
+- **Frontend Dependency Maintenance:** Identify which sub-dependency uses `punycode` (often `whatwg-url` or `jsdom`) using `npm ls punycode --prefix web` and upgrade the offending parent packages to their latest major versions to clean up the test output and avoid future Node incompatibility.
