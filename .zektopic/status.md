@@ -312,3 +312,23 @@ Rust components were built and tested natively using Cargo.
 
 ## Overall Assessment
 The codebase heavily relies on Docker for correct test execution due to complex dependencies (C-extensions, Rust modules, custom SQLite builds). The fallback native test runner (`test_runner.py`) uses extensive monkey-patching which makes it brittle and error-prone when testing lower-level logic that depends on specific library behaviors (like `numpy` shape manipulation or SQLite extensions).
+
+## Testing Status and Roadmap (Update 4)
+
+### 1. Test Results Summary
+- **Web Frontend Tests**: Ran using `npm ci --prefix web && npm run test --prefix web -- --run src/`. All 153 tests across 17 files passed successfully. Node.js `DEP0040` deprecation warnings for the `punycode` module are present in the logs.
+- **Rust Component Tests**: Ran `cargo test` on all Rust crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). All tests across all crates passed successfully with a minor unused variant warning in `frigate-detector-rs`.
+- **Python Backend Tests**: `make run_tests` failed to build the testing docker container due to a BuildKit `overlayfs` failure (`err: invalid argument`). Native fallback execution via `python3 test_runner.py` produced 95 failures and 230 errors, largely due to missing local dependencies (`cv2`, `numpy`, `peewee`, `requests`, `pathvalidate`) and brittle `MagicMock` substitutes that cannot accurately mock Pydantic V2 validations and OpenCV/Numpy array operations.
+
+### 2. Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend Testing Environment
+- **Docker Execution Workarounds**: Investigate alternative Docker configurations (e.g., setting `DOCKER_BUILDKIT=0` in the Makefile or using a `vfs` storage driver) to bypass `overlayfs` issues and allow `make run_tests` to succeed on all host systems.
+- **Local Native Testing**: Implement a `requirements-test.txt` to install native dependencies (`numpy<2`, `opencv-python-headless`, `peewee`, `pathvalidate`, etc.) in a local virtual environment. This will allow developers to run `python3 test_runner.py` natively without heavily relying on brittle `sys.modules` mocks.
+- **Mock Enhancements**: If custom mocking in `test_runner.py` is retained, significantly refactor `MockBaseModel` and `MockPydanticValidationError` to perfectly mirror Pydantic V2 nested structures and `cv2.dnn.NMSBoxes` iteration patterns to prevent false-positive assertion failures.
+
+#### B. Frontend Dependency Modernization
+- **Replace Deprecated Modules**: Upgrade underlying networking dependencies (e.g., `whatwg-url`, `tr46`) in the `web/package.json` to eliminate reliance on Node's deprecated `punycode` module, which will resolve `DEP0040` test warnings.
+
+#### C. Rust Optimizations
+- **Warning Cleanup**: Address the unused `Shutdown` variant warning in `frigate-detector-rs/src/main.rs`.
