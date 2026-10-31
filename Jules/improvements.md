@@ -266,3 +266,9 @@ Based on the full-codebase testing evaluation, here are specific features and op
 
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
+# Future Improvements & Code Optimizations
+## Backend Optimizations
+- We need to completely avoid mocking numpy/cv2 arrays by ensuring make run_tests works properly without Buildkit failure.
+- Pydantic V2 validations must be fixed for local testing to fully support deeply nested dictionary logic.
+## Frontend Enhancements
+- Vitest is still emitting DEP0040 punycode warnings. To fix this, underlying dependencies (like whatwg-url or tr46) must be bumped to current major versions.
