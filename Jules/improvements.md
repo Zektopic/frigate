@@ -259,3 +259,16 @@ Ran npm ci && npm run test -- --run src/ in web directory. 138 frontend tests pa
 - **Issue**: Running python backend tests locally via `test_runner.py` fails extensively because it uses aggressive `MagicMock` patches in `sys.modules` for core dependencies like `pydantic`, `ruamel.yaml`, `cv2`, `numpy`, `pathvalidate`, and `filelock`.
 - **Impact**: Code logic cannot be accurately tested outside of Docker without extensive workarounds. Tests expecting specific types, array manipulations, or valid parsed values fail with `TypeError` or `AssertionError`.
 - **Recommendation**: Introduce a mechanism in `test_runner.py` to optionally bypass `sys.modules` mocks if the actual dependency is installed locally (e.g. checking `importlib.util.find_spec("pydantic")`). This would allow developers to run tests natively with real dependencies while preserving the CI's lightweight mock execution.
+## Test Infrastructure & Mocking Improvements
+
+### 1. Robust Local Testing Environment
+- The custom `test_runner.py` relies heavily on `sys.modules` monkey-patching for heavy dependencies (`cv2`, `numpy`, `pydantic`, `peewee`). This leads to brittle unit tests that result in false negatives natively outside of Docker.
+- **Improvement:** Adopt standard `tox` or a lightweight `docker-compose` test container specifically for CI, avoiding manual `ModuleMock` overrides. For developers preferring to run tests natively, explicitly list requirements (e.g., `requirements-test.txt`) including headless versions of heavy dependencies (e.g., `opencv-python-headless`) rather than faking them out via `sys.modules`.
+
+### 2. Frontend Test Dependencies Update
+- Vitest execution flags several warnings regarding the deprecated `punycode` module.
+- **Improvement:** Audit frontend dependencies (`whatwg-url`, `tr46`, etc.) and bump major versions to remove `punycode` and modernize the dependency tree, improving frontend test stability and removing visual noise.
+
+### 3. Better Pydantic Mocks or Removal of Mocks
+- Mocking Pydantic's `BaseModel` and `ValidationError` dynamically inside `test_runner.py` completely bypasses core configuration validation, which makes `test_profiles.py` and similar tests fail or lose assertion value.
+- **Improvement:** Let tests inherently use the real `pydantic` package. Use local virtual environments with `pip install -r requirements.txt` rather than complex `sys.modules` patching for standard Python libraries.
