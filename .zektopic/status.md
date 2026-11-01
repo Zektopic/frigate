@@ -290,6 +290,12 @@ Rust components were built and tested natively using Cargo.
 ## Overall Assessment
 The codebase heavily relies on Docker for correct test execution due to complex dependencies (C-extensions, Rust modules, custom SQLite builds). The fallback native test runner (`test_runner.py`) uses extensive monkey-patching which makes it brittle and error-prone when testing lower-level logic that depends on specific library behaviors (like `numpy` shape manipulation or SQLite extensions).
 
+## Test Run Outcomes (Latest Comprehensive Test)
+- **Rust Component Tests**: Executed `cargo test` against `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`. All 72 standard and pixel pipeline tests pass completely. No errors or failures.
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test -- --run src/`. All 153 tests across 17 files passed successfully in isolation. Some `DEP0040` deprecation warnings for the `punycode` module were observed in the output.
+- **Backend Tests (Native Docker)**: Attempted to run the backend test suite inside Docker using `make run_tests`. The build process (`docker buildx build`) failed due to a BuildKit `overlayfs` mount `invalid argument` error. Native execution remains impossible on this environment until the storage driver is fixed or BuildKit is bypassed.
+- **Backend Tests (Fallback Local Runner)**: Executed `python3 test_runner.py` outside of the Docker container. The script executes 832 tests but produces significant false negatives (95 failures, 230 errors, 15 skipped). Notable mocked failures include path validation assertions returning `ModuleMock` objects instead of strings (due to `pathvalidate` being mocked), OpenCV bounding box reductions throwing `AssertionError` because `cv2.dnn.NMSBoxes` does not return iterables of indices properly in the mocked environment, and Pydantic validation failures.
+- **Conclusion**: Rust components and Frontend test suites are perfectly stable and verified. The backend suite executes locally, but test validations fail because complex structural dependency logic and runtime checks cannot be faked perfectly via `sys.modules` in `test_runner.py`. Accurate backend testing is blocked until the Docker BuildKit daemon is corrected in the host environment or proper mocks/dependencies are handled.
 ## Testing Status and Roadmap (Update 4)
 
 ### 1. Test Results Summary
