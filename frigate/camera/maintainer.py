@@ -59,6 +59,9 @@ class CameraMaintainer(threading.Thread):
         self.capture_processes: dict[str, mp.Process] = {}
         self.camera_stop_events: dict[str, MpEvent] = {}
         self.metrics_manager = metrics_manager
+        # shared by all capture processes so their watchdogs can recognize a
+        # hardware decoder reset that stalls many cameras at once
+        self.ffmpeg_stall_registry = metrics_manager.dict()
 
     def __ensure_camera_stop_event(self, camera: str) -> MpEvent:
         camera_stop_event = self.camera_stop_events.get(camera)
@@ -180,6 +183,7 @@ class CameraMaintainer(threading.Thread):
             self.camera_metrics[name],
             camera_stop_event,
             self.config.logger,
+            self.ffmpeg_stall_registry,
         )
         capture_process.daemon = True
         self.capture_processes[name] = capture_process

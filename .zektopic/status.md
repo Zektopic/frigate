@@ -316,3 +316,15 @@ The codebase heavily relies on Docker for correct test execution due to complex 
 ## Native Test Environment Checks
 
 Attempting to natively test the application via Python `test_runner.py` bypasses Docker and fails natively when internal models attempt to do real-world evaluations due to bad module mocking (`cv2` and `numpy`). By removing `cv2` and `numpy` mocks inside `test_runner.py` after explicitly pip installing dependencies natively, isolated modules like `frigate/test/test_video.py` passed correctly.
+## Agent Testing Summary (October 2023)
+- **Frontend Test Suite:** Successfully ran 17 files and 153 tests. All frontend tests pass. Deprecation warnings for `punycode` still exist in underlying node dependencies.
+- **Backend Test Suite:** Ran via custom `test_runner.py` bypassing Docker. Test coverage showed failures and errors, primarily due to heavily mocked dependencies (`pydantic`, `cv2`, `numpy`, `peewee`, etc.).
+  - E.g., `test_util_path.py` fails because the mocked `sanitize_filename` function returns a `ModuleMock` instance which evaluates differently than string paths or `None`.
+  - Replacing `sys.modules` mocks with actual local dependencies (like `pip install pathvalidate numpy opencv-python-headless`) restores accurate testing.
+
+- Future roadmap actionable items:
+  - Standardize dependency installations natively or create explicit `requirements-test.txt` instead of relying on `sys.modules` patching inside `test_runner.py`.
+  - Bump Node dependencies to remove `punycode` deprecation warnings in the Vitest execution.
+## Test Execution Status Updates
+* **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
+* Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.

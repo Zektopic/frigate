@@ -17,8 +17,10 @@ from frigate.detectors.npu_service_runner import (
 class FakeNpuService:
     """Answers each request with embedding = per-sample mean repeated `dim` times."""
 
-    def __init__(self, dim: int = 8, fail: bool = False) -> None:
-        self.dim, self.fail = dim, fail
+    def __init__(
+        self, dim: int = 8, fail: bool = False, claim_n: int | None = None
+    ) -> None:
+        self.dim, self.fail, self.claim_n = dim, fail, claim_n
         self.srv = socket.socket()
         self.srv.bind(("127.0.0.1", 0))
         self.srv.listen(4)
@@ -51,6 +53,12 @@ class FakeNpuService:
                     if self.fail:
                         msg = b"boom"
                         c.sendall(b"XFR1" + struct.pack("<iII", -5, 0, len(msg)) + msg)
+                        continue
+                    if self.claim_n is not None:
+                        # header announces far more data than is ever sent
+                        c.sendall(
+                            b"XFR1" + struct.pack("<iII", 0, self.claim_n, self.dim)
+                        )
                         continue
                     means = x.reshape(n, -1).mean(1)
                     out = np.repeat(means[:, None], self.dim, 1).astype(np.float32)
@@ -100,6 +108,21 @@ class TestNpuServiceRunner(unittest.TestCase):
         r = NpuServiceRunner("m.onnx", "npu", ("127.0.0.1", port), timeout=0.5)
         with self.assertLogs("frigate.detectors.npu_service_runner", level="ERROR"):
             self.assertIsNone(r.run({"data": np.zeros((1, 3, 4, 4), np.float32)}))
+
+    def test_rejects_response_shape_it_did_not_ask_for(self):
+        # A peer claiming ~16 GiB of embeddings must not drive the allocation
+        svc = FakeNpuService(dim=1 << 16, claim_n=1 << 16)
+        r = NpuServiceRunner("m.onnx", "npu", ("127.0.0.1", svc.port), timeout=0.5)
+        with self.assertLogs("frigate.detectors.npu_service_runner", level="ERROR"):
+            self.assertIsNone(r.run({"data": np.zeros((1, 3, 4, 4), np.float32)}))
+        svc.close()
+
+    def test_rejects_oversized_embedding_dim(self):
+        svc = FakeNpuService(dim=(1 << 16) + 1, claim_n=1)
+        r = NpuServiceRunner("m.onnx", "npu", ("127.0.0.1", svc.port), timeout=0.5)
+        with self.assertLogs("frigate.detectors.npu_service_runner", level="ERROR"):
+            self.assertIsNone(r.run({"data": np.zeros((1, 3, 4, 4), np.float32)}))
+        svc.close()
 
     def test_reconnects_after_service_restart(self):
         svc = FakeNpuService()

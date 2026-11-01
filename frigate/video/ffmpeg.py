@@ -25,14 +25,28 @@ from frigate.config.camera.updater import (
 from frigate.const import PROCESS_PRIORITY_HIGH
 from frigate.log import LogPipe
 from frigate.util.builtin import EventsPerSecond, get_record_segment_time
-from frigate.util.ffmpeg import start_or_restart_ffmpeg, stop_ffmpeg
+from frigate.util.ffmpeg import (
+    close_process_pipes,
+    reap_ffmpeg,
+    start_or_restart_ffmpeg,
+    stop_ffmpeg,
+    terminate_ffmpeg,
+)
 from frigate.util.image import (
     FrameManager,
     SharedMemoryFrameManager,
 )
 from frigate.util.process import FrigateProcess
+from frigate.video.restart_coordinator import FfmpegRestartCoordinator
 
 logger = logging.getLogger(__name__)
+
+READ_FAILURE_BACKOFF = 0.05
+"""Seconds to pause after a failed frame read while ffmpeg is still running.
+
+A failed read usually means ffmpeg is already shutting down (stdout closed)
+but has not been reaped yet; without a pause the capture loop spins and logs
+hundreds of identical errors in a few milliseconds."""
 
 
 def capture_frames(
@@ -79,6 +93,8 @@ def capture_frames(
     except Exception:
         _use_rust_reader = False
 
+    read_failures = 0
+
     try:
         while not stop_event.is_set():
             if not get_enabled_state():
@@ -112,9 +128,12 @@ def capture_frames(
                 if stop_event.is_set():
                     break
 
-                logger.error(
-                    f"{config.name}: Unable to read frames from ffmpeg process."
-                )
+                if read_failures == 0:
+                    logger.error(
+                        f"{config.name}: Unable to read frames from ffmpeg process."
+                    )
+
+                read_failures += 1
 
                 if ffmpeg_process.poll() is not None:
                     logger.error(
@@ -122,8 +141,17 @@ def capture_frames(
                     )
                     break
 
+                stop_event.wait(READ_FAILURE_BACKOFF)
                 continue
 
+            if read_failures > 1:
+                logger.debug(
+                    "%s: recovered after %d failed frame reads",
+                    config.name,
+                    read_failures,
+                )
+
+            read_failures = 0
             frame_rate.update()
 
             # don't lock the queue to check, just try since it should rarely be full
@@ -153,6 +181,7 @@ class CameraWatchdog(threading.Thread):
         reconnects,
         detection_frame,
         stop_event,
+        stall_registry=None,
     ):
         threading.Thread.__init__(self)
         self.logger = logging.getLogger(f"watchdog.{config.name}")
@@ -173,6 +202,13 @@ class CameraWatchdog(threading.Thread):
         self.stop_event = stop_event
         self.sleeptime = self.config.ffmpeg.retry_interval
         self.reconnect_timestamps = deque()
+        self.restart_coordinator = FfmpegRestartCoordinator(
+            config.name, self.sleeptime, stall_registry
+        )
+        # wall-clock time of a deferred detect restart (staggered / backed off)
+        self._restart_at: float | None = None
+        # processes that survived SIGKILL (stuck in the driver); reaped later
+        self._unreaped_processes: list[sp.Popen[Any]] = []
         self.stalls = stalls
         self.reconnects = reconnects
         self.detection_frame = detection_frame
@@ -241,25 +277,40 @@ class CameraWatchdog(threading.Thread):
         return self.config.enabled
 
     def reset_capture_thread(
-        self, terminate: bool = True, drain_output: bool = True
+        self,
+        terminate: bool = True,
+        drain_output: bool = True,
+        device_failure: bool = True,
     ) -> None:
-        if terminate:
-            self.ffmpeg_detect_process.terminate()
-            try:
-                self.logger.info("Waiting for ffmpeg to exit gracefully...")
+        """Stop the detect ffmpeg and restart it, possibly deferred.
 
-                if drain_output:
-                    self.ffmpeg_detect_process.communicate(timeout=30)
-                else:
-                    self.ffmpeg_detect_process.wait(timeout=30)
-            except sp.TimeoutExpired:
-                self.logger.info("FFmpeg did not exit. Force killing...")
-                self.ffmpeg_detect_process.kill()
+        Args:
+            terminate: Stop a still-running ffmpeg first.
+            drain_output: Drain stdout while waiting for ffmpeg to exit.
+            device_failure: The failure (stall or crash) may be caused by a
+                decoder shared with other cameras, so report it to the restart
+                coordinator for cross-camera staggering.
+        """
+        if device_failure:
+            self.restart_coordinator.report_failure(
+                datetime.now(timezone.utc).timestamp()
+            )
 
-                if drain_output:
-                    self.ffmpeg_detect_process.communicate()
-                else:
-                    self.ffmpeg_detect_process.wait()
+        old_process = self.ffmpeg_detect_process
+        reaped = True
+
+        if terminate and old_process is not None:
+            # the capture thread may still be reading stdout, so only close
+            # the pipes once it has exited
+            reaped = terminate_ffmpeg(
+                old_process,
+                self.logger,
+                drain_output=drain_output,
+                close_pipes=False,
+            )
+
+            if not reaped:
+                self._unreaped_processes.append(old_process)
 
         # Update reconnects
         now = datetime.now(timezone.utc).timestamp()
@@ -279,12 +330,70 @@ class CameraWatchdog(threading.Thread):
                     f"Capture thread for {self.config.name} did not exit in time"
                 )
 
-        self.logger.error(
-            "The following ffmpeg logs include the last 100 lines prior to exit."
+        if (
+            old_process is not None
+            and reaped
+            and (self.capture_thread is None or not self.capture_thread.is_alive())
+        ):
+            close_process_pipes(old_process)
+
+        plan = self.restart_coordinator.plan_restart(now)
+
+        if plan.shared:
+            if plan.log_summary:
+                self.logger.warning(
+                    "Multiple cameras stopped receiving frames at the same time "
+                    "(%s), likely a shared hardware decoder reset; restarting "
+                    "their ffmpeg processes staggered",
+                    ", ".join(plan.peers),
+                )
+
+            # the per-camera ffmpeg tail is near identical for every camera
+            # during a shared event, so keep it available at debug only
+            self.logger.debug(
+                "The following ffmpeg logs include the last 100 lines prior to exit."
+            )
+            self.logpipe.dump(logging.DEBUG)
+        else:
+            self.logger.error(
+                "The following ffmpeg logs include the last 100 lines prior to exit."
+            )
+            self.logpipe.dump()
+
+        if plan.delay <= 0:
+            self.logger.info("Restarting ffmpeg...")
+            self.start_ffmpeg_detect()
+            return
+
+        self.logger.info(
+            "Restarting ffmpeg in %.1f seconds (attempt %d%s)",
+            plan.delay,
+            plan.attempt,
+            ", shared decoder event" if plan.shared else "",
         )
-        self.logpipe.dump()
+        self._restart_at = now + plan.delay
+
+    def _start_deferred_restart(self, now: float) -> bool:
+        """Start a deferred detect restart once due; return True if started."""
+        if self._restart_at is None or now < self._restart_at:
+            return False
+
+        self._restart_at = None
         self.logger.info("Restarting ffmpeg...")
         self.start_ffmpeg_detect()
+        return True
+
+    def _stop_ffmpeg(self, process: sp.Popen[Any]) -> None:
+        """Stop a process, keeping it for later reaping if it survives SIGKILL."""
+        if not stop_ffmpeg(process, self.logger):
+            self._unreaped_processes.append(process)
+
+    def _reap_unreaped_processes(self) -> None:
+        """Reap processes that previously survived SIGKILL, without blocking."""
+        if self._unreaped_processes:
+            self._unreaped_processes = [
+                p for p in self._unreaped_processes if not reap_ffmpeg(p)
+            ]
 
     def run(self) -> None:
         if self._update_enabled_state():
@@ -300,6 +409,7 @@ class CameraWatchdog(threading.Thread):
 
         # 1 second watchdog loop
         while not self.stop_event.wait(1):
+            self._reap_unreaped_processes()
             updates = self._check_config_updates()
 
             # Handle ffmpeg config changes by restarting all ffmpeg processes
@@ -401,7 +511,13 @@ class CameraWatchdog(threading.Thread):
             time_since_last_restart = now - last_restart_time
             can_restart = time_since_last_restart >= self.sleeptime
 
-            if not self.capture_thread.is_alive():
+            if self._restart_at is not None:
+                # a staggered / backed off restart is pending
+                if self._start_deferred_restart(now):
+                    last_restart_time = now
+                else:
+                    self._send_detect_status("offline", now)
+            elif not self.capture_thread.is_alive():
                 self._send_detect_status("offline", now)
                 self.camera_fps.value = 0
                 self.logger.error(
@@ -421,7 +537,9 @@ class CameraWatchdog(threading.Thread):
                         f"{self.config.name} exceeded fps limit. Exiting ffmpeg..."
                     )
                     if can_restart:
-                        self.reset_capture_thread(drain_output=False)
+                        self.reset_capture_thread(
+                            drain_output=False, device_failure=False
+                        )
                         last_restart_time = now
             elif now - self.capture_thread.current_frame.value > 20:
                 self._send_detect_status("offline", now)
@@ -504,11 +622,9 @@ class CameraWatchdog(threading.Thread):
                         self.logger.error(
                             f"{reason} for {self.config.name} in the last {self.record_stale_threshold}s. Restarting the ffmpeg record process..."
                         )
+                        self._stop_ffmpeg(p["process"])
                         p["process"] = start_or_restart_ffmpeg(
-                            p["cmd"],
-                            self.logger,
-                            p["logpipe"],
-                            ffmpeg_process=p["process"],
+                            p["cmd"], self.logger, p["logpipe"]
                         )
 
                         for role in p["roles"]:
@@ -530,8 +646,9 @@ class CameraWatchdog(threading.Thread):
                     )
 
                 p["logpipe"].dump()
+                self._stop_ffmpeg(p["process"])
                 p["process"] = start_or_restart_ffmpeg(
-                    p["cmd"], self.logger, p["logpipe"], ffmpeg_process=p["process"]
+                    p["cmd"], self.logger, p["logpipe"]
                 )
 
             # Prune expired reconnect timestamps
@@ -571,6 +688,15 @@ class CameraWatchdog(threading.Thread):
                     self.stalls.value = len(self._stall_timestamps)
 
         self.stop_all_ffmpeg()
+        self._reap_unreaped_processes()
+
+        if self._unreaped_processes:
+            self.logger.warning(
+                "%d ffmpeg process(es) for %s could not be reaped after SIGKILL",
+                len(self._unreaped_processes),
+                self.config.name,
+            )
+
         self.logpipe.close()
         self.config_subscriber.stop()
         self.segment_subscriber.stop()
@@ -618,6 +744,7 @@ class CameraWatchdog(threading.Thread):
     def stop_all_ffmpeg(self):
         """Stop all ffmpeg processes (detection and others)."""
         logger.debug(f"Stopping all ffmpeg processes for {self.config.name}")
+        self._restart_at = None
         if self.capture_thread is not None and self.capture_thread.is_alive():
             self.capture_thread.join(timeout=5)
             if self.capture_thread.is_alive():
@@ -625,11 +752,11 @@ class CameraWatchdog(threading.Thread):
                     f"Capture thread for {self.config.name} did not stop gracefully."
                 )
         if self.ffmpeg_detect_process is not None:
-            stop_ffmpeg(self.ffmpeg_detect_process, self.logger)
+            self._stop_ffmpeg(self.ffmpeg_detect_process)
             self.ffmpeg_detect_process = None
         for p in self.ffmpeg_other_processes[:]:
             if p["process"] is not None:
-                stop_ffmpeg(p["process"], self.logger)
+                self._stop_ffmpeg(p["process"])
             p["logpipe"].close()
         self.ffmpeg_other_processes.clear()
 
@@ -686,6 +813,7 @@ class CameraCapture(FrigateProcess):
         camera_metrics: CameraMetrics,
         stop_event: MpEvent,
         log_config: LoggerConfig | None = None,
+        stall_registry: Any = None,
     ) -> None:
         super().__init__(
             stop_event,
@@ -697,6 +825,7 @@ class CameraCapture(FrigateProcess):
         self.shm_frame_count = shm_frame_count
         self.camera_metrics = camera_metrics
         self.log_config = log_config
+        self.stall_registry = stall_registry
 
     def run(self) -> None:
         self.pre_run_setup(self.log_config)
@@ -711,6 +840,7 @@ class CameraCapture(FrigateProcess):
             self.camera_metrics.reconnects_last_hour,
             self.camera_metrics.detection_frame,
             self.stop_event,
+            self.stall_registry,
         )
         camera_watchdog.start()
         camera_watchdog.join()

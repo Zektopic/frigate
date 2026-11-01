@@ -386,7 +386,7 @@ sys.modules["sherpa_onnx"] = ModuleMock()
 sys.modules["zeep"] = ModuleMock()
 sys.modules["zeep.exceptions"] = ModuleMock()
 sys.modules["zeep.transports"] = ModuleMock()
-sys.modules["pathvalidate"] = ModuleMock()
+
 
 sys.modules["joserfc"] = ModuleMock()
 sys.modules["joserfc.jwt"] = ModuleMock()

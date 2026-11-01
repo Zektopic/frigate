@@ -10,6 +10,11 @@ sys.modules.setdefault("frigate.version", MagicMock())
 
 from frigate.api.notification import register_notifications  # noqa: E402
 
+VALID_SUB = {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/dGhpcy1pcy1hLXRva2Vu",
+    "keys": {"p256dh": "cHVibGljLWtleQ", "auth": "YXV0aC1zZWNyZXQ"},
+}
+
 
 class TestNotificationApi(unittest.TestCase):
     def test_register_notifications_missing_sub(self):
@@ -37,7 +42,7 @@ class TestNotificationApi(unittest.TestCase):
         req = MagicMock()
         req.headers = {"remote-user": "nonexistent"}
         mock_user.update.return_value.where.return_value.execute.return_value = 0
-        res = register_notifications(req, body={"sub": "token123"})
+        res = register_notifications(req, body={"sub": VALID_SUB})
         self.assertEqual(res.status_code, 404)
         self.assertIn(b"Could not find user", res.body)
 
@@ -46,9 +51,19 @@ class TestNotificationApi(unittest.TestCase):
         req = MagicMock()
         req.headers = {"remote-user": "test_user"}
         mock_user.update.return_value.where.return_value.execute.return_value = 1
-        res = register_notifications(req, body={"sub": "token123"})
+        res = register_notifications(req, body={"sub": VALID_SUB})
         self.assertEqual(res.status_code, 200)
         self.assertIn(b"Successfully saved token", res.body)
+
+    @patch("frigate.api.notification.User")
+    def test_register_notifications_rejects_internal_endpoint(self, mock_user):
+        req = MagicMock()
+        req.headers = {"remote-user": "test_user"}
+        sub = {**VALID_SUB, "endpoint": "https://192.168.1.10/push/token"}
+        res = register_notifications(req, body={"sub": sub})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn(b"Invalid subscription", res.body)
+        mock_user.update.assert_not_called()
 
 
 if __name__ == "__main__":
