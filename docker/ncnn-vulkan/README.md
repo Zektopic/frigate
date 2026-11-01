@@ -46,6 +46,21 @@ curl -LO https://github.com/nihui/ncnn-assets/raw/master/models/yolo11n.ncnn.bin
 docker build -t frigate-ncnn-vulkan docker/ncnn-vulkan/
 ```
 
+#### Multi-arch (arm64, experimental)
+
+The ncnn and Rust stages run on the build host and cross-compile for the
+target, so only the final stage (a `pip install`) needs QEMU:
+
+```bash
+docker buildx build --platform linux/arm64 -f docker/ncnn-vulkan/Dockerfile -t frigate-ncnn-vulkan:arm64 .
+```
+
+`linux/arm64` builds of libncnn and the Rust crates are build-verified on an
+x86_64 host. The full arm64 image and running it on a Raspberry Pi / Rockchip
+board are **untested**. Most ARM boards have no Vulkan driver that ncnn can
+use, so expect the CPU path. The plugin ignores software Vulkan (llvmpipe),
+and `NCNN_NUM_THREADS` sets the CPU thread count.
+
 ### 2. Configure Frigate
 
 ```yaml

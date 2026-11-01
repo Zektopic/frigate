@@ -174,3 +174,13 @@ Based on the recent test run, the following areas have been identified for futur
   - Remove all unused `# type: ignore` directives flagged by mypy across `frigate/data_processing/`.
   - Fix the generic instance access errors in `frigate/camera/maintainer.py`.
 - **Frontend Dependency Maintenance:** Identify which sub-dependency uses `punycode` (often `whatwg-url` or `jsdom`) using `npm ls punycode --prefix web` and upgrade the offending parent packages to their latest major versions to clean up the test output and avoid future Node incompatibility.
+## Native Test Optimization
+
+Running `DOCKER_BUILDKIT=0 python3 test_runner.py` outside of the Docker environment shows numerous test failures primarily caused by mock objects incorrectly comparing natively against constants or other types. This results in assertions firing. Specifically, `sys.modules["cv2"]` and `sys.modules["numpy"]` should *not* be mocked if `numpy<2` and `opencv-python-headless` are natively installed.
+
+## Testing Video module (frigate/test/test_video.py)
+
+1. The test `test_video.py` initially fails when running with `python3 test_runner.py frigate/test/test_video.py` due to mocked `cv2` and `numpy`.
+2. I successfully bypassed this by providing actual `numpy` and `opencv-python-headless` instead of mocking it.
+3. Once those missing dependencies are available locally (and mocking is avoided), the unit tests inside `frigate/test/test_video.py` ran correctly without any errors (`Ran 17 tests in 0.002s OK`).
+4. Other tests fail mainly because of the way `sys.modules` are overridden inside `test_runner.py` for mocking. The mocked Pydantic setup causes cascading errors across different files.

@@ -37,8 +37,14 @@ pub unsafe extern "C" fn yuv420_to_rgb(
     // (w/2)*(h/2) (floor), but the last odd column/row indexes chroma
     // element w/2 / h/2, one past the end.  That bounds-checked index
     // panics, and with panic = "abort" the process dies (SIGABRT).
-    if y.is_null() || u.is_null() || v.is_null() || rgb.is_null()
-        || w == 0 || h == 0 || !w.is_multiple_of(2) || !h.is_multiple_of(2)
+    if y.is_null()
+        || u.is_null()
+        || v.is_null()
+        || rgb.is_null()
+        || w == 0
+        || h == 0
+        || !w.is_multiple_of(2)
+        || !h.is_multiple_of(2)
     {
         return;
     }
@@ -152,11 +158,7 @@ pub unsafe extern "C" fn bilinear_resize_u8(
 /// # Safety
 /// Both pointers must be valid for `len` elements of the appropriate type.
 #[no_mangle]
-pub unsafe extern "C" fn normalize_u8_to_f32(
-    src: *const u8,
-    dst: *mut f32,
-    len: u32,
-) {
+pub unsafe extern "C" fn normalize_u8_to_f32(src: *const u8, dst: *mut f32, len: u32) {
     let len = len as usize;
     if src.is_null() || dst.is_null() || len == 0 {
         return;
@@ -217,13 +219,7 @@ fn normalize_u8_to_f32_scalar(src: &[u8], dst: &mut [f32], len: usize) {
 /// # Safety
 /// `src` has ``h * w * c`` f32, `dst` has the same count.
 #[no_mangle]
-pub unsafe extern "C" fn nhwc_to_nchw_f32(
-    src: *const f32,
-    dst: *mut f32,
-    h: u32,
-    w: u32,
-    c: u32,
-) {
+pub unsafe extern "C" fn nhwc_to_nchw_f32(src: *const f32, dst: *mut f32, h: u32, w: u32, c: u32) {
     let h = h as usize;
     let w = w as usize;
     let c = c as usize;
@@ -418,8 +414,14 @@ pub unsafe extern "C" fn yuv420_to_3channel(
     let h = h as usize;
     // Odd sizes index one past the (w/2)*(h/2) chroma planes and abort;
     // see yuv420_to_rgb.
-    if y.is_null() || u.is_null() || v.is_null() || out.is_null()
-        || w == 0 || h == 0 || !w.is_multiple_of(2) || !h.is_multiple_of(2)
+    if y.is_null()
+        || u.is_null()
+        || v.is_null()
+        || out.is_null()
+        || w == 0
+        || h == 0
+        || !w.is_multiple_of(2)
+        || !h.is_multiple_of(2)
     {
         return;
     }
@@ -484,8 +486,7 @@ pub unsafe extern "C" fn transform_detect_input(
             for wi in 0..w {
                 let src_idx = (hi * w + wi) * c + ci;
                 let dst_idx = ci * hw + hi * w + wi;
-                *dst.get_unchecked_mut(dst_idx) =
-                    *src.get_unchecked(src_idx) as f32 * inv255;
+                *dst.get_unchecked_mut(dst_idx) = *src.get_unchecked(src_idx) as f32 * inv255;
             }
         }
     }
@@ -501,14 +502,10 @@ pub unsafe extern "C" fn transform_detect_input(
 /// # Safety
 /// `dst` must be a valid pointer pointing to a buffer of at least `frame_size` bytes.
 #[no_mangle]
-pub unsafe extern "C" fn read_ffmpeg_frame(
-    fd: i32,
-    dst: *mut u8,
-    frame_size: u32,
-) -> i32 {
-    use std::os::unix::io::FromRawFd;
+pub unsafe extern "C" fn read_ffmpeg_frame(fd: i32, dst: *mut u8, frame_size: u32) -> i32 {
     use std::fs::File;
     use std::io::Read;
+    use std::os::unix::io::FromRawFd;
 
     // Validate everything *before* touching the fd.  File::from_raw_fd
     // asserts on a negative descriptor, and this crate is a cdylib
@@ -543,10 +540,7 @@ pub unsafe extern "C" fn read_ffmpeg_frame(
 /// # Safety
 /// `box_a` and `box_b` must point to valid arrays of 4 f32s.
 #[no_mangle]
-pub unsafe extern "C" fn intersection_over_union(
-    box_a: *const f32,
-    box_b: *const f32,
-) -> f32 {
+pub unsafe extern "C" fn intersection_over_union(box_a: *const f32, box_b: *const f32) -> f32 {
     // 0.0 means "no overlap" — the safe answer for a bad pointer.
     if box_a.is_null() || box_b.is_null() {
         return 0.0;
@@ -652,15 +646,18 @@ pub unsafe extern "C" fn point_in_polygon(
         let xj = slice[j * 2];
         let yj = slice[j * 2 + 1];
 
-        let intersect = ((yi > py) != (yj > py))
-            && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        let intersect = ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
         if intersect {
             inside = !inside;
         }
         j = i;
     }
 
-    if inside { 1 } else { 0 }
+    if inside {
+        1
+    } else {
+        0
+    }
 }
 
 /// Check whether a bounding box [x1, y1, x2, y2] overlaps with a polygon.
@@ -690,7 +687,13 @@ pub unsafe extern "C" fn polygon_box_overlap(
     }
 
     // Check box corners inside polygon
-    let corners = [(bx1, by1), (bx2, by1), (bx2, by2), (bx1, by2), ((bx1 + bx2) * 0.5, (by1 + by2) * 0.5)];
+    let corners = [
+        (bx1, by1),
+        (bx2, by1),
+        (bx2, by2),
+        (bx1, by2),
+        ((bx1 + bx2) * 0.5, (by1 + by2) * 0.5),
+    ];
     for &(cx, cy) in &corners {
         if point_in_polygon(cx, cy, poly_pts, num_pts) == 1 {
             return 1;
@@ -709,7 +712,10 @@ pub unsafe extern "C" fn polygon_box_overlap(
     for i in 0..num_pts {
         let a = (slice[j * 2], slice[j * 2 + 1]);
         let b = (slice[i * 2], slice[i * 2 + 1]);
-        if box_edges.iter().any(|&(c, d)| segments_intersect(a, b, c, d)) {
+        if box_edges
+            .iter()
+            .any(|&(c, d)| segments_intersect(a, b, c, d))
+        {
             return 1;
         }
         j = i;
@@ -776,11 +782,7 @@ pub unsafe extern "C" fn batch_track_distance_matrix(
 /// `src` must be valid for `len` bytes of reads and `dst` for `len` bytes
 /// of writes.  The ranges may overlap.
 #[no_mangle]
-pub unsafe extern "C" fn fast_shm_copy(
-    dst: *mut u8,
-    src: *const u8,
-    len: usize,
-) {
+pub unsafe extern "C" fn fast_shm_copy(dst: *mut u8, src: *const u8, len: usize) {
     if dst.is_null() || src.is_null() || len == 0 {
         return;
     }
@@ -844,7 +846,12 @@ pub unsafe extern "C" fn intersects_any_i32(
     let b_slice = std::slice::from_raw_parts(boxes, n_boxes * 4);
     for i in 0..n_boxes {
         let base = i * 4;
-        let b = [b_slice[base], b_slice[base + 1], b_slice[base + 2], b_slice[base + 3]];
+        let b = [
+            b_slice[base],
+            b_slice[base + 1],
+            b_slice[base + 2],
+            b_slice[base + 3],
+        ];
         if intersects_i32(a, b) {
             return 1;
         }
@@ -867,7 +874,12 @@ pub unsafe extern "C" fn inside_any_i32(
     let b_slice = std::slice::from_raw_parts(boxes, n_boxes * 4);
     for i in 0..n_boxes {
         let base = i * 4;
-        let b = [b_slice[base], b_slice[base + 1], b_slice[base + 2], b_slice[base + 3]];
+        let b = [
+            b_slice[base],
+            b_slice[base + 1],
+            b_slice[base + 2],
+            b_slice[base + 3],
+        ];
         if inside_i32(a, b) {
             return 1;
         }
@@ -1026,10 +1038,18 @@ pub unsafe extern "C" fn cluster_candidates_i32(
             let mut max_y = 0.max(box_arr[compare_idx][3]);
             for &ci in &cluster {
                 let cb = box_arr[ci];
-                if cb[0] < min_x { min_x = cb[0]; }
-                if cb[1] < min_y { min_y = cb[1]; }
-                if cb[2] > max_x { max_x = cb[2]; }
-                if cb[3] > max_y { max_y = cb[3]; }
+                if cb[0] < min_x {
+                    min_x = cb[0];
+                }
+                if cb[1] < min_y {
+                    min_y = cb[1];
+                }
+                if cb[2] > max_x {
+                    max_x = cb[2];
+                }
+                if cb[3] > max_y {
+                    max_y = cb[3];
+                }
             }
             let region = calculate_region_i32(
                 frame_h, frame_w, min_x, min_y, max_x, max_y, min_region, 1.35,
@@ -1044,7 +1064,10 @@ pub unsafe extern "C" fn cluster_candidates_i32(
                     let bh = (b[3] - b[1]) as f64;
                     (bw * bh) / reg_area >= 0.05
                 };
-                if reg_area <= 0.0 || !check_box(compare_idx) || !cluster.iter().all(|&ci| check_box(ci)) {
+                if reg_area <= 0.0
+                    || !check_box(compare_idx)
+                    || !cluster.iter().all(|&ci| check_box(ci))
+                {
                     should_cluster = false;
                 }
             }
@@ -1226,9 +1249,12 @@ pub unsafe extern "C" fn yuv420_region_to_rgb_resize(
             let (r01, g01, b01) = sample_rgb(sx0, sy1);
             let (r11, g11, b11) = sample_rgb(sx1, sy1);
 
-            let r = (r00 + (r10 - r00) * fx) + ((r01 + (r11 - r01) * fx) - (r00 + (r10 - r00) * fx)) * fy;
-            let g = (g00 + (g10 - g00) * fx) + ((g01 + (g11 - g01) * fx) - (g00 + (g10 - g00) * fx)) * fy;
-            let b = (b00 + (b10 - b00) * fx) + ((b01 + (b11 - b01) * fx) - (b00 + (b10 - b00) * fx)) * fy;
+            let r = (r00 + (r10 - r00) * fx)
+                + ((r01 + (r11 - r01) * fx) - (r00 + (r10 - r00) * fx)) * fy;
+            let g = (g00 + (g10 - g00) * fx)
+                + ((g01 + (g11 - g01) * fx) - (g00 + (g10 - g00) * fx)) * fy;
+            let b = (b00 + (b10 - b00) * fx)
+                + ((b01 + (b11 - b01) * fx) - (b00 + (b10 - b00) * fx)) * fy;
 
             let idx = (dy * dw + dx) * 3;
             if is_bgr != 0 {
@@ -1384,12 +1410,36 @@ pub unsafe extern "C" fn laplacian_variance_u8(
     let mut sum_sq: i64 = 0;
 
     for y in 0..h {
-        let ym1 = if y > 0 { y - 1 } else if h > 1 { 1 } else { 0 };
-        let yp1 = if y + 1 < h { y + 1 } else if h > 1 { h - 2 } else { 0 };
+        let ym1 = if y > 0 {
+            y - 1
+        } else if h > 1 {
+            1
+        } else {
+            0
+        };
+        let yp1 = if y + 1 < h {
+            y + 1
+        } else if h > 1 {
+            h - 2
+        } else {
+            0
+        };
 
         for x in 0..w {
-            let xm1 = if x > 0 { x - 1 } else if w > 1 { 1 } else { 0 };
-            let xp1 = if x + 1 < w { x + 1 } else if w > 1 { w - 2 } else { 0 };
+            let xm1 = if x > 0 {
+                x - 1
+            } else if w > 1 {
+                1
+            } else {
+                0
+            };
+            let xp1 = if x + 1 < w {
+                x + 1
+            } else if w > 1 {
+                w - 2
+            } else {
+                0
+            };
 
             let c_base = (y * w + x) * ch;
             let t_base = (ym1 * w + x) * ch;
@@ -1568,8 +1618,8 @@ mod tests {
     #[test]
     fn test_yuv420_to_3channel() {
         let y = vec![10u8, 20, 30, 40]; // 2x2
-        let u = vec![100u8];             // 1x1
-        let v = vec![200u8];             // 1x1
+        let u = vec![100u8]; // 1x1
+        let v = vec![200u8]; // 1x1
         let mut out = vec![0u8; 2 * 2 * 3];
         unsafe {
             yuv420_to_3channel(y.as_ptr(), u.as_ptr(), v.as_ptr(), 2, 2, out.as_mut_ptr());
@@ -1594,9 +1644,7 @@ mod tests {
         }
         let mut dst = vec![0.0f32; 3 * 2 * 2];
         unsafe {
-            preprocess_detect_input(
-                src.as_ptr(), dst.as_mut_ptr(), 4, 4, 2, 2, 3,
-            );
+            preprocess_detect_input(src.as_ptr(), dst.as_mut_ptr(), 4, 4, 2, 2, 3);
         }
         let r00 = dst[0 * 4 + 0 * 2 + 0];
         let g00 = dst[1 * 4 + 0 * 2 + 0];
@@ -1614,7 +1662,9 @@ mod tests {
         unsafe {
             preprocess_detect_input(src64.as_ptr(), dst32.as_mut_ptr(), 64, 64, 32, 32, 3);
         }
-        assert!(dst32.iter().all(|&v| (0.0..=1.0).contains(&v) && (v - 128.0 / 255.0).abs() < 1e-4));
+        assert!(dst32
+            .iter()
+            .all(|&v| (0.0..=1.0).contains(&v) && (v - 128.0 / 255.0).abs() < 1e-4));
     }
 
     #[test]
@@ -1664,14 +1714,8 @@ mod tests {
         }
 
         // Batch 2x2 matrix parity with scalar track_distance
-        let dets = [
-            10.0f64, 20.0, 110.0, 220.0,
-            60.0, 20.0, 160.0, 220.0,
-        ];
-        let ests = [
-            10.0f64, 20.0, 110.0, 220.0,
-            10.0, 20.0, 210.0, 220.0,
-        ];
+        let dets = [10.0f64, 20.0, 110.0, 220.0, 60.0, 20.0, 160.0, 220.0];
+        let ests = [10.0f64, 20.0, 110.0, 220.0, 10.0, 20.0, 210.0, 220.0];
         let mut mat = [0.0f64; 4];
         unsafe {
             batch_track_distance_matrix(dets.as_ptr(), 2, ests.as_ptr(), 2, mat.as_mut_ptr());
@@ -1727,8 +1771,7 @@ mod tests {
     #[test]
     fn test_reduce_boxes_i32() {
         let boxes = [
-            10, 10, 50, 50,
-            20, 20, 60, 60, // overlaps with first (IoU > 0)
+            10, 10, 50, 50, 20, 20, 60, 60, // overlaps with first (IoU > 0)
             100, 100, 140, 140, // disjoint
         ];
         let mut out = [0i32; 12];
@@ -1766,7 +1809,11 @@ mod tests {
         };
 
         // 1. test_cluster_candidates
-        let c1 = run(&[[100, 100, 200, 200], [202, 150, 252, 200], [900, 900, 950, 950]]);
+        let c1 = run(&[
+            [100, 100, 200, 200],
+            [202, 150, 252, 200],
+            [900, 900, 950, 950],
+        ]);
         assert_eq!(c1.len(), 2);
 
         // 2. test_cluster_candidates_partition_boxes
@@ -1817,10 +1864,7 @@ mod tests {
         assert_eq!(keep[0], 1);
 
         // Vertically stacked cars from test_video.py -> neither dropped
-        let stacked = [
-            954, 312, 1247, 475,
-            970, 380, 1273, 610,
-        ];
+        let stacked = [954, 312, 1247, 475, 970, 380, 1273, 610];
         let n2 = unsafe { consolidate_detections_i32(stacked.as_ptr(), 2, 0.7, keep.as_mut_ptr()) };
         assert_eq!(n2, 2);
 
@@ -1829,7 +1873,8 @@ mod tests {
             248, 340, 328, 385, // tiny (3600)
             164, 279, 816, 719, // huge (286880)
         ];
-        let n3 = unsafe { consolidate_detections_i32(diff_size.as_ptr(), 2, 0.7, keep.as_mut_ptr()) };
+        let n3 =
+            unsafe { consolidate_detections_i32(diff_size.as_ptr(), 2, 0.7, keep.as_mut_ptr()) };
         assert_eq!(n3, 2);
     }
 
@@ -1841,7 +1886,17 @@ mod tests {
         let mut out_rgb = vec![255u8; 8 * 8 * 3];
         unsafe {
             yuv420_region_to_rgb_resize(
-                yuv.as_ptr(), 8, 8, -4, -4, 4, 4, 8, 8, 0, out_rgb.as_mut_ptr(),
+                yuv.as_ptr(),
+                8,
+                8,
+                -4,
+                -4,
+                4,
+                4,
+                8,
+                8,
+                0,
+                out_rgb.as_mut_ptr(),
             );
         }
         // Pixel (0, 0) corresponds to source (-4, -4) -> out of bounds -> black (0, 0, 0)
@@ -1870,10 +1925,7 @@ mod tests {
     #[test]
     fn test_average_and_median_and_percentiles_i32() {
         let boxes = [
-            10, 20, 100, 200,
-            20, 30, 110, 210,
-            30, 40, 120, 220,
-            100, 200, 300, 400,
+            10, 20, 100, 200, 20, 30, 110, 210, 30, 40, 120, 220, 100, 200, 300, 400,
         ];
         let mut avg = [0.0f64; 4];
         let mut med = [0i32; 4];
@@ -1904,7 +1956,10 @@ mod tests {
         unsafe {
             assert_eq!(laplacian_variance_u8(flat.as_ptr(), 32, 32, 3), 0.0);
             let v = laplacian_variance_u8(checker.as_ptr(), 32, 32, 1);
-            assert!(v > 100_000.0, "expected high variance on checkerboard, got {v}");
+            assert!(
+                v > 100_000.0,
+                "expected high variance on checkerboard, got {v}"
+            );
         }
     }
 
@@ -1912,14 +1967,17 @@ mod tests {
     fn test_batch_cosine_similarity_f32() {
         let query = [1.0f32, 0.0, 0.0];
         let gallery = [
-            1.0f32, 0.0, 0.0,
-            0.0, 1.0, 0.0,
-            -1.0, 0.0, 0.0,
-            0.0, 0.0, 0.0,
+            1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         ];
         let mut scores = [0.0f32; 4];
         unsafe {
-            batch_cosine_similarity_f32(query.as_ptr(), gallery.as_ptr(), 4, 3, scores.as_mut_ptr());
+            batch_cosine_similarity_f32(
+                query.as_ptr(),
+                gallery.as_ptr(),
+                4,
+                3,
+                scores.as_mut_ptr(),
+            );
         }
         assert!((scores[0] - 1.0).abs() < 1e-6);
         assert!(scores[1].abs() < 1e-6);
@@ -1927,7 +1985,6 @@ mod tests {
         assert_eq!(scores[3], 0.0);
     }
 }
-
 
 // ═══════════════════════════════════════════════════════════════════
 //  AVX2 ↔ scalar parity for normalize_u8_to_f32.
@@ -1973,9 +2030,15 @@ mod ffi_guard_tests {
 
     #[test]
     fn iou_rejects_null() {
-        assert_eq!(unsafe { intersection_over_union(std::ptr::null(), std::ptr::null()) }, 0.0);
+        assert_eq!(
+            unsafe { intersection_over_union(std::ptr::null(), std::ptr::null()) },
+            0.0
+        );
         let b = [0f32, 0.0, 10.0, 10.0];
-        assert_eq!(unsafe { intersection_over_union(b.as_ptr(), std::ptr::null()) }, 0.0);
+        assert_eq!(
+            unsafe { intersection_over_union(b.as_ptr(), std::ptr::null()) },
+            0.0
+        );
     }
 
     #[test]
@@ -1985,7 +2048,10 @@ mod ffi_guard_tests {
 
     #[test]
     fn read_ffmpeg_frame_rejects_null_and_zero() {
-        assert_eq!(unsafe { read_ffmpeg_frame(-1, std::ptr::null_mut(), 128) }, -1);
+        assert_eq!(
+            unsafe { read_ffmpeg_frame(-1, std::ptr::null_mut(), 128) },
+            -1
+        );
         let mut buf = vec![0u8; 8];
         assert_eq!(unsafe { read_ffmpeg_frame(-1, buf.as_mut_ptr(), 0) }, -1);
     }
@@ -1994,7 +2060,12 @@ mod ffi_guard_tests {
     fn preprocess_rejects_zero_dimensions() {
         let src = vec![128u8; 64];
         let mut dst = vec![-1.0f32; 64];
-        for (sw, sh, dw, dh) in [(0u32, 4u32, 4u32, 4u32), (4, 0, 4, 4), (4, 4, 0, 4), (4, 4, 4, 0)] {
+        for (sw, sh, dw, dh) in [
+            (0u32, 4u32, 4u32, 4u32),
+            (4, 0, 4, 4),
+            (4, 4, 0, 4),
+            (4, 4, 4, 0),
+        ] {
             unsafe { preprocess_detect_input(src.as_ptr(), dst.as_mut_ptr(), sw, sh, dw, dh, 1) };
         }
         assert!(dst.iter().all(|&v| v == -1.0), "guard path must not write");
@@ -2023,8 +2094,12 @@ mod ffi_guard_tests {
     #[test]
     fn fast_shm_copy_handles_overlap_and_odd_lengths() {
         // Includes fuzz lengths from test_fuzzing.py
-        for len in [1usize, 7, 15, 16, 31, 32, 33, 63, 64, 65, 127, 128, 513, 1024, 4097, 65537] {
-            let src: Vec<u8> = (0..len).map(|i| (i.wrapping_mul(73) ^ 0x5A) as u8).collect();
+        for len in [
+            1usize, 7, 15, 16, 31, 32, 33, 63, 64, 65, 127, 128, 513, 1024, 4097, 65537,
+        ] {
+            let src: Vec<u8> = (0..len)
+                .map(|i| (i.wrapping_mul(73) ^ 0x5A) as u8)
+                .collect();
             let mut dst = vec![0u8; len];
             unsafe { fast_shm_copy(dst.as_mut_ptr(), src.as_ptr(), len) };
             assert_eq!(src, dst);
@@ -2075,7 +2150,10 @@ mod ffi_guard_tests {
         let src = vec![0u8; 16 * 16 * 3 / 2];
         let mut out = vec![0xABu8; 64];
         unsafe { yuv420_crop_repack(src.as_ptr(), 16, 16, 12, 0, 8, 8, out.as_mut_ptr()) };
-        assert!(out.iter().all(|&v| v == 0xAB), "must not write on an out-of-range crop");
+        assert!(
+            out.iter().all(|&v| v == 0xAB),
+            "must not write on an out-of-range crop"
+        );
     }
 
     #[test]
@@ -2083,21 +2161,55 @@ mod ffi_guard_tests {
         unsafe {
             assert_eq!(intersects_any_i32(std::ptr::null(), std::ptr::null(), 4), 0);
             assert_eq!(inside_any_i32(std::ptr::null(), std::ptr::null(), 4), 0);
-            assert_eq!(reduce_boxes_i32(std::ptr::null(), 4, 0.0, std::ptr::null_mut()), 0);
+            assert_eq!(
+                reduce_boxes_i32(std::ptr::null(), 4, 0.0, std::ptr::null_mut()),
+                0
+            );
             assert_eq!(
                 cluster_candidates_i32(
-                    std::ptr::null(), 4, 1000, 1000, 160, std::ptr::null_mut(), std::ptr::null_mut()
+                    std::ptr::null(),
+                    4,
+                    1000,
+                    1000,
+                    160,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut()
                 ),
                 0
             );
-            assert_eq!(consolidate_detections_i32(std::ptr::null(), 4, 0.7, std::ptr::null_mut()), 0);
-            yuv420_region_to_rgb_resize(std::ptr::null(), 8, 8, 0, 0, 8, 8, 8, 8, 0, std::ptr::null_mut());
+            assert_eq!(
+                consolidate_detections_i32(std::ptr::null(), 4, 0.7, std::ptr::null_mut()),
+                0
+            );
+            yuv420_region_to_rgb_resize(
+                std::ptr::null(),
+                8,
+                8,
+                0,
+                0,
+                8,
+                8,
+                8,
+                8,
+                0,
+                std::ptr::null_mut(),
+            );
             assert_eq!(ncc_u8(std::ptr::null(), std::ptr::null(), 64), 0.0);
-            average_and_median_boxes_i32(std::ptr::null(), 0, std::ptr::null_mut(), std::ptr::null_mut());
+            average_and_median_boxes_i32(
+                std::ptr::null(),
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
             percentile_15_85_i32(std::ptr::null(), 0, std::ptr::null_mut());
             assert_eq!(laplacian_variance_u8(std::ptr::null(), 0, 0, 0), 0.0);
-            batch_cosine_similarity_f32(std::ptr::null(), std::ptr::null(), 0, 0, std::ptr::null_mut());
+            batch_cosine_similarity_f32(
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                0,
+                std::ptr::null_mut(),
+            );
         }
     }
 }
-
