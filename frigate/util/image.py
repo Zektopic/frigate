@@ -976,17 +976,10 @@ def area(box):
     return (box[2] - box[0] + 1) * (box[3] - box[1] + 1)
 
 
-def intersection_over_union(box_a, box_b):
-    try:
-        from frigate.util.frame_rs import (
-            frame_rs_available,
-            intersection_over_union_rust,
-        )
-
-        if frame_rs_available():
-            return intersection_over_union_rust(box_a, box_b)
-    except Exception:
-        pass
+def intersection_over_union(box_a, box_b) -> float:
+    # Plain Python on purpose: for a single pair of boxes the ctypes
+    # round-trip to Rust costs more than the arithmetic, and the Rust kernel
+    # worked in f32 so it did not reproduce this function's f64 result.
 
     # determine the (x, y)-coordinates of the intersection rectangle
     intersect = intersection(box_a, box_b)

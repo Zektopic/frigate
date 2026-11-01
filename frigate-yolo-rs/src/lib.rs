@@ -1,7 +1,8 @@
-/// SIMD-accelerated YOLO post-processing for Frigate NVR.
-///
-/// Replaces the pure-Python nested loops in `__post_process_multipart_yolo`
-/// and `_nms` with vectorized Rust.  Exposes a flat C ABI for Python `ctypes`.
+//! YOLO post-processing for Frigate NVR.
+//!
+//! Replaces the pure-Python nested loops in `__post_process_multipart_yolo`
+//! and `_nms` with Rust.  Exposes a flat C ABI for Python `ctypes`
+//! (see `frigate/detectors/rust_yolo.py`).
 
 // ── C ABI types ────────────────────────────────────────────────────
 
@@ -34,27 +35,38 @@ const STRIDES: [f32; 3] = [8.0, 16.0, 32.0];
 
 // ── YOLO multipart grid decoding ───────────────────────────────────
 
+/// Pixel-space box `(x1, y1, x2, y2)`.
+type PixelBox = (f32, f32, f32, f32);
+
+/// Detection candidates accumulated across output scales, before NMS.
+#[derive(Default)]
+struct Candidates {
+    boxes: Vec<PixelBox>,
+    scores: Vec<f32>,
+    class_ids: Vec<i32>,
+}
+
+/// Decode one `(3 * 85, ny, nx)` YOLO output scale and append every cell
+/// whose `objectness * best class score` reaches `score_thresh` to `out`.
+///
+/// `grid` is `(ny, nx)` and `frame` is the `(width, height)` boxes are
+/// clipped to.
 #[inline(always)]
 fn decode_yolo_scale(
     output: &[f32],
-    ny: usize,
-    nx: usize,
+    grid: (usize, usize),
     stride: f32,
     anchors: &[(f32, f32); 3],
-    width: f32,
-    height: f32,
+    frame: (f32, f32),
     score_thresh: f32,
-) -> (Vec<(f32, f32, f32, f32)>, Vec<f32>, Vec<i32>) {
-    let mut boxes = Vec::with_capacity(1024);
-    let mut scores = Vec::with_capacity(1024);
-    let mut class_ids = Vec::with_capacity(1024);
-
-    let num_anchors = 3;
+    out: &mut Candidates,
+) {
+    let (ny, nx) = grid;
+    let (width, height) = frame;
     let cell_stride = ny * nx;
     let per_anchor_stride = 85 * cell_stride;
 
-    for a_idx in 0..num_anchors {
-        let (anchor_w, anchor_h) = anchors[a_idx];
+    for (a_idx, &(anchor_w, anchor_h)) in anchors.iter().enumerate() {
         let anchor_base = a_idx * per_anchor_stride;
         let obj_conf_base = anchor_base + 4 * cell_stride;
 
@@ -106,14 +118,12 @@ fn decode_yolo_scale(
                     continue;
                 }
 
-                boxes.push((x1, y1, x2, y2));
-                scores.push(conf);
-                class_ids.push(best_class);
+                out.boxes.push((x1, y1, x2, y2));
+                out.scores.push(conf);
+                out.class_ids.push(best_class);
             }
         }
     }
-
-    (boxes, scores, class_ids)
 }
 
 // ── Greedy NMS ─────────────────────────────────────────────────────
@@ -190,6 +200,20 @@ fn box_iou(a: &(f32, f32, f32, f32), b: &(f32, f32, f32, f32), area_a: f32, area
 
 // ── Public C ABI ───────────────────────────────────────────────────
 
+/// Decode the three YOLO (v3/v4/v5-style, 3 anchors × 85 channels) output
+/// scales, run class-agnostic greedy NMS and write up to `max_dets`
+/// detections with coordinates normalized by `width` / `height`.
+///
+/// Returns the number of detections written.
+///
+/// # Safety
+/// * `ny_nx` must be valid for reads of 6 `u32`s: `(ny, nx)` per scale.
+/// * `outputs` must be valid for reads of 3 pointers.  Each must be null
+///   (the scale is skipped) or valid for reads of `ny * nx * 3 * 85` `f32`s,
+///   using that scale's `(ny, nx)`.
+/// * `out_dets` must be valid for writes of `max_dets` [`Detection`]s.
+///
+/// A null `outputs`, `ny_nx` or `out_dets`, or `max_dets == 0`, returns 0.
 #[no_mangle]
 pub unsafe extern "C" fn yolo_post_process(
     outputs: *const *const f32,
@@ -206,9 +230,7 @@ pub unsafe extern "C" fn yolo_post_process(
     }
 
     let dims = std::slice::from_raw_parts(ny_nx, 6);
-    let mut all_boxes: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(4096);
-    let mut all_scores: Vec<f32> = Vec::with_capacity(4096);
-    let mut all_class_ids: Vec<i32> = Vec::with_capacity(4096);
+    let mut candidates = Candidates::default();
 
     for scale in 0..3 {
         let ny = dims[scale * 2] as usize;
@@ -222,21 +244,22 @@ pub unsafe extern "C" fn yolo_post_process(
         }
         let output = std::slice::from_raw_parts(scale_ptr, len);
 
-        let (boxes, scores, class_ids) = decode_yolo_scale(
+        decode_yolo_scale(
             output,
-            ny,
-            nx,
+            (ny, nx),
             STRIDES[scale],
             &ANCHORS[scale],
-            width,
-            height,
+            (width, height),
             score_thresh,
+            &mut candidates,
         );
-        all_boxes.extend(boxes);
-        all_scores.extend(scores);
-        all_class_ids.extend(class_ids);
     }
 
+    let Candidates {
+        boxes: all_boxes,
+        scores: all_scores,
+        class_ids: all_class_ids,
+    } = candidates;
     let keep = greedy_nms(&all_boxes, &all_scores, iou_thresh, max_dets as usize);
     let n = keep.len().min(max_dets as usize);
     let out = std::slice::from_raw_parts_mut(out_dets, n);
@@ -254,6 +277,17 @@ pub unsafe extern "C" fn yolo_post_process(
     n as u32
 }
 
+/// Greedy NMS over `n` boxes; writes the kept indices, best score first.
+///
+/// Returns the number of indices written (at most `max_indices`).  Boxes
+/// with a NaN score are never kept.
+///
+/// # Safety
+/// * `boxes` must be valid for reads of `n * 4` `f32`s (`x1, y1, x2, y2`).
+/// * `scores` must be valid for reads of `n` `f32`s.
+/// * `out_indices` must be valid for writes of `max_indices` `u32`s.
+///
+/// Null pointers, `n == 0` or `max_indices == 0` return 0.
 #[no_mangle]
 pub unsafe extern "C" fn nms_boxes(
     boxes: *const f32,
@@ -300,6 +334,11 @@ pub unsafe extern "C" fn nms_boxes(
 /// Post-process YOLO26 decoded output: bbox conversion + NMS.
 /// Input: raw (84, N) f32 — rows 0-3 are cx,cy,w,h, rows 4-83 are class scores.
 /// Output: (20, 6) f32 in Frigate format [class_id, score, x1, y1, x2, y2].
+///
+/// # Safety
+/// * `out_dets` must be null (nothing is done) or valid for writes of
+///   `MAX_DETECTIONS * 6` (= 120) `f32`s; it is always zeroed first.
+/// * `raw` must be null or valid for reads of `n * 84` `f32`s.
 #[no_mangle]
 pub unsafe extern "C" fn yolo26_post_process(
     raw: *const f32,
@@ -471,17 +510,25 @@ mod tests {
         let cell_stride = ny * nx;
         let mut output = vec![0.0f32; 3 * 85 * cell_stride];
         let cell_idx = 5 * nx + 5;
-        output[0 * cell_stride + cell_idx] = 0.0; // dx
-        output[1 * cell_stride + cell_idx] = 0.0; // dy
-        output[2 * cell_stride + cell_idx] = 0.5; // dw
-        output[3 * cell_stride + cell_idx] = 0.5; // dh
-        output[4 * cell_stride + cell_idx] = 0.9; // obj_conf
-        output[5 * cell_stride + cell_idx] = 1.0; // class 0
+        // channel-major layout: channel c of this cell is at c * cell_stride
+        let channels = [0.0, 0.0, 0.5, 0.5, 0.9, 1.0]; // dx, dy, dw, dh, obj, class 0
+        for (c, &v) in channels.iter().enumerate() {
+            output[c * cell_stride + cell_idx] = v;
+        }
 
-        let (boxes, scores, _) =
-            decode_yolo_scale(&output, ny, nx, 8.0, &ANCHORS[0], 640.0, 640.0, 0.1);
-        assert!(!boxes.is_empty());
-        assert!(scores[0] > 0.5);
+        let mut found = Candidates::default();
+        decode_yolo_scale(
+            &output,
+            (ny, nx),
+            8.0,
+            &ANCHORS[0],
+            (640.0, 640.0),
+            0.1,
+            &mut found,
+        );
+        assert!(!found.boxes.is_empty());
+        assert!(found.scores[0] > 0.5);
+        assert_eq!(found.class_ids[0], 0);
     }
 }
 
@@ -495,6 +542,14 @@ const DFL_BINS: [f32; 16] = [
 /// YOLOv8/YOLO11 anchor-free post-process: sigmoid + DFL + grid decode + NMS.
 /// `raw` has shape (N, 144) where 144 = 64(reg) + 80(cls).
 /// `all_pts` is concatenated grid points for all 3 scales.
+///
+/// Returns the number of detections written.
+///
+/// # Safety
+/// * `out_dets` must be null (returns 0) or valid for writes of
+///   `MAX_DETECTIONS * 6` (= 120) `f32`s; it is always zeroed first.
+/// * `raw` must be null or valid for reads of `n_total * 144` `f32`s.
+/// * `all_pts` must be null or valid for reads of `n_total * 2` `f32`s.
 #[no_mangle]
 pub unsafe extern "C" fn yolo_anchor_free_post_process(
     raw: *const f32,
@@ -570,21 +625,18 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
         let base = idx * 144;
         // DFL: reg[0..64] → 4 values via softmax over 16 bins
         let mut dist = [0.0f32; 4];
-        for d in 0..4 {
-            let off = d * 16;
-            let mut max_val = raw[base + off];
-            for b in 1..16 {
-                max_val = max_val.max(raw[base + off + b]);
-            }
+        for (d, side) in dist.iter_mut().enumerate() {
+            let bins = &raw[base + d * 16..base + (d + 1) * 16];
+            let max_val = bins[1..].iter().fold(bins[0], |m, &v| m.max(v));
             let mut sum = 0.0f32;
             let mut exp_vals = [0.0f32; 16];
-            for b in 0..16 {
-                let e = (raw[base + off + b] - max_val).exp();
-                exp_vals[b] = e;
+            for (slot, &v) in exp_vals.iter_mut().zip(bins) {
+                let e = (v - max_val).exp();
+                *slot = e;
                 sum += e;
             }
-            for b in 0..16 {
-                dist[d] += (exp_vals[b] / sum) * DFL_BINS[b];
+            for (&e, &bin) in exp_vals.iter().zip(DFL_BINS.iter()) {
+                *side += (e / sum) * bin;
             }
         }
 
@@ -736,8 +788,8 @@ mod ffi_guard_tests {
             },
             0
         );
-        let boxes = vec![0f32; 16];
-        let scores = vec![0.9f32; 4];
+        let boxes = [0f32; 16];
+        let scores = [0.9f32; 4];
         assert_eq!(
             unsafe { nms_boxes(boxes.as_ptr(), scores.as_ptr(), 0, 0.5, out.as_mut_ptr(), 8) },
             0
@@ -805,7 +857,7 @@ mod ffi_guard_tests {
             0.0, 0.0, 10.0, 10.0, 100.0, 100.0, 110.0, 110.0, 200.0, 200.0, 210.0, 210.0, 300.0,
             300.0, 310.0, 310.0,
         ];
-        let scores = vec![0.9f32, 0.8, 0.7, 0.6];
+        let scores = [0.9f32, 0.8, 0.7, 0.6];
         // ...but the caller only offers room for two.
         const CAP: usize = 2;
         let mut out = vec![u32::MAX; CAP + 4];

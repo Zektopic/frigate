@@ -239,6 +239,11 @@ class TestRustTier1AndTier2Parity(unittest.TestCase):
         )
 
     def test_transform_detect_input_and_normalize_parity(self) -> None:
+        from frigate.util.frame_rs import frame_rs_available
+
+        if not frame_rs_available():
+            self.skipTest("compares the Rust kernels against numpy")
+
         from frigate.detectors.detector_config import InputDTypeEnum
         from frigate.object_detection.base import BaseLocalDetector
         from frigate.util.frame_rs import (
@@ -345,6 +350,13 @@ class TestRustTier1AndTier2Parity(unittest.TestCase):
         self.assertEqual(int(rust_dets[1, 0]), 2)
 
     def test_yolo26_and_anchor_free_and_nms_post_process(self) -> None:
+        from frigate.detectors.rust_yolo import yolo_available
+
+        if not yolo_available():
+            # the Python post-processing has no anchor-free/YOLO26 path for
+            # these tensor layouts
+            self.skipTest("exercises the Rust YOLO post-processors")
+
         from frigate.util.model import (
             post_process_rfdetr,
             post_process_yolo,

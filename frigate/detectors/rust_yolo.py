@@ -29,6 +29,30 @@ class Detection(ctypes.Structure):
     ]
 
 
+def _configure(lib: ctypes.CDLL) -> None:
+    """Declare every prototype once, at load time.
+
+    Assigning ``argtypes`` on every call is wasted work per inference and
+    races with concurrent callers of the same function object.
+    """
+    f32p = ctypes.POINTER(ctypes.c_float)
+    u32p = ctypes.POINTER(ctypes.c_uint32)
+    f32 = ctypes.c_float
+    u32 = ctypes.c_uint32
+    lib.yolo_post_process.argtypes = [
+        ctypes.POINTER(f32p), u32p, f32, f32, f32, f32, ctypes.POINTER(Detection), u32,
+    ]  # fmt: skip
+    lib.yolo_post_process.restype = u32
+    lib.nms_boxes.argtypes = [f32p, f32p, u32, f32, u32p, u32]
+    lib.nms_boxes.restype = u32
+    lib.yolo26_post_process.argtypes = [f32p, u32, f32, f32, f32, f32, f32, f32p]
+    lib.yolo26_post_process.restype = None
+    lib.yolo_anchor_free_post_process.argtypes = [
+        f32p, u32, f32p, f32, f32, f32, f32, f32, f32p,
+    ]  # fmt: skip
+    lib.yolo_anchor_free_post_process.restype = u32
+
+
 def _load_lib() -> Optional[ctypes.CDLL]:
     global _lib, _available
     if _available is False:
@@ -46,11 +70,14 @@ def _load_lib() -> Optional[ctypes.CDLL]:
         candidate = os.path.join(d, _LIB_NAME)
         if os.path.isfile(candidate):
             try:
-                _lib = ctypes.CDLL(candidate)
-                _available = True
-                return _lib
-            except OSError as exc:
+                lib = ctypes.CDLL(candidate)
+                _configure(lib)
+            except (OSError, AttributeError) as exc:
                 logger.debug("Failed to load %s: %s", candidate, exc)
+                continue
+            _lib = lib
+            _available = True
+            return _lib
     _available = False
     return None
 
@@ -99,18 +126,6 @@ def yolo_post_process(
         output_ptrs[i] = flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
 
     dets = (Detection * max_dets)()
-
-    lib.yolo_post_process.argtypes = [
-        ctypes.POINTER(ctypes.POINTER(ctypes.c_float)),
-        ctypes.POINTER(ctypes.c_uint32),
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.POINTER(Detection),
-        ctypes.c_uint32,
-    ]
-    lib.yolo_post_process.restype = ctypes.c_uint32
 
     n = lib.yolo_post_process(
         ctypes.cast(output_ptrs, ctypes.POINTER(ctypes.POINTER(ctypes.c_float))),
@@ -161,16 +176,6 @@ def nms_boxes(
         return np.zeros(0, dtype=np.int32)
     out_indices = (ctypes.c_uint32 * max_indices)()
 
-    lib.nms_boxes.argtypes = [
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_uint32,
-        ctypes.c_float,
-        ctypes.POINTER(ctypes.c_uint32),
-        ctypes.c_uint32,
-    ]
-    lib.nms_boxes.restype = ctypes.c_uint32
-
     kept = lib.nms_boxes(
         boxes.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
         scores.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
@@ -200,7 +205,6 @@ def yolo26_post_process(
     lib = _load_lib()
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
-    import numpy as np
 
     arr = np.squeeze(raw) if raw.ndim >= 3 else raw
     if arr.ndim != 2 or (arr.shape[0] != 84 and arr.shape[1] != 84):
@@ -212,18 +216,6 @@ def yolo26_post_process(
     raw_flat = np.ascontiguousarray(arr, dtype=np.float32).ravel()
     n = raw_flat.size // 84
     out = np.zeros((20, 6), dtype=np.float32)
-
-    lib.yolo26_post_process.argtypes = [
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_uint32,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.POINTER(ctypes.c_float),
-    ]
-    lib.yolo26_post_process.restype = None
 
     lib.yolo26_post_process(
         raw_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
@@ -277,7 +269,6 @@ def anchor_free_post_process(
     lib = _load_lib()
     if lib is None:
         raise RuntimeError("Rust YOLO engine not available")
-    import numpy as np
 
     if isinstance(raw, (list, tuple)):
         parts = []
@@ -307,19 +298,6 @@ def anchor_free_post_process(
         raise ValueError(
             f"anchor-free tensors mismatch: raw={raw_flat.size} floats, pts={pts.size}"
         )
-
-    lib.yolo_anchor_free_post_process.argtypes = [
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_uint32,
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.c_float,
-        ctypes.POINTER(ctypes.c_float),
-    ]
-    lib.yolo_anchor_free_post_process.restype = ctypes.c_uint32
 
     lib.yolo_anchor_free_post_process(
         raw_flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),

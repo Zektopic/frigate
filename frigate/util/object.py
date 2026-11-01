@@ -283,29 +283,6 @@ def get_min_region_size(model_config: ModelConfig) -> int:
 
 
 def create_tensor_input(frame, model_config: ModelConfig, region):
-    if (
-        model_config.input_pixel_format in (PixelFormatEnum.rgb, PixelFormatEnum.bgr)
-        and isinstance(frame, np.ndarray)
-        and frame.ndim == 2
-        and frame.shape[0] % 3 == 0
-    ):
-        try:
-            from frigate.util.frame_rs import (
-                frame_rs_available,
-                yuv420_region_to_rgb_resize_rust,
-            )
-
-            if frame_rs_available():
-                return yuv420_region_to_rgb_resize_rust(
-                    frame,
-                    region,
-                    model_config.width,
-                    model_config.height,
-                    is_bgr=(model_config.input_pixel_format == PixelFormatEnum.bgr),
-                )
-        except Exception:
-            pass
-
     if model_config.input_pixel_format == PixelFormatEnum.rgb:
         cropped_frame = yuv_region_2_rgb(frame, region)
     elif model_config.input_pixel_format == PixelFormatEnum.bgr:
@@ -325,14 +302,12 @@ def create_tensor_input(frame, model_config: ModelConfig, region):
     return np.expand_dims(cropped_frame, axis=0)
 
 
-def box_overlaps(b1, b2):
+def box_overlaps(b1: Sequence[int], b2: Sequence[int]) -> bool:
     return not (b1[2] < b2[0] or b1[0] > b2[2] or b1[1] > b2[3] or b1[3] < b2[1])
 
 
-def box_inside(b1, b2):
+def box_inside(b1: Sequence[int], b2: Sequence[int]) -> bool:
     # check if b2 is inside b1
-    if b2[0] >= b1[0] and b2[1] >= b1[1] and b2[2] <= b1[2] and b2[3] <= b1[3]:
-        return True
     return b2[0] >= b1[0] and b2[1] >= b1[1] and b2[2] <= b1[2] and b2[3] <= b1[3]
 
 
@@ -367,14 +342,6 @@ def reduce_boxes(boxes, iou_threshold=0.0):
 
 def average_boxes(boxes: Sequence[list[int] | tuple[int, ...]]) -> list[float]:
     """Return a box that is the average of a list of boxes."""
-    try:
-        from frigate.util.frame_rs import average_boxes_rust, frame_rs_available
-
-        if frame_rs_available():
-            return average_boxes_rust(boxes)
-    except Exception:
-        pass
-
     n = len(boxes)
     return [
         sum(box[0] for box in boxes) / n,
@@ -388,46 +355,20 @@ def median_of_boxes(
     boxes: Sequence[list[int] | tuple[int, ...]],
 ) -> list[int] | tuple[int, ...]:
     """Return a box that is the median of a list of boxes."""
-    try:
-        from frigate.util.frame_rs import frame_rs_available, median_of_boxes_rust
-
-        if frame_rs_available():
-            return median_of_boxes_rust(boxes)
-    except Exception:
-        pass
-
-    sorted_boxes = sorted(boxes, key=lambda x: area(x))
+    sorted_boxes = sorted(boxes, key=area)
     return sorted_boxes[int(len(sorted_boxes) / 2.0)]
 
 
-def intersects_any(box_a, boxes):
-    if not boxes:
-        return False
-    try:
-        from frigate.util.frame_rs import frame_rs_available, intersects_any_rust
-
-        if frame_rs_available():
-            return intersects_any_rust(box_a, boxes)
-    except Exception:
-        pass
-
+def intersects_any(box_a: Sequence[int], boxes: Sequence[Sequence[int]]) -> bool:
+    # Plain Python on purpose: motion box lists are short and the ctypes
+    # marshalling of a Rust call cost several times more than this loop.
     for box in boxes:
         if box_overlaps(box_a, box):
             return True
     return False
 
 
-def inside_any(box_a, boxes):
-    if not boxes:
-        return False
-    try:
-        from frigate.util.frame_rs import frame_rs_available, inside_any_rust
-
-        if frame_rs_available():
-            return inside_any_rust(box_a, boxes)
-    except Exception:
-        pass
-
+def inside_any(box_a: Sequence[int], boxes: Sequence[Sequence[int]]) -> bool:
     for box in boxes:
         # check if box_a is inside of box
         if box_inside(box, box_a):

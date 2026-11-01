@@ -1,79 +1,15 @@
-/// SIMD-accelerated frame preprocessing for Frigate NVR.
-///
-/// Provides: YUV420→RGB, bilinear resize, RGB→float32 normalization,
-/// and NHWC→NCHW transpose — the four most CPU-intensive operations in
-/// the detection input pipeline.
-///
-/// Exposes a flat C ABI for Python `ctypes`.
+//! Frame and box kernels for Frigate NVR.
+//!
+//! Provides YUV420 crop/repack and 3-channel expansion, bilinear resize,
+//! u8→f32 normalization (optionally fused with NHWC→NCHW), the FFmpeg
+//! frame reader, tracker distances and a few box/region helpers.
+//!
+//! Exposes a flat C ABI for Python `ctypes` (see `frigate/util/frame_rs.py`).
+//! Only kernels that beat their Python/OpenCV fallback once FFI overhead is
+//! counted belong here.
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
-
-// ── YUV420 planar → interleaved RGB (u8) ────────────────────────────
-
-/// Convert a YUV420 planar image to interleaved RGB.
-///
-/// `y` has `w * h` bytes, `u` and `v` each have `(w/2) * (h/2)` bytes.
-/// `rgb` receives `w * h * 3` interleaved R,G,B bytes.
-///
-/// # Safety
-/// All pointers must be valid for the implied sizes.
-#[no_mangle]
-pub unsafe extern "C" fn yuv420_to_rgb(
-    y: *const u8,
-    u: *const u8,
-    v: *const u8,
-    rgb: *mut u8,
-    w: u32,
-    h: u32,
-) {
-    let w = w as usize;
-    let h = h as usize;
-    // Guard the FFI boundary: from_raw_parts on a null pointer is
-    // UB even at zero length, and zero dimensions underflow the
-    // `- 1` index clamps below.
-    //
-    // Odd dimensions are rejected too: the chroma planes are sized
-    // (w/2)*(h/2) (floor), but the last odd column/row indexes chroma
-    // element w/2 / h/2, one past the end.  That bounds-checked index
-    // panics, and with panic = "abort" the process dies (SIGABRT).
-    if y.is_null()
-        || u.is_null()
-        || v.is_null()
-        || rgb.is_null()
-        || w == 0
-        || h == 0
-        || !w.is_multiple_of(2)
-        || !h.is_multiple_of(2)
-    {
-        return;
-    }
-
-    let y = std::slice::from_raw_parts(y, w * h);
-    let u = std::slice::from_raw_parts(u, (w / 2) * (h / 2));
-    let v = std::slice::from_raw_parts(v, (w / 2) * (h / 2));
-    let rgb = std::slice::from_raw_parts_mut(rgb, w * h * 3);
-
-    for row in 0..h {
-        let uv_row = row / 2;
-        for col in 0..w {
-            let uv_col = col / 2;
-            let yi = y[row * w + col] as f32;
-            let ui = u[uv_row * (w / 2) + uv_col] as f32 - 128.0;
-            let vi = v[uv_row * (w / 2) + uv_col] as f32 - 128.0;
-
-            // ITU-R BT.601 coefficients (clamped to [0,255])
-            let r = (yi + 1.402 * vi).clamp(0.0, 255.0) as u8;
-            let g = (yi - 0.344136 * ui - 0.714136 * vi).clamp(0.0, 255.0) as u8;
-            let b = (yi + 1.772 * ui).clamp(0.0, 255.0) as u8;
-
-            let out_idx = (row * w + col) * 3;
-            *rgb.get_unchecked_mut(out_idx) = r;
-            *rgb.get_unchecked_mut(out_idx + 1) = g;
-            *rgb.get_unchecked_mut(out_idx + 2) = b;
-        }
-    }
-}
 
 // ── Bilinear resize (u8 RGB interleaved) ───────────────────────────
 
@@ -211,126 +147,23 @@ fn normalize_u8_to_f32_scalar(src: &[u8], dst: &mut [f32], len: usize) {
     }
 }
 
-// ── NHWC → NCHW transpose (single-batch) ───────────────────────────
-
-/// Transpose a single-image NHWC (h, w, c) float32 buffer to NCHW
-/// (c, h, w).  ``c`` is typically 3 (RGB) or 1 (grayscale).
-///
-/// # Safety
-/// `src` has ``h * w * c`` f32, `dst` has the same count.
-#[no_mangle]
-pub unsafe extern "C" fn nhwc_to_nchw_f32(src: *const f32, dst: *mut f32, h: u32, w: u32, c: u32) {
-    let h = h as usize;
-    let w = w as usize;
-    let c = c as usize;
-    if src.is_null() || dst.is_null() || h == 0 || w == 0 || c == 0 {
-        return;
-    }
-
-    let src = std::slice::from_raw_parts(src, h * w * c);
-    let dst = std::slice::from_raw_parts_mut(dst, h * w * c);
-
-    for ci in 0..c {
-        for hi in 0..h {
-            for wi in 0..w {
-                let src_idx = (hi * w + wi) * c + ci;
-                let dst_idx = ci * (h * w) + hi * w + wi;
-                *dst.get_unchecked_mut(dst_idx) = *src.get_unchecked(src_idx);
-            }
-        }
-    }
-}
-
-// ── Combined pipeline: resize + normalize + transpose ───────────────
-
-/// Run the full detection preprocessing pipeline in one FFI call:
-/// 1. Bilinear resize from (sw, sh) to (dw, dh)
-/// 2. Normalize u8→f32 dividing by 255
-/// 3. NHWC→NCHW transpose
-///
-/// `src` is interleaved RGB u8 at the source resolution.
-/// `dst` receives ``c * dh * dw`` float32 values in NCHW order.
-///
-/// This avoids allocating intermediate buffers.
-///
-/// # Safety
-/// All pointers must be valid for the implied sizes.
-#[no_mangle]
-pub unsafe extern "C" fn preprocess_detect_input(
-    src: *const u8,
-    dst: *mut f32,
-    sw: u32,
-    sh: u32,
-    dw: u32,
-    dh: u32,
-    c: u32,
-) {
-    let sw = sw as usize;
-    let sh = sh as usize;
-    let dw = dw as usize;
-    let dh = dh as usize;
-    let c = c as usize;
-
-    // Every dimension must be non-zero before we slice or index.
-    //
-    // The loop body below computes `.min(sh - 1)` / `.min(sw - 1)`.
-    // With sh or sw == 0 that subtraction wraps to usize::MAX in a
-    // release build (overflow checks are off), `.min()` returns the
-    // raw index, and the following get_unchecked reads far out of
-    // bounds.  A null pointer would be UB in from_raw_parts even at
-    // zero length.
-    if src.is_null() || dst.is_null() || sw == 0 || sh == 0 || dw == 0 || dh == 0 || c == 0 {
-        return;
-    }
-
-    let src = std::slice::from_raw_parts(src, sw * sh * c);
-    let dst = std::slice::from_raw_parts_mut(dst, c * dh * dw);
-
-    let scale_x = sw as f64 / dw as f64;
-    let scale_y = sh as f64 / dh as f64;
-    let inv255: f32 = 1.0 / 255.0;
-
-    // For each output position, sample source with bilinear interpolation,
-    // normalize, and write directly into NCHW layout.
-    for ci in 0..c {
-        for dy in 0..dh {
-            let sy = dy as f64 * scale_y;
-            let sy0 = (sy as usize).min(sh - 1);
-            let sy1 = (sy0 + 1).min(sh - 1);
-            let fy = (sy - sy0 as f64) as f32;
-
-            for dx in 0..dw {
-                let sx = dx as f64 * scale_x;
-                let sx0 = (sx as usize).min(sw - 1);
-                let sx1 = (sx0 + 1).min(sw - 1);
-                let fx = (sx - sx0 as f64) as f32;
-
-                // bilinear interpolation for channel ci
-                let v00 = *src.get_unchecked((sy0 * sw + sx0) * c + ci) as f32;
-                let v10 = *src.get_unchecked((sy0 * sw + sx1) * c + ci) as f32;
-                let v01 = *src.get_unchecked((sy1 * sw + sx0) * c + ci) as f32;
-                let v11 = *src.get_unchecked((sy1 * sw + sx1) * c + ci) as f32;
-
-                let top = v00 + (v10 - v00) * fx;
-                let bot = v01 + (v11 - v01) * fx;
-                let val = (top + (bot - top) * fy) * inv255;
-
-                let dst_idx = ci * (dh * dw) + dy * dw + dx;
-                *dst.get_unchecked_mut(dst_idx) = val;
-            }
-        }
-    }
-}
-
 // ── YUV420 crop + repack ───────────────────────────────────────────
 
-/// Crop a region from a planar YUV420 frame and pack into a contiguous
-/// output buffer (Y plane first, then interleaved U/V bytes).
+/// Crop a region from a planar YUV420 (I420) frame and pack it into a
+/// contiguous I420 buffer: the cropped Y plane, then the cropped U plane,
+/// then the cropped V plane.
 ///
 /// Replaces the 7-slice-copy numpy path in `yuv_crop_and_resize`.
 ///
-/// `src` is the full-frame YUV420 buffer (Y + U + V planar).
-/// `out` receives `(crop_w * crop_h * 3 / 2)` bytes.
+/// Nothing is written when a pointer is null, a dimension is zero, or the
+/// crop window is not fully inside the `src_w × src_h` luma plane.
+///
+/// # Safety
+/// * `src` must be valid for reads of the whole frame:
+///   `src_w * src_h + 2 * (src_w / 2) * (src_h / 2)` bytes.
+/// * `out` must be valid for writes of
+///   `crop_w * crop_h + 2 * (crop_w / 2) * (crop_h / 2)` bytes and must not
+///   overlap `src`.
 #[no_mangle]
 pub unsafe extern "C" fn yuv420_crop_repack(
     src: *const u8,
@@ -401,6 +234,14 @@ pub unsafe extern "C" fn yuv420_crop_repack(
 /// nearest-neighbor upsampling U/V to full resolution.
 ///
 /// Replaces nested `np.repeat` calls in `yuv_to_3_channel_yuv`.
+///
+/// Nothing is written when a pointer is null or `w` / `h` is zero or odd.
+///
+/// # Safety
+/// * `y` must be valid for reads of `w * h` bytes, and `u` and `v` for
+///   reads of `(w / 2) * (h / 2)` bytes each.
+/// * `out` must be valid for writes of `w * h * 3` bytes and must not
+///   overlap the input planes.
 #[no_mangle]
 pub unsafe extern "C" fn yuv420_to_3channel(
     y: *const u8,
@@ -412,8 +253,9 @@ pub unsafe extern "C" fn yuv420_to_3channel(
 ) {
     let w = w as usize;
     let h = h as usize;
-    // Odd sizes index one past the (w/2)*(h/2) chroma planes and abort;
-    // see yuv420_to_rgb.
+    // The chroma planes are (w/2)*(h/2) (floor), so an odd width or height
+    // would index one element past their end; with panic = "abort" that
+    // bounds-check panic kills the process.
     if y.is_null()
         || u.is_null()
         || v.is_null()
@@ -449,6 +291,11 @@ pub unsafe extern "C" fn yuv420_to_3channel(
 ///
 /// Replaces `np.transpose` + `.astype(np.float32)` + `/255` in
 /// `BaseLocalDetector._transform_input`.
+///
+/// # Safety
+/// `src` must be valid for reads of `h * w * c` bytes (HWC order) and `dst`
+/// for writes of `h * w * c` `f32`s; the buffers must not overlap.  Null
+/// pointers or a zero dimension are rejected without writing.
 #[no_mangle]
 pub unsafe extern "C" fn transform_detect_input(
     src: *const u8,
@@ -530,53 +377,7 @@ pub unsafe extern "C" fn read_ffmpeg_frame(fd: i32, dst: *mut u8, frame_size: u3
     }
 }
 
-// ── Bounding Box Intersection over Union (IoU) ──────────────────────
-
-/// Calculate intersection over union (IoU) of two bounding boxes.
-/// Each box is represented as [x1, y1, x2, y2].
-///
-/// Returns the IoU value as f32.
-///
-/// # Safety
-/// `box_a` and `box_b` must point to valid arrays of 4 f32s.
-#[no_mangle]
-pub unsafe extern "C" fn intersection_over_union(box_a: *const f32, box_b: *const f32) -> f32 {
-    // 0.0 means "no overlap" — the safe answer for a bad pointer.
-    if box_a.is_null() || box_b.is_null() {
-        return 0.0;
-    }
-    let a = std::slice::from_raw_parts(box_a, 4);
-    let b = std::slice::from_raw_parts(box_b, 4);
-
-    // Coordinate check for intersection
-    if a[2] < b[0] || a[0] > b[2] || a[1] > b[3] || a[3] < b[1] {
-        return 0.0;
-    }
-
-    let x1 = if a[0] > b[0] { a[0] } else { b[0] };
-    let y1 = if a[1] > b[1] { a[1] } else { b[1] };
-    let x2 = if a[2] < b[2] { a[2] } else { b[2] };
-    let y2 = if a[3] < b[3] { a[3] } else { b[3] };
-
-    // Bounding box area coordinates (inclusive of the last pixel: width = x2 - x1 + 1)
-    let inter_w = (x2 - x1 + 1.0).max(0.0);
-    let inter_h = (y2 - y1 + 1.0).max(0.0);
-    let inter_area = inter_w * inter_h;
-
-    if inter_area == 0.0 {
-        return 0.0;
-    }
-
-    let box_a_area = (a[2] - a[0] + 1.0) * (a[3] - a[1] + 1.0);
-    let box_b_area = (b[2] - b[0] + 1.0) * (b[3] - b[1] + 1.0);
-
-    let union_area = box_a_area + box_b_area - inter_area;
-    if union_area <= 0.0 {
-        return 0.0;
-    }
-
-    inter_area / union_area
-}
+// ── Tracker association distance ───────────────────────────────────
 
 /// Norfair tracker association distance (port of
 /// `frigate.track.norfair_tracker.distance`).
@@ -624,130 +425,15 @@ pub unsafe extern "C" fn track_distance(det: *const f64, est: *const f64) -> f64
     (dx * dx + dy * dy + wr * wr + hr * hr).sqrt()
 }
 
-/// Point-in-polygon ray-casting test.
-/// Returns 1 if point (px, py) is inside polygon vertices, 0 otherwise.
-#[no_mangle]
-pub unsafe extern "C" fn point_in_polygon(
-    px: f64,
-    py: f64,
-    pts: *const f64,
-    num_pts: usize,
-) -> i32 {
-    if pts.is_null() || num_pts < 3 {
-        return 0;
-    }
-    let slice = std::slice::from_raw_parts(pts, num_pts * 2);
-    let mut inside = false;
-    let mut j = num_pts - 1;
-
-    for i in 0..num_pts {
-        let xi = slice[i * 2];
-        let yi = slice[i * 2 + 1];
-        let xj = slice[j * 2];
-        let yj = slice[j * 2 + 1];
-
-        let intersect = ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
-        if intersect {
-            inside = !inside;
-        }
-        j = i;
-    }
-
-    if inside {
-        1
-    } else {
-        0
-    }
-}
-
-/// Check whether a bounding box [x1, y1, x2, y2] overlaps with a polygon.
-#[no_mangle]
-pub unsafe extern "C" fn polygon_box_overlap(
-    poly_pts: *const f64,
-    num_pts: usize,
-    box_coords: *const f64,
-) -> i32 {
-    if poly_pts.is_null() || box_coords.is_null() || num_pts < 3 {
-        return 0;
-    }
-    let b = std::slice::from_raw_parts(box_coords, 4);
-    let bx1 = b[0];
-    let by1 = b[1];
-    let bx2 = b[2];
-    let by2 = b[3];
-
-    // Check if any polygon vertex is inside the box
-    let slice = std::slice::from_raw_parts(poly_pts, num_pts * 2);
-    for i in 0..num_pts {
-        let x = slice[i * 2];
-        let y = slice[i * 2 + 1];
-        if x >= bx1 && x <= bx2 && y >= by1 && y <= by2 {
-            return 1;
-        }
-    }
-
-    // Check box corners inside polygon
-    let corners = [
-        (bx1, by1),
-        (bx2, by1),
-        (bx2, by2),
-        (bx1, by2),
-        ((bx1 + bx2) * 0.5, (by1 + by2) * 0.5),
-    ];
-    for &(cx, cy) in &corners {
-        if point_in_polygon(cx, cy, poly_pts, num_pts) == 1 {
-            return 1;
-        }
-    }
-
-    // Neither contains a vertex of the other, but an edge can still cross
-    // the box (e.g. a thin zone band running straight through it).
-    let box_edges = [
-        ((bx1, by1), (bx2, by1)),
-        ((bx2, by1), (bx2, by2)),
-        ((bx2, by2), (bx1, by2)),
-        ((bx1, by2), (bx1, by1)),
-    ];
-    let mut j = num_pts - 1;
-    for i in 0..num_pts {
-        let a = (slice[j * 2], slice[j * 2 + 1]);
-        let b = (slice[i * 2], slice[i * 2 + 1]);
-        if box_edges
-            .iter()
-            .any(|&(c, d)| segments_intersect(a, b, c, d))
-        {
-            return 1;
-        }
-        j = i;
-    }
-
-    0
-}
-
-/// Proper or touching intersection of segments `ab` and `cd`.
-fn segments_intersect(a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64, f64)) -> bool {
-    let orient = |p: (f64, f64), q: (f64, f64), r: (f64, f64)| {
-        (q.0 - p.0) * (r.1 - p.1) - (q.1 - p.1) * (r.0 - p.0)
-    };
-    let on_seg = |p: (f64, f64), q: (f64, f64), r: (f64, f64)| {
-        r.0 >= p.0.min(q.0) && r.0 <= p.0.max(q.0) && r.1 >= p.1.min(q.1) && r.1 <= p.1.max(q.1)
-    };
-    let d1 = orient(c, d, a);
-    let d2 = orient(c, d, b);
-    let d3 = orient(a, b, c);
-    let d4 = orient(a, b, d);
-    if ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
-        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
-    {
-        return true;
-    }
-    (d1 == 0.0 && on_seg(c, d, a))
-        || (d2 == 0.0 && on_seg(c, d, b))
-        || (d3 == 0.0 && on_seg(a, b, c))
-        || (d4 == 0.0 && on_seg(a, b, d))
-}
-
-/// Vectorized NxM pairwise tracker distance matrix.
+/// Pairwise tracker distance matrix: `out_matrix[i * n_ests + j]` is
+/// [`track_distance`] of detection `i` and estimate `j`.
+///
+/// # Safety
+/// * `dets` must be valid for reads of `n_dets * 4` `f64`s and `ests` for
+///   reads of `n_ests * 4` `f64`s.
+/// * `out_matrix` must be valid for writes of `n_dets * n_ests` `f64`s.
+///
+/// Null pointers or an empty side are rejected without writing.
 #[no_mangle]
 pub unsafe extern "C" fn batch_track_distance_matrix(
     dets: *const f64,
@@ -767,26 +453,6 @@ pub unsafe extern "C" fn batch_track_distance_matrix(
             *out_matrix.add(i * n_ests + j) = dist;
         }
     }
-}
-
-/// Copy `len` bytes from `src` to `dst` (shared-memory frame transfers).
-///
-/// This is a plain `memmove`.  The previous AVX2 loop called
-/// `_mm256_loadu_si256` / `_mm256_storeu_si256` from a function without
-/// `#[target_feature]`, so neither intrinsic could inline (two calls per 32
-/// bytes) and it was slower than libc; it also built two slices over the
-/// same memory, which is UB when the ranges overlap.  glibc's memmove
-/// already picks the best vector width for the running CPU.
-///
-/// # Safety
-/// `src` must be valid for `len` bytes of reads and `dst` for `len` bytes
-/// of writes.  The ranges may overlap.
-#[no_mangle]
-pub unsafe extern "C" fn fast_shm_copy(dst: *mut u8, src: *const u8, len: usize) {
-    if dst.is_null() || src.is_null() || len == 0 {
-        return;
-    }
-    std::ptr::copy(src, dst, len);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -831,65 +497,14 @@ fn iou_i32(a: [i32; 4], b: [i32; 4]) -> f32 {
     }
 }
 
-/// Returns 1 if `box_a` (`[x1, y1, x2, y2]`) intersects any box in `boxes` (`n_boxes * 4`), else 0.
-#[no_mangle]
-pub unsafe extern "C" fn intersects_any_i32(
-    box_a: *const i32,
-    boxes: *const i32,
-    n_boxes: usize,
-) -> i32 {
-    if box_a.is_null() || boxes.is_null() || n_boxes == 0 {
-        return 0;
-    }
-    let a_slice = std::slice::from_raw_parts(box_a, 4);
-    let a = [a_slice[0], a_slice[1], a_slice[2], a_slice[3]];
-    let b_slice = std::slice::from_raw_parts(boxes, n_boxes * 4);
-    for i in 0..n_boxes {
-        let base = i * 4;
-        let b = [
-            b_slice[base],
-            b_slice[base + 1],
-            b_slice[base + 2],
-            b_slice[base + 3],
-        ];
-        if intersects_i32(a, b) {
-            return 1;
-        }
-    }
-    0
-}
-
-/// Returns 1 if `box_a` (`[x1, y1, x2, y2]`) is inside any box in `boxes` (`n_boxes * 4`), else 0.
-#[no_mangle]
-pub unsafe extern "C" fn inside_any_i32(
-    box_a: *const i32,
-    boxes: *const i32,
-    n_boxes: usize,
-) -> i32 {
-    if box_a.is_null() || boxes.is_null() || n_boxes == 0 {
-        return 0;
-    }
-    let a_slice = std::slice::from_raw_parts(box_a, 4);
-    let a = [a_slice[0], a_slice[1], a_slice[2], a_slice[3]];
-    let b_slice = std::slice::from_raw_parts(boxes, n_boxes * 4);
-    for i in 0..n_boxes {
-        let base = i * 4;
-        let b = [
-            b_slice[base],
-            b_slice[base + 1],
-            b_slice[base + 2],
-            b_slice[base + 3],
-        ];
-        if inside_i32(a, b) {
-            return 1;
-        }
-    }
-    0
-}
-
 /// Greedy iterative bounding-box union reduction (replaces `frigate.util.object.reduce_boxes`).
 /// Writes reduced `[x1, y1, x2, y2]` boxes into `out_boxes` (capacity `n_boxes * 4`)
 /// and returns the number of reduced clusters.
+///
+/// # Safety
+/// `boxes` must be valid for reads of `n_boxes * 4` `i32`s and `out_boxes`
+/// for writes of `n_boxes * 4` `i32`s.  Null pointers or `n_boxes == 0`
+/// return 0 without writing.
 #[no_mangle]
 pub unsafe extern "C" fn reduce_boxes_i32(
     boxes: *const i32,
@@ -949,14 +564,13 @@ fn cluster_boundary_i32(b: [i32; 4], min_region: i32) -> [i32; 4] {
     ]
 }
 
+/// Port of `frigate.util.image.calculate_region`: a square, 4-aligned
+/// region of at least `model_size` around `[xmin, ymin, xmax, ymax]`,
+/// shifted to stay inside a `(frame_h, frame_w)` frame.
 #[inline]
 fn calculate_region_i32(
-    frame_h: i32,
-    frame_w: i32,
-    xmin: i32,
-    ymin: i32,
-    xmax: i32,
-    ymax: i32,
+    (frame_h, frame_w): (i32, i32),
+    [xmin, ymin, xmax, ymax]: [i32; 4],
     model_size: i32,
     multiplier: f64,
 ) -> [i32; 4] {
@@ -986,6 +600,11 @@ fn calculate_region_i32(
 /// Writes flattened box indices into `out_flat_indices` (capacity `n_boxes`)
 /// and cluster lengths into `out_cluster_lengths` (capacity `n_boxes`).
 /// Returns the number of clusters written.
+///
+/// # Safety
+/// `boxes` must be valid for reads of `n_boxes * 4` `i32`s, and
+/// `out_flat_indices` and `out_cluster_lengths` for writes of `n_boxes`
+/// `i32`s each.  Null pointers or `n_boxes == 0` return 0 without writing.
 #[no_mangle]
 pub unsafe extern "C" fn cluster_candidates_i32(
     boxes: *const i32,
@@ -1052,7 +671,10 @@ pub unsafe extern "C" fn cluster_candidates_i32(
                 }
             }
             let region = calculate_region_i32(
-                frame_h, frame_w, min_x, min_y, max_x, max_y, min_region, 1.35,
+                (frame_h, frame_w),
+                [min_x, min_y, max_x, max_y],
+                min_region,
+                1.35,
             );
 
             let mut should_cluster = true;
@@ -1094,6 +716,11 @@ pub unsafe extern "C" fn cluster_candidates_i32(
 ///
 /// `boxes` has `n * 4` `i32`s (`[x1, y1, x2, y2]`) ordered from smallest area to largest.
 /// Writes indices of kept detections into `out_keep` (capacity `n`) and returns kept count.
+///
+/// # Safety
+/// `boxes` must be valid for reads of `n * 4` `i32`s and `out_keep` for
+/// writes of `n` `i32`s.  Null pointers or `n == 0` return 0 without
+/// writing.
 #[no_mangle]
 pub unsafe extern "C" fn consolidate_detections_i32(
     boxes: *const i32,
@@ -1142,139 +769,15 @@ pub unsafe extern "C" fn consolidate_detections_i32(
     kept
 }
 
-/// Fused YUV420 planar region crop + out-of-bounds black pad + ITU-R BT.601 RGB/BGR
-/// conversion + bilinear resize to `(dst_w, dst_h)` in a single zero-allocation pass.
-///
-/// Replaces `yuv_region_2_rgb`/`yuv_region_2_bgr` + `cv2.resize` in `create_tensor_input`.
-#[no_mangle]
-pub unsafe extern "C" fn yuv420_region_to_rgb_resize(
-    yuv: *const u8,
-    src_w: u32,
-    src_h: u32,
-    rx1: i32,
-    ry1: i32,
-    _rx2: i32,
-    ry2: i32,
-    dst_w: u32,
-    dst_h: u32,
-    is_bgr: i32,
-    out_rgb: *mut u8,
-) {
-    let sw = src_w as usize;
-    let sh = src_h as usize;
-    let dw = dst_w as usize;
-    let dh = dst_h as usize;
-    if yuv.is_null()
-        || out_rgb.is_null()
-        || sw == 0
-        || sh == 0
-        || dw == 0
-        || dh == 0
-        || !sw.is_multiple_of(2)
-        || !sh.is_multiple_of(2)
-    {
-        return;
-    }
-    let reg_size = ((ry2 - ry1) / 4) * 4;
-    if reg_size <= 0 {
-        return;
-    }
-
-    let y_plane_size = sw * sh;
-    let uv_plane_size = (sw / 2) * (sh / 2);
-    let yuv_slice = std::slice::from_raw_parts(yuv, y_plane_size + uv_plane_size * 2);
-    let y_plane = &yuv_slice[..y_plane_size];
-    let u_plane = &yuv_slice[y_plane_size..y_plane_size + uv_plane_size];
-    let v_plane = &yuv_slice[y_plane_size + uv_plane_size..];
-    let out = std::slice::from_raw_parts_mut(out_rgb, dw * dh * 3);
-
-    // Sample a single pixel in region-local coordinates [0..reg_size, 0..reg_size]
-    // and convert from YUV420 to (R, G, B) (or black if outside the source frame).
-    let sample_rgb = |lx: usize, ly: usize| -> (f32, f32, f32) {
-        let sx = rx1 + lx as i32;
-        let sy = ry1 + ly as i32;
-        if sx < 0 || sy < 0 || (sx as usize) >= sw || (sy as usize) >= sh {
-            return (0.0, 0.0, 0.0);
-        }
-        let ux = sx as usize;
-        let uy = sy as usize;
-        let yi = *y_plane.get_unchecked(uy * sw + ux) as f32;
-        let uv_idx = (uy / 2) * (sw / 2) + (ux / 2);
-        let ui = *u_plane.get_unchecked(uv_idx) as f32 - 128.0;
-        let vi = *v_plane.get_unchecked(uv_idx) as f32 - 128.0;
-
-        let r = (yi + 1.402 * vi).clamp(0.0, 255.0);
-        let g = (yi - 0.344136 * ui - 0.714136 * vi).clamp(0.0, 255.0);
-        let b = (yi + 1.772 * ui).clamp(0.0, 255.0);
-        (r, g, b)
-    };
-
-    let rsize = reg_size as usize;
-    if rsize == dw && rsize == dh {
-        for dy in 0..dh {
-            for dx in 0..dw {
-                let (r, g, b) = sample_rgb(dx, dy);
-                let idx = (dy * dw + dx) * 3;
-                if is_bgr != 0 {
-                    out[idx] = b as u8;
-                    out[idx + 1] = g as u8;
-                    out[idx + 2] = r as u8;
-                } else {
-                    out[idx] = r as u8;
-                    out[idx + 1] = g as u8;
-                    out[idx + 2] = b as u8;
-                }
-            }
-        }
-        return;
-    }
-
-    let scale_x = rsize as f64 / dw as f64;
-    let scale_y = rsize as f64 / dh as f64;
-
-    for dy in 0..dh {
-        let sy = dy as f64 * scale_y;
-        let sy0 = (sy as usize).min(rsize - 1);
-        let sy1 = (sy0 + 1).min(rsize - 1);
-        let fy = (sy - sy0 as f64) as f32;
-
-        for dx in 0..dw {
-            let sx = dx as f64 * scale_x;
-            let sx0 = (sx as usize).min(rsize - 1);
-            let sx1 = (sx0 + 1).min(rsize - 1);
-            let fx = (sx - sx0 as f64) as f32;
-
-            let (r00, g00, b00) = sample_rgb(sx0, sy0);
-            let (r10, g10, b10) = sample_rgb(sx1, sy0);
-            let (r01, g01, b01) = sample_rgb(sx0, sy1);
-            let (r11, g11, b11) = sample_rgb(sx1, sy1);
-
-            let r = (r00 + (r10 - r00) * fx)
-                + ((r01 + (r11 - r01) * fx) - (r00 + (r10 - r00) * fx)) * fy;
-            let g = (g00 + (g10 - g00) * fx)
-                + ((g01 + (g11 - g01) * fx) - (g00 + (g10 - g00) * fx)) * fy;
-            let b = (b00 + (b10 - b00) * fx)
-                + ((b01 + (b11 - b01) * fx) - (b00 + (b10 - b00) * fx)) * fy;
-
-            let idx = (dy * dw + dx) * 3;
-            if is_bgr != 0 {
-                out[idx] = b as u8;
-                out[idx + 1] = g as u8;
-                out[idx + 2] = r as u8;
-            } else {
-                out[idx] = r as u8;
-                out[idx + 1] = g as u8;
-                out[idx + 2] = b as u8;
-            }
-        }
-    }
-}
-
 /// Zero-mean Normalized Cross-Correlation (`cv2.TM_CCOEFF_NORMED`) between two
 /// equal-sized `u8` patches `a` and `b` of length `len`.
 ///
 /// Replaces `cv2.matchTemplate(curr_gray, reference_crop, cv2.TM_CCOEFF_NORMED)`
 /// in `StationaryMotionClassifier.evaluate`.
+///
+/// # Safety
+/// `a` and `b` must each be valid for reads of `len` bytes.  Null pointers
+/// or `len == 0` return 0.0.
 #[no_mangle]
 pub unsafe extern "C" fn ncc_u8(a: *const u8, b: *const u8, len: usize) -> f64 {
     if a.is_null() || b.is_null() || len == 0 {
@@ -1310,43 +813,6 @@ pub unsafe extern "C" fn ncc_u8(a: *const u8, b: *const u8, len: usize) -> f64 {
     }
 }
 
-/// Compute `average_boxes` (`[sum(c)/n for c in 0..4]`) and `median_of_boxes`
-/// (`sorted(boxes, key=area)[n // 2]`) for `n_boxes` `[x1, y1, x2, y2]` boxes.
-#[no_mangle]
-pub unsafe extern "C" fn average_and_median_boxes_i32(
-    boxes: *const i32,
-    n_boxes: usize,
-    out_avg_f64: *mut f64,
-    out_median_i32: *mut i32,
-) {
-    if boxes.is_null() || n_boxes == 0 {
-        return;
-    }
-    let raw = std::slice::from_raw_parts(boxes, n_boxes * 4);
-
-    if !out_avg_f64.is_null() {
-        let out_avg = std::slice::from_raw_parts_mut(out_avg_f64, 4);
-        for c in 0..4 {
-            let sum: i64 = (0..n_boxes).map(|i| raw[i * 4 + c] as i64).sum();
-            out_avg[c] = sum as f64 / n_boxes as f64;
-        }
-    }
-
-    if !out_median_i32.is_null() {
-        let out_med = std::slice::from_raw_parts_mut(out_median_i32, 4);
-        let mut order: Vec<usize> = (0..n_boxes).collect();
-        order.sort_by_key(|&i| {
-            let b = [raw[i * 4], raw[i * 4 + 1], raw[i * 4 + 2], raw[i * 4 + 3]];
-            area_i32(b)
-        });
-        let mid = order[n_boxes / 2];
-        out_med[0] = raw[mid * 4];
-        out_med[1] = raw[mid * 4 + 1];
-        out_med[2] = raw[mid * 4 + 2];
-        out_med[3] = raw[mid * 4 + 3];
-    }
-}
-
 #[inline]
 fn linear_percentile_sorted(sorted: &[i32], q: f64) -> f64 {
     let n = sorted.len();
@@ -1365,6 +831,11 @@ fn linear_percentile_sorted(sorted: &[i32], q: f64) -> f64 {
 
 /// Compute `[percentile(xmins, 15), percentile(ymins, 15), percentile(xmaxs, 85), percentile(ymaxs, 85)]`
 /// with linear interpolation matching `np.percentile` for `NorfairTracker.update_position`.
+///
+/// # Safety
+/// `boxes` must be valid for reads of `n_boxes * 4` `i32`s and `out_bounds`
+/// for writes of 4 `f64`s.  Null pointers or `n_boxes == 0` are rejected
+/// without writing.
 #[no_mangle]
 pub unsafe extern "C" fn percentile_15_85_i32(
     boxes: *const i32,
@@ -1390,6 +861,10 @@ pub unsafe extern "C" fn percentile_15_85_i32(
 
 /// Streaming single-pass variance of the 3×3 discrete Laplacian (`[0,1,0; 1,-4,1; 0,1,0]`)
 /// with `BORDER_REFLECT_101` border handling, matching `cv2.Laplacian(input, cv2.CV_64F).var()`.
+///
+/// # Safety
+/// `src` must be valid for reads of `w * h * channels` bytes (interleaved
+/// HWC).  A null pointer or a zero dimension returns 0.0.
 #[no_mangle]
 pub unsafe extern "C" fn laplacian_variance_u8(
     src: *const u8,
@@ -1468,6 +943,11 @@ pub unsafe extern "C" fn laplacian_variance_u8(
 
 /// Compute cosine similarity between `query` (`dim` floats) and `n_gallery` vectors
 /// in `gallery` (`n_gallery * dim` floats), writing results to `out_scores` (`n_gallery` floats).
+///
+/// # Safety
+/// `query` must be valid for reads of `dim` `f32`s, `gallery` for reads of
+/// `n_gallery * dim` `f32`s and `out_scores` for writes of `n_gallery`
+/// `f32`s.  Null pointers or a zero size are rejected without writing.
 #[no_mangle]
 pub unsafe extern "C" fn batch_cosine_similarity_f32(
     query: *const f32,
@@ -1565,19 +1045,6 @@ mod tests {
     }
 
     #[test]
-    fn test_yuv420_to_rgb_neutral_gray() {
-        // Ported from test_tracker_rust.py: 8x8 Y=128, U=128, V=128 -> RGB == 128
-        let y = vec![128u8; 8 * 8];
-        let u = vec![128u8; 4 * 4];
-        let v = vec![128u8; 4 * 4];
-        let mut rgb = vec![0u8; 8 * 8 * 3];
-        unsafe {
-            yuv420_to_rgb(y.as_ptr(), u.as_ptr(), v.as_ptr(), rgb.as_mut_ptr(), 8, 8);
-        }
-        assert!(rgb.iter().all(|&px| (px as i16 - 128).abs() <= 1));
-    }
-
-    #[test]
     fn test_normalize() {
         let src: Vec<u8> = vec![0, 128, 255];
         let mut dst = vec![0.0f32; 3];
@@ -1590,19 +1057,8 @@ mod tests {
     }
 
     #[test]
-    fn test_nhwc_to_nchw() {
-        // 1×2 RGB: [R0,G0,B0,R1,G1,B1] → [R0,R1,G0,G1,B0,B1]
-        let src = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let mut dst = vec![0.0f32; 6];
-        unsafe {
-            nhwc_to_nchw_f32(src.as_ptr(), dst.as_mut_ptr(), 1, 2, 3);
-        }
-        assert_eq!(dst, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
-    }
-
-    #[test]
     fn test_transform_detect_input() {
-        let src = vec![0u8, 128, 255, 255, 128, 0];
+        let src = [0u8, 128, 255, 255, 128, 0];
         let mut dst = vec![0.0f32; 6];
         unsafe {
             transform_detect_input(src.as_ptr(), dst.as_mut_ptr(), 1, 2, 3);
@@ -1617,9 +1073,9 @@ mod tests {
 
     #[test]
     fn test_yuv420_to_3channel() {
-        let y = vec![10u8, 20, 30, 40]; // 2x2
-        let u = vec![100u8]; // 1x1
-        let v = vec![200u8]; // 1x1
+        let y = [10u8, 20, 30, 40]; // 2x2
+        let u = [100u8]; // 1x1
+        let v = [200u8]; // 1x1
         let mut out = vec![0u8; 2 * 2 * 3];
         unsafe {
             yuv420_to_3channel(y.as_ptr(), u.as_ptr(), v.as_ptr(), 2, 2, out.as_mut_ptr());
@@ -1628,68 +1084,6 @@ mod tests {
             out,
             vec![10, 100, 200, 20, 100, 200, 30, 100, 200, 40, 100, 200]
         );
-    }
-
-    #[test]
-    fn test_preprocess_pipeline() {
-        let mut src = vec![0u8; 4 * 4 * 3];
-        for y in 0..4 {
-            for x in 0..4 {
-                let val = (y * 4 + x) as u8;
-                let idx = (y * 4 + x) * 3;
-                src[idx] = val;
-                src[idx + 1] = val;
-                src[idx + 2] = val;
-            }
-        }
-        let mut dst = vec![0.0f32; 3 * 2 * 2];
-        unsafe {
-            preprocess_detect_input(src.as_ptr(), dst.as_mut_ptr(), 4, 4, 2, 2, 3);
-        }
-        let r00 = dst[0 * 4 + 0 * 2 + 0];
-        let g00 = dst[1 * 4 + 0 * 2 + 0];
-        let b00 = dst[2 * 4 + 0 * 2 + 0];
-        assert!((r00 - 0.0).abs() < 0.001);
-        assert!((g00 - 0.0).abs() < 0.001);
-        assert!((b00 - 0.0).abs() < 0.001);
-
-        let r11 = dst[0 * 4 + 1 * 2 + 1];
-        assert!((r11 - 10.0 / 255.0).abs() < 0.001);
-
-        // Ported from test_frame_shm_rust.py: 64x64x3 of 128 -> 3x32x32
-        let src64 = vec![128u8; 64 * 64 * 3];
-        let mut dst32 = vec![0.0f32; 3 * 32 * 32];
-        unsafe {
-            preprocess_detect_input(src64.as_ptr(), dst32.as_mut_ptr(), 64, 64, 32, 32, 3);
-        }
-        assert!(dst32
-            .iter()
-            .all(|&v| (0.0..=1.0).contains(&v) && (v - 128.0 / 255.0).abs() < 1e-4));
-    }
-
-    #[test]
-    fn test_iou() {
-        let box_a = [10.0, 10.0, 20.0, 20.0];
-        let box_b = [15.0, 15.0, 25.0, 25.0];
-        unsafe {
-            let iou = intersection_over_union(box_a.as_ptr(), box_b.as_ptr());
-            assert!((iou - 36.0 / 206.0).abs() < 0.001);
-        }
-
-        // Ported from test_frame_shm_rust.py: [0,0,10,10] and [5,0,15,10] -> 66/176 = 0.375
-        let a2 = [0.0f32, 0.0, 10.0, 10.0];
-        let b2 = [5.0f32, 0.0, 15.0, 10.0];
-        unsafe {
-            let iou = intersection_over_union(a2.as_ptr(), b2.as_ptr());
-            assert!((iou - 0.375).abs() < 1e-5);
-        }
-
-        // Non-overlapping
-        let box_c = [30.0, 30.0, 40.0, 40.0];
-        unsafe {
-            let iou = intersection_over_union(box_a.as_ptr(), box_c.as_ptr());
-            assert_eq!(iou, 0.0);
-        }
     }
 
     #[test]
@@ -1751,20 +1145,6 @@ mod tests {
                 assert!(track_distance(bad.as_ptr(), a.as_ptr()).is_infinite());
                 assert!(track_distance(a.as_ptr(), bad.as_ptr()).is_infinite());
             }
-        }
-    }
-
-    #[test]
-    fn test_intersects_and_inside_any_i32() {
-        let boxes = [100, 100, 200, 200, 300, 300, 400, 400];
-        let q_inter = [150, 150, 250, 250];
-        let q_inside = [110, 110, 190, 190];
-        let q_miss = [210, 210, 290, 290];
-        unsafe {
-            assert_eq!(intersects_any_i32(q_inter.as_ptr(), boxes.as_ptr(), 2), 1);
-            assert_eq!(intersects_any_i32(q_miss.as_ptr(), boxes.as_ptr(), 2), 0);
-            assert_eq!(inside_any_i32(q_inside.as_ptr(), boxes.as_ptr(), 2), 1);
-            assert_eq!(inside_any_i32(q_inter.as_ptr(), boxes.as_ptr(), 2), 0);
         }
     }
 
@@ -1879,39 +1259,10 @@ mod tests {
     }
 
     #[test]
-    fn test_yuv420_region_to_rgb_resize() {
-        // 8x8 neutral gray YUV420 (Y=128, U=128, V=128)
-        let mut yuv = vec![128u8; 8 * 8 * 3 / 2];
-        // Region [-4, -4, 4, 4] has top-left quadrant out-of-bounds (black) and bottom-right in-bounds (~128)
-        let mut out_rgb = vec![255u8; 8 * 8 * 3];
-        unsafe {
-            yuv420_region_to_rgb_resize(
-                yuv.as_ptr(),
-                8,
-                8,
-                -4,
-                -4,
-                4,
-                4,
-                8,
-                8,
-                0,
-                out_rgb.as_mut_ptr(),
-            );
-        }
-        // Pixel (0, 0) corresponds to source (-4, -4) -> out of bounds -> black (0, 0, 0)
-        assert_eq!(&out_rgb[0..3], &[0, 0, 0]);
-        // Pixel (6, 6) corresponds to source (2, 2) -> in bounds -> ~128
-        let idx = (6 * 8 + 6) * 3;
-        assert!((out_rgb[idx] as i16 - 128).abs() <= 1);
-        let _ = &mut yuv;
-    }
-
-    #[test]
     fn test_ncc_u8() {
         let a: Vec<u8> = (0..64u8).collect();
         let inv: Vec<u8> = (0..64u8).map(|v| 255 - v).collect();
-        let flat = vec![100u8; 64];
+        let flat = [100u8; 64];
         unsafe {
             let same = ncc_u8(a.as_ptr(), a.as_ptr(), 64);
             let opp = ncc_u8(a.as_ptr(), inv.as_ptr(), 64);
@@ -1923,19 +1274,14 @@ mod tests {
     }
 
     #[test]
-    fn test_average_and_median_and_percentiles_i32() {
+    fn test_percentiles_i32() {
         let boxes = [
             10, 20, 100, 200, 20, 30, 110, 210, 30, 40, 120, 220, 100, 200, 300, 400,
         ];
-        let mut avg = [0.0f64; 4];
-        let mut med = [0i32; 4];
         let mut pct = [0.0f64; 4];
         unsafe {
-            average_and_median_boxes_i32(boxes.as_ptr(), 4, avg.as_mut_ptr(), med.as_mut_ptr());
             percentile_15_85_i32(boxes.as_ptr(), 4, pct.as_mut_ptr());
         }
-        assert_eq!(avg, [40.0, 72.5, 157.5, 257.5]);
-        assert_eq!(med, [30, 40, 120, 220]);
         // For [10, 20, 30, 100], q=15 -> idx = 0.15 * 3 = 0.45 -> 10 + 0.45 * 10 = 14.5
         assert!((pct[0] - 14.5).abs() < 1e-9);
         // For [100, 110, 120, 300], q=85 -> idx = 0.85 * 3 = 2.55 -> 120 + 0.55 * 180 = 219.0
@@ -2029,19 +1375,6 @@ mod ffi_guard_tests {
     use super::*;
 
     #[test]
-    fn iou_rejects_null() {
-        assert_eq!(
-            unsafe { intersection_over_union(std::ptr::null(), std::ptr::null()) },
-            0.0
-        );
-        let b = [0f32, 0.0, 10.0, 10.0];
-        assert_eq!(
-            unsafe { intersection_over_union(b.as_ptr(), std::ptr::null()) },
-            0.0
-        );
-    }
-
-    #[test]
     fn track_distance_rejects_null() {
         assert!(unsafe { track_distance(std::ptr::null(), std::ptr::null()) }.is_infinite());
     }
@@ -2057,92 +1390,20 @@ mod ffi_guard_tests {
     }
 
     #[test]
-    fn preprocess_rejects_zero_dimensions() {
-        let src = vec![128u8; 64];
-        let mut dst = vec![-1.0f32; 64];
-        for (sw, sh, dw, dh) in [
-            (0u32, 4u32, 4u32, 4u32),
-            (4, 0, 4, 4),
-            (4, 4, 0, 4),
-            (4, 4, 4, 0),
-        ] {
-            unsafe { preprocess_detect_input(src.as_ptr(), dst.as_mut_ptr(), sw, sh, dw, dh, 1) };
-        }
-        assert!(dst.iter().all(|&v| v == -1.0), "guard path must not write");
-        unsafe { preprocess_detect_input(std::ptr::null(), dst.as_mut_ptr(), 4, 4, 4, 4, 1) };
-        assert!(dst.iter().all(|&v| v == -1.0));
-    }
-
-    #[test]
     fn bilinear_resize_rejects_zero_dimensions() {
-        let src = vec![7u8; 16];
+        let src = [7u8; 16];
         let mut dst = vec![0u8; 16];
         unsafe { bilinear_resize_u8(src.as_ptr(), dst.as_mut_ptr(), 4, 0, 4, 4, 1) };
         assert!(dst.iter().all(|&v| v == 0));
     }
 
     #[test]
-    fn yuv_converters_reject_odd_dimensions() {
+    fn yuv420_to_3channel_rejects_odd_dimensions() {
         let y = [0u8; 15];
         let uv = [0u8; 2];
         let mut out = [0xABu8; 45];
-        unsafe { yuv420_to_rgb(y.as_ptr(), uv.as_ptr(), uv.as_ptr(), out.as_mut_ptr(), 5, 3) };
         unsafe { yuv420_to_3channel(y.as_ptr(), uv.as_ptr(), uv.as_ptr(), 5, 3, out.as_mut_ptr()) };
         assert!(out.iter().all(|&v| v == 0xAB));
-    }
-
-    #[test]
-    fn fast_shm_copy_handles_overlap_and_odd_lengths() {
-        // Includes fuzz lengths from test_fuzzing.py
-        for len in [
-            1usize, 7, 15, 16, 31, 32, 33, 63, 64, 65, 127, 128, 513, 1024, 4097, 65537,
-        ] {
-            let src: Vec<u8> = (0..len)
-                .map(|i| (i.wrapping_mul(73) ^ 0x5A) as u8)
-                .collect();
-            let mut dst = vec![0u8; len];
-            unsafe { fast_shm_copy(dst.as_mut_ptr(), src.as_ptr(), len) };
-            assert_eq!(src, dst);
-        }
-        let mut buf: Vec<u8> = (0..64u8).collect();
-        unsafe { fast_shm_copy(buf.as_mut_ptr().add(1), buf.as_ptr(), 32) };
-        assert_eq!(&buf[1..33], &(0..32u8).collect::<Vec<_>>()[..]);
-    }
-
-    #[test]
-    fn point_in_polygon_triangle_and_fuzz() {
-        let tri = [0.0f64, 0.0, 10.0, 0.0, 5.0, 10.0];
-        unsafe {
-            assert_eq!(point_in_polygon(5.0, 3.0, tri.as_ptr(), 3), 1);
-            assert_eq!(point_in_polygon(0.0, 10.0, tri.as_ptr(), 3), 0);
-            assert_eq!(point_in_polygon(12.0, 2.0, tri.as_ptr(), 3), 0);
-            assert_eq!(point_in_polygon(5.0, -2.0, tri.as_ptr(), 3), 0);
-            let flat = [0.0f64, 1.0, 5.0, 1.0, 9.0, 1.0];
-            assert_eq!(point_in_polygon(3.0, 1.0, flat.as_ptr(), 3), 0);
-            assert_eq!(point_in_polygon(f64::NAN, 3.0, tri.as_ptr(), 3), 0);
-            // Degenerate polygons (<3 vertices) from test_fuzzing.py
-            assert_eq!(point_in_polygon(5.0, 5.0, std::ptr::null(), 0), 0);
-            assert_eq!(point_in_polygon(5.0, 5.0, tri.as_ptr(), 2), 0);
-            // Self-intersecting bowtie polygon from test_fuzzing.py
-            let bowtie = [0.0f64, 0.0, 100.0, 100.0, 0.0, 100.0, 100.0, 0.0];
-            let r = point_in_polygon(50.0, 50.0, bowtie.as_ptr(), 4);
-            assert!(r == 0 || r == 1);
-        }
-    }
-
-    #[test]
-    fn polygon_box_overlap_cases() {
-        let square = [0.0f64, 0.0, 10.0, 0.0, 10.0, 10.0, 0.0, 10.0];
-        let inside = [2.0f64, 2.0, 8.0, 8.0];
-        let outside = [20.0f64, 20.0, 30.0, 30.0];
-        let band = [-5.0f64, 1.0, 15.0, 1.0, 15.0, 2.0, -5.0, 2.0];
-        let unit = [0.0f64, 0.0, 10.0, 10.0];
-        unsafe {
-            assert_eq!(polygon_box_overlap(square.as_ptr(), 4, inside.as_ptr()), 1);
-            assert_eq!(polygon_box_overlap(square.as_ptr(), 4, outside.as_ptr()), 0);
-            assert_eq!(polygon_box_overlap(band.as_ptr(), 4, unit.as_ptr()), 1);
-            assert_eq!(polygon_box_overlap(std::ptr::null(), 0, unit.as_ptr()), 0);
-        }
     }
 
     #[test]
@@ -2159,8 +1420,6 @@ mod ffi_guard_tests {
     #[test]
     fn tier_a_kernels_reject_null_and_zero() {
         unsafe {
-            assert_eq!(intersects_any_i32(std::ptr::null(), std::ptr::null(), 4), 0);
-            assert_eq!(inside_any_i32(std::ptr::null(), std::ptr::null(), 4), 0);
             assert_eq!(
                 reduce_boxes_i32(std::ptr::null(), 4, 0.0, std::ptr::null_mut()),
                 0
@@ -2181,26 +1440,7 @@ mod ffi_guard_tests {
                 consolidate_detections_i32(std::ptr::null(), 4, 0.7, std::ptr::null_mut()),
                 0
             );
-            yuv420_region_to_rgb_resize(
-                std::ptr::null(),
-                8,
-                8,
-                0,
-                0,
-                8,
-                8,
-                8,
-                8,
-                0,
-                std::ptr::null_mut(),
-            );
             assert_eq!(ncc_u8(std::ptr::null(), std::ptr::null(), 64), 0.0);
-            average_and_median_boxes_i32(
-                std::ptr::null(),
-                0,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            );
             percentile_15_85_i32(std::ptr::null(), 0, std::ptr::null_mut());
             assert_eq!(laplacian_variance_u8(std::ptr::null(), 0, 0, 0), 0.0);
             batch_cosine_similarity_f32(
