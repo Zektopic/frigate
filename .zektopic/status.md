@@ -289,6 +289,11 @@ Rust components were built and tested natively using Cargo.
 
 ## Overall Assessment
 The codebase heavily relies on Docker for correct test execution due to complex dependencies (C-extensions, Rust modules, custom SQLite builds). The fallback native test runner (`test_runner.py`) uses extensive monkey-patching which makes it brittle and error-prone when testing lower-level logic that depends on specific library behaviors (like `numpy` shape manipulation or SQLite extensions).
+# Testing Status Update
+## Tests Execution
+1. Frontend unit tests were run using `cd web && npm ci && npm run test -- --run src/` - All 153 tests passed.
+2. Rust components were run using `cargo test` across the four component libraries, all tests passed.
+3. Backend tests were executed via local `test_runner.py` due to Docker Buildkit failures, highlighting the need for environment and dependency structure optimization.
 
 ## Test Run Outcomes (Latest Comprehensive Test)
 - **Rust Component Tests**: Executed `cargo test` against `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`. All 72 standard and pixel pipeline tests pass completely. No errors or failures.
