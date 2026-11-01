@@ -290,6 +290,19 @@ Rust components were built and tested natively using Cargo.
 ## Overall Assessment
 The codebase heavily relies on Docker for correct test execution due to complex dependencies (C-extensions, Rust modules, custom SQLite builds). The fallback native test runner (`test_runner.py`) uses extensive monkey-patching which makes it brittle and error-prone when testing lower-level logic that depends on specific library behaviors (like `numpy` shape manipulation or SQLite extensions).
 
+## Testing Status Update - $(date)
+
+### Test Outcomes
+- **Backend Tests (Native):** Ran natively using `test_runner.py`. Output showed 95 failures and 230 errors, mostly due to `ModuleMock` traversal assertion errors (e.g. `mock.sanitize_filename()`) and `MagicMock` type errors in OpenCV arrays (`mock.cvtColor().shape`). This confirms that relying on native `sys.modules` patching in `test_runner.py` is extremely brittle for testing Pydantic validation and C-extensions natively.
+- **Type Checking (Mypy):** Discovered 117 errors across 29 files. The most notable ones involve ambiguous generic instance variables (`frigate/camera/maintainer.py`), unused `type: ignore` comments, and overload variants failing on OpenCV's `imwrite` in `face.py`.
+- **Rust Tests:** Successfully executed and passed 100% of tests (72 total tests) across `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`. No regressions observed in the rust core.
+- **Frontend Tests (Vitest):** Ran `npm run test --prefix web -- --run src/`. Successfully passed all 153 tests across 17 test files.
+- **Frontend Warnings:** The vitest output repeatedly logged `DEP0040` (The `punycode` module is deprecated).
+
+### Future Roadmap & Actionable Improvements
+- **Native Test Runner Stability:** Refactor or completely rewrite how dependencies are bypassed in `test_runner.py`. Pydantic v2 metadata validation and complex C-extension type checking simply cannot be reliably bypassed with duck typing. A possible solution is creating a dedicated `tests/requirements.txt` to install native dependencies in the test environment rather than heavily mocking them.
+- **Typing Fixes:** Resolve the 117 `mypy` issues. Specifically, remove the unused `type: ignore` comments in `frigate/data_processing/`, explicitly annotate the OpenCV `imwrite` calls to match one of the expected overload types (e.g., using `np.ndarray` with valid dtype), and fix the ambiguous generics in `frigate/camera/maintainer.py`.
+- **Frontend Dependency Upgrades:** To resolve the `DEP0040` warnings, dependencies using the legacy Node `punycode` module (like `tr46` or `whatwg-url` usually pulled in via `jsdom` or testing libs) must be bumped to modern major versions.
 ## Test Env Update 2
 - Fixed `test_video.py` missing `cv2` and `numpy` dependencies by installing `numpy<2` and `opencv-python-headless`.
 - Identified that universal `sys.modules` mocks in `test_runner.py` prevent testing core application logic effectively natively.
