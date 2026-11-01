@@ -139,9 +139,11 @@ class LogPipe(threading.Thread):
 
         self.pipeReader.close()
 
-    def dump(self) -> None:
+    def dump(self, level: int | None = None) -> None:
+        """Log and clear the buffered lines, optionally at a different level."""
+        level = self.level if level is None else level
         while len(self.deque) > 0:
-            self.logger.log(self.level, self.deque.popleft())
+            self.logger.log(level, self.deque.popleft())
 
     def close(self) -> None:
         """Close the write end of the pipe."""

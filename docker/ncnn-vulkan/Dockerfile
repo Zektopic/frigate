@@ -1,15 +1,28 @@
+# Multi-arch: the ncnn and Rust stages run on the build host and
+# cross-compile for TARGETARCH (amd64 or arm64), so an arm64 image needs QEMU
+# only for the final pip install, not for the long compile steps.
+
 # libncnn with Vulkan + C API, for direct Rust FFI inference (no Python
 # subprocess). SIMPLEVK bundles ncnn's own Vulkan loader, so no libvulkan-dev
 # is needed at build time; at runtime it dlopens the container's libvulkan.
-FROM debian:bookworm-slim AS ncnn-builder
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS ncnn-builder
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git cmake g++ make ca-certificates \
+    && if [ "$TARGETARCH" = "arm64" ]; then \
+        apt-get install -y --no-install-recommends g++-aarch64-linux-gnu; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 # Tag must match the pip ncnn version (1.0.YYYYMMDD) the models are
 # validated against — older libncnn mis-executes newer YOLO exports.
 RUN git clone --depth 1 --branch 20260526 https://github.com/Tencent/ncnn.git /ncnn \
     && cd /ncnn && git submodule update --init --recursive --depth 1
-RUN cmake -S /ncnn -B /ncnn/build -DCMAKE_BUILD_TYPE=Release \
+# arm64 uses ncnn's own cross toolchain file; ncnn picks NEON/fp16/dotprod
+# kernels at runtime from the CPU it runs on (Pi 4 A72 through Pi 5 A76).
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        TOOLCHAIN="-DCMAKE_TOOLCHAIN_FILE=/ncnn/toolchains/aarch64-linux-gnu.toolchain.cmake"; \
+    fi \
+    && cmake -S /ncnn -B /ncnn/build -DCMAKE_BUILD_TYPE=Release $TOOLCHAIN \
         -DNCNN_VULKAN=ON -DNCNN_SIMPLEVK=ON -DNCNN_SHARED_LIB=ON -DNCNN_C_API=ON \
         -DNCNN_BUILD_TOOLS=OFF -DNCNN_BUILD_EXAMPLES=OFF -DNCNN_BUILD_BENCHMARK=OFF \
         -DNCNN_BUILD_TESTS=OFF -DNCNN_PYTHON=OFF \
@@ -17,8 +30,19 @@ RUN cmake -S /ncnn -B /ncnn/build -DCMAKE_BUILD_TYPE=Release \
     && cmake --install /ncnn/build --prefix /opt/ncnn-install \
     && cp -L /opt/ncnn-install/lib/libncnn.so /libncnn.so
 
-FROM rust:slim-bookworm AS rust-builder
+FROM --platform=$BUILDPLATFORM rust:slim-bookworm AS rust-builder
+ARG TARGETARCH
 WORKDIR /build
+RUN case "$TARGETARCH" in \
+        amd64) echo x86_64-unknown-linux-gnu > /rust-target ;; \
+        arm64) echo aarch64-unknown-linux-gnu > /rust-target \
+            && apt-get update \
+            && apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+            && rm -rf /var/lib/apt/lists/* ;; \
+        *) echo "unsupported TARGETARCH $TARGETARCH" && exit 1 ;; \
+    esac \
+    && rustup target add "$(cat /rust-target)"
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 
 # Copy and compile Rust components
 COPY frigate-detector-rs/ frigate-detector-rs/
@@ -26,10 +50,16 @@ COPY frigate-motion-rs/ frigate-motion-rs/
 COPY frigate-yolo-rs/ frigate-yolo-rs/
 COPY frigate-frame-rs/ frigate-frame-rs/
 
-RUN cd frigate-detector-rs && cargo build --release
-RUN cd frigate-motion-rs && cargo build --release
-RUN cd frigate-yolo-rs && cargo build --release
-RUN cd frigate-frame-rs && cargo build --release
+# AVX2 paths in frigate-motion-rs are selected at runtime and compiled out
+# on aarch64, so the same sources build for both targets.
+RUN T="$(cat /rust-target)" && mkdir -p /build/out \
+    && for crate in detector motion yolo frame; do \
+        (cd frigate-$crate-rs && cargo build --release --target "$T") || exit 1; \
+    done \
+    && cp frigate-detector-rs/target/$T/release/frigate-detector-rs /build/out/ \
+    && for crate in motion yolo frame; do \
+        cp frigate-$crate-rs/target/$T/release/libfrigate_${crate}_rs.so /build/out/; \
+    done
 
 # Web build stage
 FROM --platform=$BUILDPLATFORM node:20-slim AS web-builder
@@ -41,14 +71,17 @@ RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 # Final stage
 FROM ghcr.io/blakeblackshear/frigate:stable
-RUN pip install --break-system-packages --no-deps ncnn portalocker tqdm
+# Pinned: --no-deps skips resolver checks, so an unpinned upgrade could
+# silently pull an incompatible or compromised release into the image
+RUN pip install --break-system-packages --no-deps \
+    ncnn==1.0.20260526 portalocker==4.4.1 tqdm==4.70.1
 
 # Copy Rust detector and libraries from builder
 COPY --from=ncnn-builder /libncnn.so /opt/frigate/libncnn.so
-COPY --from=rust-builder /build/frigate-detector-rs/target/release/frigate-detector-rs /opt/frigate/frigate-detector-rs
-COPY --from=rust-builder /build/frigate-motion-rs/target/release/libfrigate_motion_rs.so /opt/frigate/libfrigate_motion_rs.so
-COPY --from=rust-builder /build/frigate-yolo-rs/target/release/libfrigate_yolo_rs.so /opt/frigate/libfrigate_yolo_rs.so
-COPY --from=rust-builder /build/frigate-frame-rs/target/release/libfrigate_frame_rs.so /opt/frigate/libfrigate_frame_rs.so
+COPY --from=rust-builder /build/out/frigate-detector-rs /opt/frigate/frigate-detector-rs
+COPY --from=rust-builder /build/out/libfrigate_motion_rs.so /opt/frigate/libfrigate_motion_rs.so
+COPY --from=rust-builder /build/out/libfrigate_yolo_rs.so /opt/frigate/libfrigate_yolo_rs.so
+COPY --from=rust-builder /build/out/libfrigate_frame_rs.so /opt/frigate/libfrigate_frame_rs.so
 
 # Copy migrations
 COPY migrations/ /opt/frigate/migrations/

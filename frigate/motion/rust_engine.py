@@ -272,4 +272,3 @@ def accumulate_weighted(
         ctypes.c_float(alpha),
         src.size,
     )
-

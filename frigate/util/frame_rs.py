@@ -94,7 +94,17 @@ def _configure_signatures(lib: ctypes.CDLL) -> None:
     lib.consolidate_detections_i32.restype = sz
 
     lib.yuv420_region_to_rgb_resize.argtypes = [
-        u8_p, u32, u32, i32, i32, i32, i32, u32, u32, i32, u8_p,
+        u8_p,
+        u32,
+        u32,
+        i32,
+        i32,
+        i32,
+        i32,
+        u32,
+        u32,
+        i32,
+        u8_p,
     ]
     lib.yuv420_region_to_rgb_resize.restype = None
 
@@ -416,8 +426,18 @@ def yuv420_to_3channel_rust(yuv_frame):
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
+    if yuv_frame.ndim != 2:
+        raise ValueError(f"Expected planar I420 (H*3//2, W), got {yuv_frame.shape}")
+
     height = yuv_frame.shape[0] // 3 * 2
     width = yuv_frame.shape[1]
+    # Rust silently returns on odd or zero sizes, which would hand back the
+    # uninitialized np.empty buffer as if it were a converted frame.
+    if height <= 0 or width <= 0 or height % 2 != 0 or width % 2 != 0:
+        raise ValueError(
+            f"YUV420 dimensions must be positive and even: {width}x{height}"
+        )
+
     src = np.ascontiguousarray(yuv_frame, dtype=np.uint8)
     dst = np.empty((height, width, 3), dtype=np.uint8)
 
@@ -454,7 +474,18 @@ def yuv420_crop_repack_rust(
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
+    if min(src_w, src_h, crop_w, crop_h) <= 0 or crop_x < 0 or crop_y < 0:
+        raise ValueError("crop and source dimensions must be positive")
+    if crop_x + crop_w > src_w or crop_y + crop_h > src_h:
+        raise ValueError("crop window must lie inside the source frame")
+
     src = np.ascontiguousarray(frame, dtype=np.uint8)
+    # Rust reads a full I420 frame of src_w x src_h from `src`; a frame
+    # smaller than the dimensions claimed is an out-of-bounds read.
+    needed = src_w * src_h + 2 * ((src_w // 2) * (src_h // 2))
+    if src.size < needed:
+        raise ValueError(f"frame holds {src.size} bytes, need {needed}")
+
     dst = np.empty((crop_h + crop_h // 2, crop_w), dtype=np.uint8)
 
     _configure_signatures(lib)
@@ -527,7 +558,9 @@ def yuv420_to_rgb_rust(yuv_frame):
     height = (yuv_frame.shape[0] * 2) // 3
     width = yuv_frame.shape[1]
     if height <= 0 or width <= 0 or height % 2 != 0 or width % 2 != 0:
-        raise ValueError(f"YUV420 dimensions must be positive and even: {width}x{height}")
+        raise ValueError(
+            f"YUV420 dimensions must be positive and even: {width}x{height}"
+        )
 
     src = np.ascontiguousarray(yuv_frame, dtype=np.uint8)
     dst = np.empty((height, width, 3), dtype=np.uint8)
@@ -598,7 +631,9 @@ def intersects_any_rust(box_a, boxes) -> bool:
         raise RuntimeError("Rust frame engine not available")
     _configure_signatures(lib)
 
-    arr_a = (ctypes.c_int32 * 4)(int(box_a[0]), int(box_a[1]), int(box_a[2]), int(box_a[3]))
+    arr_a = (ctypes.c_int32 * 4)(
+        int(box_a[0]), int(box_a[1]), int(box_a[2]), int(box_a[3])
+    )
     arr_b = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
     return bool(lib.intersects_any_i32(arr_a, arr_b, ctypes.c_size_t(n)))
 
@@ -615,7 +650,9 @@ def inside_any_rust(box_a, boxes) -> bool:
         raise RuntimeError("Rust frame engine not available")
     _configure_signatures(lib)
 
-    arr_a = (ctypes.c_int32 * 4)(int(box_a[0]), int(box_a[1]), int(box_a[2]), int(box_a[3]))
+    arr_a = (ctypes.c_int32 * 4)(
+        int(box_a[0]), int(box_a[1]), int(box_a[2]), int(box_a[3])
+    )
     arr_b = (ctypes.c_int32 * (n * 4))(*(int(v) for v in chain.from_iterable(boxes)))
     return bool(lib.inside_any_i32(arr_a, arr_b, ctypes.c_size_t(n)))
 
@@ -640,7 +677,12 @@ def reduce_boxes_rust(boxes, iou_threshold: float = 0.0) -> list[list[int]]:
         )
     )
     return [
-        [int(arr_out[i * 4]), int(arr_out[i * 4 + 1]), int(arr_out[i * 4 + 2]), int(arr_out[i * 4 + 3])]
+        [
+            int(arr_out[i * 4]),
+            int(arr_out[i * 4 + 1]),
+            int(arr_out[i * 4 + 2]),
+            int(arr_out[i * 4 + 3]),
+        ]
         for i in range(k)
     ]
 
@@ -721,8 +763,22 @@ def yuv420_region_to_rgb_resize_rust(
     if lib is None:
         raise RuntimeError("Rust frame engine not available")
 
+    if yuv_frame.ndim != 2:
+        raise ValueError(f"Expected planar I420 (H*3//2, W), got {yuv_frame.shape}")
+    if dst_w <= 0 or dst_h <= 0:
+        raise ValueError("destination dimensions must be positive")
+
     src_h = (yuv_frame.shape[0] * 2) // 3
     src_w = yuv_frame.shape[1]
+    # Rust returns early (leaving `dst` uninitialized) on odd source sizes and
+    # degenerate regions, so reject those here and let the caller fall back.
+    if src_h <= 0 or src_w <= 0 or src_h % 2 != 0 or src_w % 2 != 0:
+        raise ValueError(
+            f"YUV420 dimensions must be positive and even: {src_w}x{src_h}"
+        )
+    if (int(region[3]) - int(region[1])) // 4 * 4 <= 0:
+        raise ValueError(f"region {region} is too small")
+
     src = np.ascontiguousarray(yuv_frame, dtype=np.uint8)
     dst = np.empty((1, dst_h, dst_w, 3), dtype=np.uint8)
 
@@ -807,7 +863,9 @@ def median_of_boxes_rust(boxes) -> list[int]:
     return [int(out_med[0]), int(out_med[1]), int(out_med[2]), int(out_med[3])]
 
 
-def percentile_15_85_rust(xmins, ymins, xmaxs, ymaxs) -> tuple[float, float, float, float]:
+def percentile_15_85_rust(
+    xmins, ymins, xmaxs, ymaxs
+) -> tuple[float, float, float, float]:
     """Compute (p15_xmin, p15_ymin, p85_xmax, p85_ymax) with linear interpolation in Rust."""
     from itertools import chain
 
@@ -878,4 +936,3 @@ def batch_cosine_similarity_f32_rust(query, gallery):
         out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
     )
     return out
-

@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 REQ_MAGIC = b"XFQ1"
 RSP_MAGIC = b"XFR1"
 DEFAULT_ENDPOINT = ("127.0.0.1", 5800)
+# Upper bounds on what the service may ask us to allocate. Embeddings are a
+# few hundred floats and error messages are short; anything larger is a
+# broken or hostile peer and must not drive an unbounded allocation.
+MAX_EMBEDDING_DIM = 65536
+MAX_ERROR_BYTES = 64 * 1024
+MAX_STATS_BYTES = 64 * 1024
 
 
 def parse_npu_device(device: str | None) -> tuple[str, int] | None:
@@ -58,6 +64,8 @@ def get_npu_service_stats(
             data = b""
             while chunk := sock.recv(4096):
                 data += chunk
+                if len(data) > MAX_STATS_BYTES:
+                    return None
     except OSError:
         return None
 
@@ -139,6 +147,13 @@ class NpuServiceRunner(BaseModelRunner):
         magic, status, n, dim = struct.unpack("<4siII", self._recv_exact(sock, 16))
         if magic != RSP_MAGIC:
             raise ConnectionError("bad response from NPU service")
+        if status:
+            if dim > MAX_ERROR_BYTES:
+                raise ConnectionError("oversized error from NPU service")
+        elif n != x.shape[0] or not 0 < dim <= MAX_EMBEDDING_DIM:
+            raise ConnectionError(
+                f"unexpected response shape {n}x{dim} from NPU service"
+            )
         payload = self._recv_exact(sock, dim if status else n * dim * 4)
         if status:
             raise RuntimeError(
