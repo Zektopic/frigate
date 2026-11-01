@@ -20,6 +20,12 @@ PLUS_ENV_VAR = "PLUS_API_KEY"
 PLUS_API_HOST = "https://api.frigate.video"
 
 SHM_FRAMES_VAR = "SHM_MAX_FRAMES"
+# Per-camera depth of the decoded frame ring buffer in /dev/shm.
+DEFAULT_SHM_FRAMES = 50
+# Cameras added at runtime already run with 10 frames, so anything >= 10 is
+# a known-working depth; 20 keeps ~4 s of slack at the default 5 detect fps.
+LOW_RESOURCE_SHM_FRAMES = 20
+MIN_SHM_FRAMES = 10
 
 REDACTED_CREDENTIAL_SENTINEL = "__FRIGATE_SAVED_CREDENTIAL__"
 

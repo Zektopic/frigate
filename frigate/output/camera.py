@@ -4,6 +4,7 @@ import logging
 import queue
 import subprocess as sp
 import threading
+import time
 from multiprocessing.synchronize import Event as MpEvent
 from typing import Any
 
@@ -137,7 +138,27 @@ class BroadcastThread(threading.Thread):
                 break
 
 
+class _AnyStopEvent:
+    """Report stopped when either the process-wide or session event is set."""
+
+    def __init__(self, *events: Any) -> None:
+        self._events = events
+
+    def is_set(self) -> bool:
+        return any(event.is_set() for event in self._events)
+
+
 class JsmpegCamera:
+    """jsmpeg live stream for one camera.
+
+    The mpeg1 encoder (an ffmpeg process plus two threads) only runs while
+    someone is watching: it is started by the first frame written for a
+    connected client and stopped after ``idle_timeout`` seconds without
+    frames. An idle encoder per camera otherwise costs ~20 MB RSS each.
+    """
+
+    idle_timeout = 60.0
+
     def __init__(
         self,
         config: CameraConfig,
@@ -146,39 +167,93 @@ class JsmpegCamera:
         websocket_server: Any,
     ) -> None:
         self.config = config
+        self.frigate_config = frigate_config
+        self.stop_event = stop_event
+        self.websocket_server = websocket_server
         self.input: queue.Queue[bytes] = queue.Queue(maxsize=config.detect.fps)
-        width = int(
-            config.live.height * (config.frame_shape[1] / config.frame_shape[0])
+        self.converter: FFMpegConverter | None = None
+        self.broadcaster: BroadcastThread | None = None
+        self._session_stop: threading.Event | None = None
+        self._last_write = 0.0
+
+    @property
+    def running(self) -> bool:
+        return (
+            self.converter is not None
+            and self._session_stop is not None
+            and not self._session_stop.is_set()
+            and self.converter.process.poll() is None
         )
+
+    def _start(self) -> None:
+        # make sure a crashed previous session's threads wind down
+        self.shutdown()
+
+        # drop frames queued for a previous session
+        while not self.input.empty():
+            try:
+                self.input.get_nowait()
+            except queue.Empty:
+                break
+
+        width = int(
+            self.config.live.height
+            * (self.config.frame_shape[1] / self.config.frame_shape[0])
+        )
+        self._session_stop = threading.Event()
+        session_stop = _AnyStopEvent(self.stop_event, self._session_stop)
         self.converter = FFMpegConverter(
-            config.name or "",
-            config.ffmpeg,
+            self.config.name or "",
+            self.config.ffmpeg,
             self.input,
-            stop_event,
-            config.frame_shape[1],
-            config.frame_shape[0],
+            session_stop,  # type: ignore[arg-type]
+            self.config.frame_shape[1],
+            self.config.frame_shape[0],
             width,
-            config.live.height,
-            config.live.quality,
+            self.config.live.height,
+            self.config.live.quality,
         )
         self.broadcaster = BroadcastThread(
-            config.name or "",
+            self.config.name or "",
             self.converter,
-            websocket_server,
-            stop_event,
-            frigate_config,
+            self.websocket_server,
+            session_stop,  # type: ignore[arg-type]
+            self.frigate_config,
         )
-
         self.converter.start()
         self.broadcaster.start()
+        logger.debug("Started jsmpeg encoder for %s", self.config.name)
 
-    def write_frame(self, frame_bytes: bytes) -> None:
+    def write_frame(self, frame_bytes: bytes, now: float | None = None) -> None:
+        self._last_write = time.monotonic() if now is None else now
+
+        if not self.running:
+            self._start()
+
         try:
             self.input.put_nowait(frame_bytes)
         except queue.Full:
             # drop frames if queue is full
             pass
 
+    def check_idle(self, now: float | None = None) -> None:
+        """Stop the encoder once no client has been fed frames for a while."""
+        if self._session_stop is None or self._session_stop.is_set():
+            return
+
+        now = time.monotonic() if now is None else now
+        if now - self._last_write >= self.idle_timeout:
+            logger.debug("Stopping idle jsmpeg encoder for %s", self.config.name)
+            # threads exit on their own within ~1s; don't block the caller
+            self._session_stop.set()
+
+    def shutdown(self) -> None:
+        """Signal the current encoder session (if any) to stop."""
+        if self._session_stop is not None:
+            self._session_stop.set()
+
     def stop(self) -> None:
-        self.converter.join()
-        self.broadcaster.join()
+        if self.converter is not None:
+            self.converter.join()
+        if self.broadcaster is not None:
+            self.broadcaster.join()
