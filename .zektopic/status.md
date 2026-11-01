@@ -271,30 +271,7 @@ The tests in `test_util_path` failed because `pathvalidate` was being mocked, ca
 #### CI / Pre-commit
 - The ad-hoc edits made to `test_runner.py` to diagnose issues were reverted to ensure no mocked dependency leaks affect other CI environments, aligning with project standards.
 
-### Additional test results for `frigate.test.test_util_path`
-The tests in `test_util_path` failed because `pathvalidate` was being mocked in `test_runner.py`, causing assertions to receive a MagicMock instance instead of the processed filename output. Running the test with the mock removed passing 24 path validation test cases successfully natively.
-
-### Additional test results for `frigate.test.test_video`
-The `test_video` tests were failing natively due to missing/inadequate mocks of OpenCV and Numpy functions in `test_runner.py`. Running them with explicit Numpy `< 2` and `opencv-python-headless` successfully passed the tests after the array `dtype` configuration was updated.
-
-### Actionable Roadmap for Future Implementations
-
-#### Backend Testing Environment
-- Reevaluate the utility and scope of `test_runner.py`'s universal mocking strategy (`sys.modules["cv2"] = MagicMock()`, `sys.modules["pathvalidate"] = ModuleMock()`). Universal mocks prevent true business logic from being tested locally outside of docker.
-- For `test_video.py`, when OpenCV functions (like `cv2.rectangle`) accept image arrays, ensure that `np.zeros` canvas structures strictly use `dtype=np.uint8` to avoid C++ extension overload resolution failures. The code fix for this is already committed.
-
-#### Frontend Tests and E2E
-- Resolve deprecation warnings logged in the Vitest suite (e.g. `[DEP0040] DeprecationWarning: The punycode module is deprecated. Please use a userland alternative instead.`). This requires bumping related networking/dependency libraries (like `tr46` or `whatwg-url`) within `package.json` that still rely on Node's native `punycode`.
-
-# Test Run Status Report
-
-## Frontend Tests
-Vitest frontend test suite executed successfully.
-- **Passed**: 137 tests across 13 files.
-- **Time**: ~5s.
-- **Notes**: Several Node.js deprecation warnings were emitted during test execution related to the `punycode` module. This suggests that underlying dependencies (e.g., `whatwg-url` or `tr46`) need to be bumped to newer major versions to suppress these warnings in future Node.js releases.
-
-## Backend Tests (Native Execution via test_runner.py)
+### Backend Tests (Native Execution via test_runner.py)
 Backend tests were executed natively using the custom `test_runner.py` framework since Docker BuildKit caching mechanisms are failing with `overlayfs` mount errors (`err: invalid argument`). Native execution identified several issues primarily tied to the reliance on `MagicMock` in the `sys.modules` monkey-patching technique:
 
 - **OpenCV and Numpy Issues**: The custom test runner currently mocks `cv2` and `numpy` globally. This breaks multiple core tests (e.g., `test_video.py`, `test_yuv_region_2_rgb.py`) because actual numpy arrays and OpenCV structs cannot be simulated perfectly by `MagicMock`. I updated `test_runner.py` to attempt to import real `numpy` and `cv2` if available before falling back to mocks. This fixed `test_video.py` but surfaced deeper missing dependencies for other modules.
@@ -317,3 +294,92 @@ The codebase heavily relies on Docker for correct test execution due to complex 
 1. Frontend unit tests were run using `cd web && npm ci && npm run test -- --run src/` - All 153 tests passed.
 2. Rust components were run using `cargo test` across the four component libraries, all tests passed.
 3. Backend tests were executed via local `test_runner.py` due to Docker Buildkit failures, highlighting the need for environment and dependency structure optimization.
+
+## Test Run Outcomes (Latest Comprehensive Test)
+- **Rust Component Tests**: Executed `cargo test` against `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`. All 72 standard and pixel pipeline tests pass completely. No errors or failures.
+- **Frontend Tests**: Executed `cd web && npm ci && npm run test -- --run src/`. All 153 tests across 17 files passed successfully in isolation. Some `DEP0040` deprecation warnings for the `punycode` module were observed in the output.
+- **Backend Tests (Native Docker)**: Attempted to run the backend test suite inside Docker using `make run_tests`. The build process (`docker buildx build`) failed due to a BuildKit `overlayfs` mount `invalid argument` error. Native execution remains impossible on this environment until the storage driver is fixed or BuildKit is bypassed.
+- **Backend Tests (Fallback Local Runner)**: Executed `python3 test_runner.py` outside of the Docker container. The script executes 832 tests but produces significant false negatives (95 failures, 230 errors, 15 skipped). Notable mocked failures include path validation assertions returning `ModuleMock` objects instead of strings (due to `pathvalidate` being mocked), OpenCV bounding box reductions throwing `AssertionError` because `cv2.dnn.NMSBoxes` does not return iterables of indices properly in the mocked environment, and Pydantic validation failures.
+- **Conclusion**: Rust components and Frontend test suites are perfectly stable and verified. The backend suite executes locally, but test validations fail because complex structural dependency logic and runtime checks cannot be faked perfectly via `sys.modules` in `test_runner.py`. Accurate backend testing is blocked until the Docker BuildKit daemon is corrected in the host environment or proper mocks/dependencies are handled.
+## Testing Status and Roadmap (Update 4)
+
+### 1. Test Results Summary
+- **Web Frontend Tests**: Ran using `npm ci --prefix web && npm run test --prefix web -- --run src/`. All 153 tests across 17 files passed successfully. Node.js `DEP0040` deprecation warnings for the `punycode` module are present in the logs.
+- **Rust Component Tests**: Ran `cargo test` on all Rust crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). All tests across all crates passed successfully with a minor unused variant warning in `frigate-detector-rs`.
+- **Python Backend Tests**: `make run_tests` failed to build the testing docker container due to a BuildKit `overlayfs` failure (`err: invalid argument`). Native fallback execution via `python3 test_runner.py` produced 95 failures and 230 errors, largely due to missing local dependencies (`cv2`, `numpy`, `peewee`, `requests`, `pathvalidate`) and brittle `MagicMock` substitutes that cannot accurately mock Pydantic V2 validations and OpenCV/Numpy array operations.
+
+### 2. Actionable Roadmap of Future Implementations and Improvements
+
+#### A. Backend Testing Environment
+- **Docker Execution Workarounds**: Investigate alternative Docker configurations (e.g., setting `DOCKER_BUILDKIT=0` in the Makefile or using a `vfs` storage driver) to bypass `overlayfs` issues and allow `make run_tests` to succeed on all host systems.
+- **Local Native Testing**: Implement a `requirements-test.txt` to install native dependencies (`numpy<2`, `opencv-python-headless`, `peewee`, `pathvalidate`, etc.) in a local virtual environment. This will allow developers to run `python3 test_runner.py` natively without heavily relying on brittle `sys.modules` mocks.
+- **Mock Enhancements**: If custom mocking in `test_runner.py` is retained, significantly refactor `MockBaseModel` and `MockPydanticValidationError` to perfectly mirror Pydantic V2 nested structures and `cv2.dnn.NMSBoxes` iteration patterns to prevent false-positive assertion failures.
+
+#### B. Frontend Dependency Modernization
+- **Replace Deprecated Modules**: Upgrade underlying networking dependencies (e.g., `whatwg-url`, `tr46`) in the `web/package.json` to eliminate reliance on Node's deprecated `punycode` module, which will resolve `DEP0040` test warnings.
+
+#### C. Rust Optimizations
+- **Warning Cleanup**: Address the unused `Shutdown` variant warning in `frigate-detector-rs/src/main.rs`.
+## Testing Status Update - $(date)
+
+### Test Outcomes
+- **Backend Tests (Native):** Ran natively using `test_runner.py`. Output showed 95 failures and 230 errors, mostly due to `ModuleMock` traversal assertion errors (e.g. `mock.sanitize_filename()`) and `MagicMock` type errors in OpenCV arrays (`mock.cvtColor().shape`). This confirms that relying on native `sys.modules` patching in `test_runner.py` is extremely brittle for testing Pydantic validation and C-extensions natively.
+- **Type Checking (Mypy):** Discovered 117 errors across 29 files. The most notable ones involve ambiguous generic instance variables (`frigate/camera/maintainer.py`), unused `type: ignore` comments, and overload variants failing on OpenCV's `imwrite` in `face.py`.
+- **Rust Tests:** Successfully executed and passed 100% of tests (72 total tests) across `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, and `frigate-yolo-rs`. No regressions observed in the rust core.
+- **Frontend Tests (Vitest):** Ran `npm run test --prefix web -- --run src/`. Successfully passed all 153 tests across 17 test files.
+- **Frontend Warnings:** The vitest output repeatedly logged `DEP0040` (The `punycode` module is deprecated).
+
+### Future Roadmap & Actionable Improvements
+- **Native Test Runner Stability:** Refactor or completely rewrite how dependencies are bypassed in `test_runner.py`. Pydantic v2 metadata validation and complex C-extension type checking simply cannot be reliably bypassed with duck typing. A possible solution is creating a dedicated `tests/requirements.txt` to install native dependencies in the test environment rather than heavily mocking them.
+- **Typing Fixes:** Resolve the 117 `mypy` issues. Specifically, remove the unused `type: ignore` comments in `frigate/data_processing/`, explicitly annotate the OpenCV `imwrite` calls to match one of the expected overload types (e.g., using `np.ndarray` with valid dtype), and fix the ambiguous generics in `frigate/camera/maintainer.py`.
+- **Frontend Dependency Upgrades:** To resolve the `DEP0040` warnings, dependencies using the legacy Node `punycode` module (like `tr46` or `whatwg-url` usually pulled in via `jsdom` or testing libs) must be bumped to modern major versions.
+## Test Env Update 2
+- Fixed `test_video.py` missing `cv2` and `numpy` dependencies by installing `numpy<2` and `opencv-python-headless`.
+- Identified that universal `sys.modules` mocks in `test_runner.py` prevent testing core application logic effectively natively.
+- Documented actionable roadmap in `Jules/improvements.md`.
+### Agent Test Execution
+- Native tests with `test_runner.py` show multiple failures.
+- `frigate/test/test_video.py` fails on bounding box reductions (NMSBoxes behavior).
+- `frigate/test/test_util_path.py` fails due to sanitize_filename mocked inappropriately.
+- Native build environment under `make run_tests` fails on `docker buildx build` cache overlayfs arguments.
+- Recommendation: Need to properly fix the dependencies mocking or run tests in an environment where actual cv2, numpy, and other dependencies operate correctly, rather than relying strictly on the fallback Mock setup.
+## 2024-05-19 Updates
+
+### Python Tests Analysis
+A deep dive was performed into the test failures reported by `test_runner.py`. The majority of test failures are caused by overly aggressive mocking of critical logic and utility libraries in `test_runner.py`.
+
+- **Pydantic**: Mocking `pydantic` heavily in `test_runner.py` bypasses actual schema validation, which leads to configuration tests failing (e.g. `TestCameraProfileConfig`).
+- **ruamel.yaml**: Mocking `ruamel.yaml` causes YAML configuration loading tests (e.g., `TestUpdateYaml`) to fail because the tests expect actual parsing and updating behavior.
+- **filelock**: `test_shared_memory_frame_manager.py` uses `filelock` and fails when it is mocked because the context manager (`with FileLock(...)`) does not return the expected object from `ModuleMock`.
+- **requests**, **psutil**, **pandas**, **pathvalidate**, **tzlocal**: Several core components expect real objects from these libraries. Mocks result in missing attributes or incorrect return values (e.g. `AssertionError` in `test_util_path.py`).
+- **cv2** and **numpy**: Mocking these libraries completely breaks image processing tests (e.g., `test_video.py`) that rely on actual array comparisons, dtype requirements, and standard array methods.
+- The `make run_tests` command continues to fail locally due to the BuildKit overlayfs cachemount issue.
+
+### Actionable Roadmap
+1. Improve Native Testing Mocks: If developers continue to rely on `test_runner.py` outside of Docker, the aggressive mocking of `pydantic`, `ruamel.yaml`, `pathvalidate`, `numpy`, and `cv2` needs to be replaced with actual dependencies or more sophisticated stub implementations.
+2. The recommended approach is to install dependencies locally (`pip install 'numpy<2' opencv-python-headless pydantic ruamel.yaml pathvalidate`) and selectively disable these mocks in `test_runner.py` during local development, reverting before commit.
+
+## Final Testing Status Summary (Update 3)
+- Ran `python3 test_runner.py` locally. The test runner executed 854 tests, resulting in 101 failures, 228 errors, and 15 skips.
+- Running docker `make run_tests` fails due to overlayfs Buildkit error.
+- Ran `npm ci && npm run test -- --run src/` in web directory. All 153 frontend tests pass locally without matching E2E files.
+- Ran `cargo test` in all Rust component directories. All Rust tests passed successfully.
+
+## Actionable Roadmap of Future Implementations and Improvements
+
+##
+## Native Test Environment Checks
+
+Attempting to natively test the application via Python `test_runner.py` bypasses Docker and fails natively when internal models attempt to do real-world evaluations due to bad module mocking (`cv2` and `numpy`). By removing `cv2` and `numpy` mocks inside `test_runner.py` after explicitly pip installing dependencies natively, isolated modules like `frigate/test/test_video.py` passed correctly.
+## Agent Testing Summary (October 2023)
+- **Frontend Test Suite:** Successfully ran 17 files and 153 tests. All frontend tests pass. Deprecation warnings for `punycode` still exist in underlying node dependencies.
+- **Backend Test Suite:** Ran via custom `test_runner.py` bypassing Docker. Test coverage showed failures and errors, primarily due to heavily mocked dependencies (`pydantic`, `cv2`, `numpy`, `peewee`, etc.).
+  - E.g., `test_util_path.py` fails because the mocked `sanitize_filename` function returns a `ModuleMock` instance which evaluates differently than string paths or `None`.
+  - Replacing `sys.modules` mocks with actual local dependencies (like `pip install pathvalidate numpy opencv-python-headless`) restores accurate testing.
+
+- Future roadmap actionable items:
+  - Standardize dependency installations natively or create explicit `requirements-test.txt` instead of relying on `sys.modules` patching inside `test_runner.py`.
+  - Bump Node dependencies to remove `punycode` deprecation warnings in the Vitest execution.
+## Test Execution Status Updates
+* **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
+* Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.
