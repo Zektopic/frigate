@@ -6,10 +6,10 @@
 
 mod ncnn_ffi;
 
-use crossbeam::channel::{bounded, Sender, Receiver};
+use crossbeam::channel::{bounded, Receiver, Sender};
 use rayon::prelude::*;
-use std::io::{self, Read, Write, BufReader, BufRead};
-use std::process::{Command, Stdio, Child, ChildStdin, ChildStdout};
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -23,7 +23,8 @@ struct NcnnProc {
 
 impl NcnnProc {
     fn spawn(param: &str, bin: &str, in_name: &str, out_name: &str, ms: u32) -> io::Result<Self> {
-        let code = format!(r#"
+        let code = format!(
+            r#"
 import sys,os,struct,numpy as np
 import ncnn
 ncnn.destroy_gpu_instance();ncnn.create_gpu_instance()
@@ -49,16 +50,31 @@ while True:
   ret,out=ex.extract("{out_}")
  raw=np.array(out).copy().tobytes()
  os.write(1,struct.pack('>I',len(raw)));os.write(1,raw)
+<<<<<<< HEAD
 "#, param=param, bin=bin, in_=in_name, out_=out_name, ms=ms, threads=ncnn_ffi::num_threads());
+=======
+"#,
+            param = param,
+            bin = bin,
+            in_ = in_name,
+            out_ = out_name,
+            ms = ms
+        );
+>>>>>>> origin/dev
 
         // ncnn CPU-fallback layers use OpenMP: default thread count (all
         // cores) oversubscribes and the workers spin-wait between parallel
         // regions. 2 threads + passive waiting benchmarked ~2x faster
         // (556ms -> 292ms for yolo26s) at a fraction of the CPU.
-        let mut child = Command::new("python3").arg("-c").arg(&code)
+        let mut child = Command::new("python3")
+            .arg("-c")
+            .arg(&code)
             .env("OMP_NUM_THREADS", ncnn_ffi::num_threads().to_string())
             .env("OMP_WAIT_POLICY", "PASSIVE")
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
 
         let stdin = child.stdin.take().unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
@@ -70,10 +86,16 @@ while True:
         while start.elapsed().as_secs() < 30 {
             line.clear();
             stderr.read_line(&mut line).ok();
-            if line.contains("READY") { break; }
+            if line.contains("READY") {
+                break;
+            }
         }
         eprintln!("NCNN_READY");
-        Ok(NcnnProc { stdin, stdout, _child: child })
+        Ok(NcnnProc {
+            stdin,
+            stdout,
+            _child: child,
+        })
     }
 
     fn forward(&mut self, frame_f16: &[u8]) -> io::Result<Vec<f32>> {
@@ -116,7 +138,9 @@ impl Backend {
             }
             Err(e) => {
                 eprintln!("NCNN_FFI unavailable ({e}), using Python subprocess");
-                Ok(Backend::Proc(NcnnProc::spawn(param, bin, in_name, out_name, ms)?))
+                Ok(Backend::Proc(NcnnProc::spawn(
+                    param, bin, in_name, out_name, ms,
+                )?))
             }
         }
     }
@@ -131,66 +155,108 @@ impl Backend {
 
 // ── Rayon-parallel post-process ───────────────────────────────────
 
-fn process_rayon(raw: &[f32], n_cells: usize, model_size: f32,
-                  score_thresh: f32, nms_thresh: f32,
-                  out: &mut [f32; 120]) -> usize
-{
+fn process_rayon(
+    raw: &[f32],
+    n_cells: usize,
+    model_size: f32,
+    score_thresh: f32,
+    nms_thresh: f32,
+    out: &mut [f32; 120],
+) -> usize {
     // ncnn output layout: (84 rows × n_cells columns), row-major flat.
     // Row 0=cl, 1=cy, 2=bw, 3=bh, rows 4-83=class_scores[0..79].
-    let candidates: Vec<_> = (0..n_cells).into_par_iter().filter_map(|j| {
-        let cx=raw[j]; let cy=raw[n_cells+j];
-        let bw=raw[2*n_cells+j]; let bh=raw[3*n_cells+j];
-        let x1=(cx-bw*0.5).max(0.0); let y1=(cy-bh*0.5).max(0.0);
-        let x2=(cx+bw*0.5).min(model_size); let y2=(cy+bh*0.5).min(model_size);
-        if x2<=x1||y2<=y1 { return None; }
-        let mut bs=0.0f32; let mut bc=0i32;
-        for c in 0..80 {
-            let s=raw[(4+c)*n_cells + j];
-            if s>bs { bs=s; bc=c as i32; }
-        }
-        if bs.is_nan() || bs < score_thresh { return None; }
-        Some((x1,y1,x2,y2,bs,bc))
-    }).collect();
+    let candidates: Vec<_> = (0..n_cells)
+        .into_par_iter()
+        .filter_map(|j| {
+            let cx = raw[j];
+            let cy = raw[n_cells + j];
+            let bw = raw[2 * n_cells + j];
+            let bh = raw[3 * n_cells + j];
+            let x1 = (cx - bw * 0.5).max(0.0);
+            let y1 = (cy - bh * 0.5).max(0.0);
+            let x2 = (cx + bw * 0.5).min(model_size);
+            let y2 = (cy + bh * 0.5).min(model_size);
+            if x2 <= x1 || y2 <= y1 {
+                return None;
+            }
+            let mut bs = 0.0f32;
+            let mut bc = 0i32;
+            for c in 0..80 {
+                let s = raw[(4 + c) * n_cells + j];
+                if s > bs {
+                    bs = s;
+                    bc = c as i32;
+                }
+            }
+            if bs.is_nan() || bs < score_thresh {
+                return None;
+            }
+            Some((x1, y1, x2, y2, bs, bc))
+        })
+        .collect();
 
-    if candidates.is_empty() { return 0; }
+    if candidates.is_empty() {
+        return 0;
+    }
 
     let mut sorted: Vec<usize> = (0..candidates.len()).collect();
     // total_cmp: a NaN-tolerant total order (partial_cmp + Equal is not one).
-    sorted.par_sort_unstable_by(|&a,&b| candidates[b].4.total_cmp(&candidates[a].4));
+    sorted.par_sort_unstable_by(|&a, &b| candidates[b].4.total_cmp(&candidates[a].4));
 
-    let areas: Vec<f32> = candidates.iter().map(|(x1,y1,x2,y2,_,_)| (x2-x1)*(y2-y1)).collect();
+    let areas: Vec<f32> = candidates
+        .iter()
+        .map(|(x1, y1, x2, y2, _, _)| (x2 - x1) * (y2 - y1))
+        .collect();
     let mut keep: Vec<usize> = Vec::with_capacity(20);
     for &i in &sorted {
-        if keep.len()>=20 { break; }
-        let (ax1,ay1,ax2,ay2,_,_) = candidates[i];
+        if keep.len() >= 20 {
+            break;
+        }
+        let (ax1, ay1, ax2, ay2, _, _) = candidates[i];
         if keep.iter().any(|&j| {
-            let (bx1,by1,bx2,by2,_,_) = candidates[j];
-            let w=(ax2.min(bx2)-ax1.max(bx1)).max(0.0);
-            let h=(ay2.min(by2)-ay1.max(by1)).max(0.0);
-            (w*h)/(areas[i]+areas[j]-w*h) > nms_thresh
-        }) { continue; }
+            let (bx1, by1, bx2, by2, _, _) = candidates[j];
+            let w = (ax2.min(bx2) - ax1.max(bx1)).max(0.0);
+            let h = (ay2.min(by2) - ay1.max(by1)).max(0.0);
+            (w * h) / (areas[i] + areas[j] - w * h) > nms_thresh
+        }) {
+            continue;
+        }
         keep.push(i);
     }
     // Sort keep by score descending (Frigate expects this for early-break)
     keep.sort_unstable_by(|&a, &b| candidates[b].4.total_cmp(&candidates[a].4));
-    for (k,&idx) in keep.iter().enumerate() {
-        let (x1,y1,x2,y2,s,c) = candidates[idx];
-        let o=k*6; out[o]=c as f32;out[o+1]=s;out[o+2]=x1;out[o+3]=y1;out[o+4]=x2;out[o+5]=y2;
+    for (k, &idx) in keep.iter().enumerate() {
+        let (x1, y1, x2, y2, s, c) = candidates[idx];
+        let o = k * 6;
+        out[o] = c as f32;
+        out[o + 1] = s;
+        out[o + 2] = x1;
+        out[o + 3] = y1;
+        out[o + 4] = x2;
+        out[o + 5] = y2;
     }
     keep.len()
 }
 
 // ── Channel types ─────────────────────────────────────────────────
 
-struct Frame { data: Vec<u8> }
-enum Msg { Frame(Arc<Frame>), Shutdown }
+struct Frame {
+    data: Vec<u8>,
+}
+enum Msg {
+    Frame(Arc<Frame>),
+    Shutdown,
+}
 
 // ── Main ──────────────────────────────────────────────────────────
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 7 {
-        eprintln!("Usage: {} <param> <bin> <in_name> <out_name> <ms> <arch>", args[0]);
+        eprintln!(
+            "Usage: {} <param> <bin> <in_name> <out_name> <ms> <arch>",
+            args[0]
+        );
         std::process::exit(1);
     }
 
@@ -207,7 +273,8 @@ fn main() -> io::Result<()> {
 
     // Channels
     let (tx_frame, rx_frame): (Sender<Msg>, Receiver<Msg>) = bounded(2);
-    let (tx_result, rx_result): (Sender<([f32; 120], usize)>, Receiver<([f32; 120], usize)>) = bounded(2);
+    let (tx_result, rx_result): (Sender<([f32; 120], usize)>, Receiver<([f32; 120], usize)>) =
+        bounded(2);
 
     // Thread 2: Inference + post-process
     std::thread::spawn(move || loop {
@@ -220,14 +287,19 @@ fn main() -> io::Result<()> {
         let mut out = [0.0f32; 120];
         let n = if is_yolo26 {
             process_rayon(&raw, n_cells, ms as f32, 0.05, 0.45, &mut out)
-        } else { 0 };
-        if tx_result.send((out, n)).is_err() { break; }
+        } else {
+            0
+        };
+        if tx_result.send((out, n)).is_err() {
+            break;
+        }
     });
 
     // Thread 3: stdout writer
     std::thread::spawn(move || {
         while let Ok((data, _)) = rx_result.recv() {
-            let bytes: &[u8] = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, 480) };
+            let bytes: &[u8] =
+                unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, 480) };
             let mut out = io::stdout();
             out.write_all(&480u32.to_be_bytes()).ok();
             out.write_all(bytes).ok();
@@ -240,14 +312,24 @@ fn main() -> io::Result<()> {
     let t0 = Instant::now();
     loop {
         let mut hdr = [0u8; 4];
-        if io::stdin().read_exact(&mut hdr).is_err() { break; }
+        if io::stdin().read_exact(&mut hdr).is_err() {
+            break;
+        }
         let size = u32::from_be_bytes(hdr) as usize;
         let mut data = vec![0u8; size];
-        if io::stdin().read_exact(&mut data).is_err() { break; }
-        if tx_frame.send(Msg::Frame(Arc::new(Frame{data}))).is_err() { break; }
+        if io::stdin().read_exact(&mut data).is_err() {
+            break;
+        }
+        if tx_frame.send(Msg::Frame(Arc::new(Frame { data }))).is_err() {
+            break;
+        }
         count += 1;
         if count % 100 == 0 {
-            eprintln!("STATS frames={} fps={:.1}", count, count as f64/t0.elapsed().as_secs_f64());
+            eprintln!(
+                "STATS frames={} fps={:.1}",
+                count,
+                count as f64 / t0.elapsed().as_secs_f64()
+            );
         }
     }
     drop(tx_frame);

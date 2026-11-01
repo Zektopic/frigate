@@ -20,7 +20,11 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 import numpy as np
 from ruamel.yaml import YAML
 
-from frigate.const import REGEX_HTTP_CAMERA_USER_PASS, REGEX_RTSP_CAMERA_USER_PASS
+from frigate.const import (
+    REGEX_REDACT_HTTP_USER_PASS,
+    REGEX_REDACT_URL_USER_PASS,
+    REGEX_RTSP_CAMERA_USER_PASS,
+)
 
 if TYPE_CHECKING:
     from frigate.config import CameraConfig
@@ -110,8 +114,8 @@ def deep_merge(dct1: dict, dct2: dict, override=False, merge_lists=False) -> dic
 
 def clean_camera_user_pass(line: str) -> str:
     """Removes user and password from line."""
-    rtsp_cleaned = re.sub(REGEX_RTSP_CAMERA_USER_PASS, "://*:*@", line)
-    return re.sub(REGEX_HTTP_CAMERA_USER_PASS, "user=*&password=*", rtsp_cleaned)
+    rtsp_cleaned = re.sub(REGEX_REDACT_URL_USER_PASS, "://*:*@", line)
+    return re.sub(REGEX_REDACT_HTTP_USER_PASS, "user=*&password=*", rtsp_cleaned)
 
 
 def escape_special_characters(path: str) -> str:

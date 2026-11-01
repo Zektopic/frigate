@@ -18,9 +18,15 @@ type NcnnAllocator = *mut c_void;
 
 macro_rules! sym {
     ($lib:expr, $name:literal, $ty:ty) => {{
-        let s: Symbol<$ty> = unsafe { $lib.get($name) }
-            .map_err(|e| io::Error::new(io::ErrorKind::NotFound,
-                format!("libncnn symbol {} missing: {e}", String::from_utf8_lossy($name))))?;
+        let s: Symbol<$ty> = unsafe { $lib.get($name) }.map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "libncnn symbol {} missing: {e}",
+                    String::from_utf8_lossy($name)
+                ),
+            )
+        })?;
         unsafe { std::mem::transmute::<Symbol<$ty>, Symbol<'static, $ty>>(s) }
     }};
 }
@@ -89,10 +95,21 @@ impl NcnnFfi {
         // and 'static symbols keep the borrow checker honest.
         let lib: &'static Library = Box::leak(Box::new(lib));
 
-        let option_create = sym!(lib, b"ncnn_option_create", unsafe extern "C" fn() -> NcnnOption);
-        let option_destroy = sym!(lib, b"ncnn_option_destroy", unsafe extern "C" fn(NcnnOption));
-        let option_set_num_threads =
-            sym!(lib, b"ncnn_option_set_num_threads", unsafe extern "C" fn(NcnnOption, c_int));
+        let option_create = sym!(
+            lib,
+            b"ncnn_option_create",
+            unsafe extern "C" fn() -> NcnnOption
+        );
+        let option_destroy = sym!(
+            lib,
+            b"ncnn_option_destroy",
+            unsafe extern "C" fn(NcnnOption)
+        );
+        let option_set_num_threads = sym!(
+            lib,
+            b"ncnn_option_set_num_threads",
+            unsafe extern "C" fn(NcnnOption, c_int)
+        );
         let option_set_vulkan = sym!(
             lib,
             b"ncnn_option_set_use_vulkan_compute",
@@ -100,12 +117,21 @@ impl NcnnFfi {
         );
         let net_create = sym!(lib, b"ncnn_net_create", unsafe extern "C" fn() -> NcnnNet);
         let net_destroy = sym!(lib, b"ncnn_net_destroy", unsafe extern "C" fn(NcnnNet));
-        let net_set_option =
-            sym!(lib, b"ncnn_net_set_option", unsafe extern "C" fn(NcnnNet, NcnnOption));
-        let net_load_param =
-            sym!(lib, b"ncnn_net_load_param", unsafe extern "C" fn(NcnnNet, *const c_char) -> c_int);
-        let net_load_model =
-            sym!(lib, b"ncnn_net_load_model", unsafe extern "C" fn(NcnnNet, *const c_char) -> c_int);
+        let net_set_option = sym!(
+            lib,
+            b"ncnn_net_set_option",
+            unsafe extern "C" fn(NcnnNet, NcnnOption)
+        );
+        let net_load_param = sym!(
+            lib,
+            b"ncnn_net_load_param",
+            unsafe extern "C" fn(NcnnNet, *const c_char) -> c_int
+        );
+        let net_load_model = sym!(
+            lib,
+            b"ncnn_net_load_model",
+            unsafe extern "C" fn(NcnnNet, *const c_char) -> c_int
+        );
 
         let net = unsafe { net_create() };
         let opt = unsafe { option_create() };
@@ -147,24 +173,57 @@ impl NcnnFfi {
 
         let ms = ms as usize;
         Ok(NcnnFfi {
-            extractor_create: sym!(lib, b"ncnn_extractor_create",
-                unsafe extern "C" fn(NcnnNet) -> NcnnExtractor),
-            extractor_destroy: sym!(lib, b"ncnn_extractor_destroy",
-                unsafe extern "C" fn(NcnnExtractor)),
-            extractor_input: sym!(lib, b"ncnn_extractor_input",
-                unsafe extern "C" fn(NcnnExtractor, *const c_char, NcnnMat) -> c_int),
-            extractor_extract: sym!(lib, b"ncnn_extractor_extract",
-                unsafe extern "C" fn(NcnnExtractor, *const c_char, *mut NcnnMat) -> c_int),
-            mat_create_external_3d: sym!(lib, b"ncnn_mat_create_external_3d",
-                unsafe extern "C" fn(c_int, c_int, c_int, *mut c_void, NcnnAllocator) -> NcnnMat),
+            extractor_create: sym!(
+                lib,
+                b"ncnn_extractor_create",
+                unsafe extern "C" fn(NcnnNet) -> NcnnExtractor
+            ),
+            extractor_destroy: sym!(
+                lib,
+                b"ncnn_extractor_destroy",
+                unsafe extern "C" fn(NcnnExtractor)
+            ),
+            extractor_input: sym!(
+                lib,
+                b"ncnn_extractor_input",
+                unsafe extern "C" fn(NcnnExtractor, *const c_char, NcnnMat) -> c_int
+            ),
+            extractor_extract: sym!(
+                lib,
+                b"ncnn_extractor_extract",
+                unsafe extern "C" fn(NcnnExtractor, *const c_char, *mut NcnnMat) -> c_int
+            ),
+            mat_create_external_3d: sym!(
+                lib,
+                b"ncnn_mat_create_external_3d",
+                unsafe extern "C" fn(c_int, c_int, c_int, *mut c_void, NcnnAllocator) -> NcnnMat
+            ),
             mat_destroy: sym!(lib, b"ncnn_mat_destroy", unsafe extern "C" fn(NcnnMat)),
-            mat_get_data: sym!(lib, b"ncnn_mat_get_data",
-                unsafe extern "C" fn(NcnnMat) -> *mut c_void),
-            mat_get_w: sym!(lib, b"ncnn_mat_get_w", unsafe extern "C" fn(NcnnMat) -> c_int),
-            mat_get_h: sym!(lib, b"ncnn_mat_get_h", unsafe extern "C" fn(NcnnMat) -> c_int),
-            mat_get_c: sym!(lib, b"ncnn_mat_get_c", unsafe extern "C" fn(NcnnMat) -> c_int),
-            mat_get_elemsize: sym!(lib, b"ncnn_mat_get_elemsize",
-                unsafe extern "C" fn(NcnnMat) -> usize),
+            mat_get_data: sym!(
+                lib,
+                b"ncnn_mat_get_data",
+                unsafe extern "C" fn(NcnnMat) -> *mut c_void
+            ),
+            mat_get_w: sym!(
+                lib,
+                b"ncnn_mat_get_w",
+                unsafe extern "C" fn(NcnnMat) -> c_int
+            ),
+            mat_get_h: sym!(
+                lib,
+                b"ncnn_mat_get_h",
+                unsafe extern "C" fn(NcnnMat) -> c_int
+            ),
+            mat_get_c: sym!(
+                lib,
+                b"ncnn_mat_get_c",
+                unsafe extern "C" fn(NcnnMat) -> c_int
+            ),
+            mat_get_elemsize: sym!(
+                lib,
+                b"ncnn_mat_get_elemsize",
+                unsafe extern "C" fn(NcnnMat) -> usize
+            ),
             net,
             in_name: CString::new(in_name).unwrap(),
             out_name: CString::new(out_name).unwrap(),
@@ -308,8 +367,11 @@ mod exhaustive_tests {
             if want.is_nan() {
                 assert!(got.is_nan(), "bits {bits:#06x}: got {got}, want NaN");
             } else {
-                assert_eq!(got.to_bits(), want.to_bits(),
-                    "bits {bits:#06x}: got {got}, want {want}");
+                assert_eq!(
+                    got.to_bits(),
+                    want.to_bits(),
+                    "bits {bits:#06x}: got {got}, want {want}"
+                );
             }
         }
     }
