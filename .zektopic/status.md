@@ -290,6 +290,12 @@ Rust components were built and tested natively using Cargo.
 ## Overall Assessment
 The codebase heavily relies on Docker for correct test execution due to complex dependencies (C-extensions, Rust modules, custom SQLite builds). The fallback native test runner (`test_runner.py`) uses extensive monkey-patching which makes it brittle and error-prone when testing lower-level logic that depends on specific library behaviors (like `numpy` shape manipulation or SQLite extensions).
 
+### Agent Test Execution
+- Native tests with `test_runner.py` show multiple failures.
+- `frigate/test/test_video.py` fails on bounding box reductions (NMSBoxes behavior).
+- `frigate/test/test_util_path.py` fails due to sanitize_filename mocked inappropriately.
+- Native build environment under `make run_tests` fails on `docker buildx build` cache overlayfs arguments.
+- Recommendation: Need to properly fix the dependencies mocking or run tests in an environment where actual cv2, numpy, and other dependencies operate correctly, rather than relying strictly on the fallback Mock setup.
 ## 2024-05-19 Updates
 
 ### Python Tests Analysis

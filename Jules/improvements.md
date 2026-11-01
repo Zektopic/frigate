@@ -248,6 +248,8 @@ Ran npm ci && npm run test -- --run src/ in web directory. 138 frontend tests pa
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
 
+### Agent Test Environment Improvements
+- Fix Makefile `run_tests` to avoid overlayfs issues locally during `docker buildx build`.
 ## 2024-05-19: Local Testing Environment Improvements
 - **Issue**: Running python backend tests locally via `test_runner.py` fails extensively (~330 errors) because it uses aggressive `MagicMock` patches in `sys.modules` for core dependencies like `pydantic`, `ruamel.yaml`, `cv2`, `numpy`, `pathvalidate`, and `filelock`.
 - **Impact**: Code logic cannot be accurately tested outside of Docker without extensive workarounds. Tests expecting specific types, array manipulations, or valid parsed values fail with `TypeError` or `AssertionError`.
