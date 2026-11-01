@@ -102,6 +102,13 @@ class OutputProcess(FrigateProcess):
         birdseye: Birdseye | None,
     ) -> None:
         camera_config = self.config.cameras[camera]
+
+        # a camera re-added under the same name must not leak the previous
+        # encoder session
+        previous = jsmpeg_cameras.get(camera)
+        if previous is not None:
+            previous.shutdown()
+
         jsmpeg_cameras[camera] = JsmpegCamera(
             camera_config, self.config, self.stop_event, websocket_server
         )
@@ -214,6 +221,9 @@ class OutputProcess(FrigateProcess):
                 check_disabled_camera_update(
                     self.config, birdseye, preview_recorders, preview_write_times
                 )
+
+                for jsmpeg in jsmpeg_cameras.values():
+                    jsmpeg.check_idle()
 
             if not topic or data is None:
                 continue

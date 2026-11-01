@@ -1149,6 +1149,16 @@ telemetry:
   # NOTE: If you use the Home Assistant integration, disabling this will prevent it from reporting new versions
   version_check: True
 
+# Optional: Low-resource mode for small hosts (EXPERIMENTAL, this fork only)
+# See: configuration/low_resource
+low_resource:
+  # Optional: Fill cheaper defaults (birdseye off, jsmpeg live height 360,
+  # 20 shm frames per camera) for keys not set explicitly (default: shown below)
+  enabled: False
+  # Optional: Decoded frames buffered per camera in /dev/shm, 10-500.
+  # Overrides the SHM_MAX_FRAMES env var (default: 50, or 20 when enabled)
+  shm_frames: None
+
 # Optional: Camera groups (default: no groups are setup)
 # NOTE: It is recommended to use the UI to setup camera groups
 camera_groups:

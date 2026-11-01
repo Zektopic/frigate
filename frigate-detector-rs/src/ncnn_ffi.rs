@@ -64,6 +64,17 @@ pub struct NcnnFfi {
 // The C API net/extractor are only touched from the inference thread.
 unsafe impl Send for NcnnFfi {}
 
+/// ncnn/OpenMP CPU thread count: `NCNN_NUM_THREADS` if set to a positive
+/// integer, else 2 (benchmarked optimal on the 8-core reference host; small
+/// hosts may want 1 so ffmpeg decode keeps a core).
+pub fn num_threads() -> i32 {
+    std::env::var("NCNN_NUM_THREADS")
+        .ok()
+        .and_then(|v| v.trim().parse::<i32>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(2)
+}
+
 fn lib_candidates() -> Vec<String> {
     let mut v = Vec::new();
     if let Ok(p) = std::env::var("NCNN_LIB") {
@@ -125,20 +136,26 @@ impl NcnnFfi {
         let net = unsafe { net_create() };
         let opt = unsafe { option_create() };
         // NCNN_FFI_NO_VULKAN=1 forces CPU inference (debug/parity checks).
-        let use_vulkan =
-            std::env::var("NCNN_FFI_NO_VULKAN").map_or(1, |v| if v == "1" { 0 } else { 1 });
+        // The detector plugin sets this when the only Vulkan device is a
+        // software one (llvmpipe), which crashes this backend.
+        let use_vulkan = std::env::var("NCNN_FFI_NO_VULKAN").map_or(1, |v| {
+            if v == "1" { 0 } else { 1 }
+        });
         unsafe {
-            // 2 threads + passive OpenMP waiting: benchmarked optimal for the
-            // CPU-fallback layers on this host (see GPU-DETECTOR.md).
-            option_set_num_threads(opt, 2);
+            // 2 threads (default) + passive OpenMP waiting: benchmarked
+            // optimal for the CPU-fallback layers on this host (see
+            // GPU-DETECTOR.md); override with NCNN_NUM_THREADS.
+            option_set_num_threads(opt, num_threads());
             option_set_vulkan(opt, use_vulkan);
             net_set_option(net, opt);
         }
         // Optional (Vulkan builds only): pin device 0 explicitly.
-        if let Ok(set_dev) = unsafe {
-            lib.get::<unsafe extern "C" fn(NcnnNet, c_int)>(b"ncnn_net_set_vulkan_device")
-        } {
-            unsafe { set_dev(net, 0) };
+        if use_vulkan == 1 {
+            if let Ok(set_dev) = unsafe {
+                lib.get::<unsafe extern "C" fn(NcnnNet, c_int)>(b"ncnn_net_set_vulkan_device")
+            } {
+                unsafe { set_dev(net, 0) };
+            }
         }
 
         let c_param = CString::new(param).unwrap();

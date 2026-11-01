@@ -1,0 +1,64 @@
+# Example configuration for a low-resource host (EXPERIMENTAL).
+# See docs/docs/configuration/low_resource.md for the measurements behind it.
+mqtt:
+  enabled: false
+
+# Cheaper defaults for keys not set below: 20 shm frames per camera,
+# birdseye off, jsmpeg live view at 360p.
+low_resource:
+  enabled: true
+
+# ncnn on CPU (frigate-ncnn-vulkan image) with a YOLO26n exported at 320:
+#   yolo export model=yolo26n.pt format=ncnn imgsz=320
+# Set NCNN_NUM_THREADS=1 on the container for dual-core hosts.
+detectors:
+  ncnn:
+    type: onnx
+    device: GPU # falls back to CPU when no hardware Vulkan GPU is present
+
+model:
+  model_type: yolo-generic
+  width: 320
+  height: 320
+  input_tensor: nchw
+  input_dtype: float
+  path: /config/model_cache/yolo26n_320.ncnn.param
+  labelmap_path: /labelmap/coco-80.txt
+
+ffmpeg:
+  output_args:
+    # stream copy for video and audio
+    record: preset-record-generic-audio-copy
+
+detect:
+  fps: 5
+
+objects:
+  track:
+    - person
+    - car
+
+record:
+  enabled: true
+  continuous:
+    days: 3
+  alerts:
+    retain:
+      days: 14
+
+snapshots:
+  enabled: true
+
+cameras:
+  front:
+    ffmpeg:
+      inputs:
+        - path: rtsp://user:password@10.0.0.10:554/main
+          roles:
+            - record
+        - path: rtsp://user:password@10.0.0.10:554/sub
+          roles:
+            - detect
+    detect:
+      width: 640
+      height: 360

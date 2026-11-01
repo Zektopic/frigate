@@ -59,6 +59,9 @@ class CameraMaintainer(threading.Thread):
         self.capture_processes: dict[str, mp.Process] = {}
         self.camera_stop_events: dict[str, MpEvent] = {}
         self.metrics_manager = metrics_manager
+        # shared by all capture processes so their watchdogs can recognize a
+        # hardware decoder reset that stalls many cameras at once
+        self.ffmpeg_stall_registry = metrics_manager.dict()
 
     def __ensure_camera_stop_event(self, camera: str) -> MpEvent:
         camera_stop_event = self.camera_stop_events.get(camera)
@@ -98,7 +101,10 @@ class CameraMaintainer(threading.Thread):
             f"frames for each camera in SHM"
         )
 
-        if shm_stats["shm_frame_count"] < 20:
+        # A deliberately small ring (low_resource.shm_frames) is not an
+        # undersized /dev/shm, so only warn when SHM capped the request.
+        warn_below = min(20, shm_stats.get("requested_frame_count", 20))
+        if shm_stats["shm_frame_count"] < warn_below:
             logger.warning(
                 f"The current SHM size of {shm_stats['total']}MB is too small, "
                 f"recommend increasing it to at least {shm_stats['min_shm']}MB."
@@ -180,6 +186,7 @@ class CameraMaintainer(threading.Thread):
             self.camera_metrics[name],
             camera_stop_event,
             self.config.logger,
+            self.ffmpeg_stall_registry,
         )
         capture_process.daemon = True
         self.capture_processes[name] = capture_process

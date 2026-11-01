@@ -28,10 +28,12 @@ impl NcnnProc {
 import sys,os,struct,numpy as np
 import ncnn
 ncnn.destroy_gpu_instance();ncnn.create_gpu_instance()
-net=ncnn.Net();net.set_vulkan_device(ncnn.get_gpu_device(0))
-o=net.opt;o.use_vulkan_compute=True;o.use_fp16_arithmetic=True
+g=ncnn.get_gpu_count()>0 and ncnn.get_gpu_info(0).type()!=3
+net=ncnn.Net()
+if g:net.set_vulkan_device(ncnn.get_gpu_device(0))
+o=net.opt;o.use_vulkan_compute=g;o.use_fp16_arithmetic=True
 o.use_fp16_packed=True;o.use_fp16_storage=True
-o.num_threads=2
+o.num_threads={threads}
 net.load_param("{param}");net.load_model("{bin}")
 sys.stderr.write("READY\n");sys.stderr.flush()
 while True:
@@ -48,13 +50,7 @@ while True:
   ret,out=ex.extract("{out_}")
  raw=np.array(out).copy().tobytes()
  os.write(1,struct.pack('>I',len(raw)));os.write(1,raw)
-"#,
-            param = param,
-            bin = bin,
-            in_ = in_name,
-            out_ = out_name,
-            ms = ms
-        );
+"#, param=param, bin=bin, in_=in_name, out_=out_name, ms=ms, threads=ncnn_ffi::num_threads());
 
         // ncnn CPU-fallback layers use OpenMP: default thread count (all
         // cores) oversubscribes and the workers spin-wait between parallel
@@ -63,7 +59,7 @@ while True:
         let mut child = Command::new("python3")
             .arg("-c")
             .arg(&code)
-            .env("OMP_NUM_THREADS", "2")
+            .env("OMP_NUM_THREADS", ncnn_ffi::num_threads().to_string())
             .env("OMP_WAIT_POLICY", "PASSIVE")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -259,7 +255,7 @@ fn main() -> io::Result<()> {
     // OpenMP tuning must be in our environment before libncnn's first
     // parallel region (harmless for the subprocess fallback, which sets
     // its own env).
-    std::env::set_var("OMP_NUM_THREADS", "2");
+    std::env::set_var("OMP_NUM_THREADS", ncnn_ffi::num_threads().to_string());
     std::env::set_var("OMP_WAIT_POLICY", "PASSIVE");
 
     let mut ncnn = Backend::create(&args[1], &args[2], &args[3], &args[4], ms)?;

@@ -1,0 +1,107 @@
+name: Rust
+
+# Verifies the Rust crates and the ncnn-vulkan production image.
+#
+# The existing "On pull request" Python Tests job runs the suite without the
+# Rust libraries (pure-Python fallbacks). This workflow covers what production
+# actually runs: the Rust kernels themselves, and the real image with the
+# Rust libraries loaded.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "frigate-*-rs/**"
+      - "docker/ncnn-vulkan/**"
+      # Python modules that call into the Rust libraries
+      - "frigate/util/frame_rs.py"
+      - "frigate/util/object.py"
+      - "frigate/util/image.py"
+      - "frigate/motion/**"
+      - "frigate/track/**"
+      - "frigate/detectors/**"
+      - "frigate/data_processing/common/face/**"
+      - "frigate/video/**"
+      - ".github/workflows/rust.yml"
+  push:
+    branches:
+      - dev
+      - master
+    paths:
+      - "frigate-*-rs/**"
+      - "docker/ncnn-vulkan/**"
+      - "frigate/**"
+      - ".github/workflows/rust.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  crates:
+    name: Rust (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - frigate-frame-rs
+          - frigate-motion-rs
+          - frigate-yolo-rs
+          - frigate-detector-rs
+    defaults:
+      run:
+        working-directory: ${{ matrix.crate }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.crate }}
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Clippy (warnings reported, not yet blocking)
+        run: cargo clippy --release --locked --all-targets
+      - name: Unit tests
+        run: cargo test --release --locked
+
+  ncnn_vulkan_image:
+    name: ncnn-vulkan image smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      # The final image is ~7.5 GB; the stock runner does not have room for it
+      # plus the build cache without clearing preinstalled toolchains.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/ncnn-vulkan/Dockerfile
+          tags: frigate-ncnn-vulkan:ci
+          load: true
+          push: false
+          cache-from: type=gha,scope=ncnn-vulkan
+          cache-to: type=gha,mode=max,scope=ncnn-vulkan
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint python3 \
+            -v "$PWD/docker/ncnn-vulkan/smoke_test.py:/smoke_test.py:ro" \
+            -w /opt/frigate frigate-ncnn-vulkan:ci /smoke_test.py
