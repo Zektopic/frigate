@@ -159,6 +159,9 @@ Based on the recent test run, the following areas have been identified for futur
 **Issue**: Tests targeting custom SQLite extensions (like `REGEXP` in `test_sqlitevecq_regexp.py`) fail natively because the extensions are not loaded in the standard Python `sqlite3` module.
 **Optimization Road Map**:
 - Ensure the native test harness either automatically builds and loads the required `.so` extension files via `conn.load_extension()` or explicitly skips these tests when not running inside the Docker environment.
+## Native Test Optimization
+
+Running `DOCKER_BUILDKIT=0 python3 test_runner.py` outside of the Docker environment shows numerous test failures primarily caused by mock objects incorrectly comparing natively against constants or other types. This results in assertions firing. Specifically, `sys.modules["cv2"]` and `sys.modules["numpy"]` should *not* be mocked if `numpy<2` and `opencv-python-headless` are natively installed.
 
 ## Testing Video module (frigate/test/test_video.py)
 

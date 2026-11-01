@@ -313,6 +313,9 @@ Rust components were built and tested natively using Cargo.
 ## Overall Assessment
 The codebase heavily relies on Docker for correct test execution due to complex dependencies (C-extensions, Rust modules, custom SQLite builds). The fallback native test runner (`test_runner.py`) uses extensive monkey-patching which makes it brittle and error-prone when testing lower-level logic that depends on specific library behaviors (like `numpy` shape manipulation or SQLite extensions).
 
+## Native Test Environment Checks
+
+Attempting to natively test the application via Python `test_runner.py` bypasses Docker and fails natively when internal models attempt to do real-world evaluations due to bad module mocking (`cv2` and `numpy`). By removing `cv2` and `numpy` mocks inside `test_runner.py` after explicitly pip installing dependencies natively, isolated modules like `frigate/test/test_video.py` passed correctly.
 ## Agent Testing Summary (October 2023)
 - **Frontend Test Suite:** Successfully ran 17 files and 153 tests. All frontend tests pass. Deprecation warnings for `punycode` still exist in underlying node dependencies.
 - **Backend Test Suite:** Ran via custom `test_runner.py` bypassing Docker. Test coverage showed failures and errors, primarily due to heavily mocked dependencies (`pydantic`, `cv2`, `numpy`, `peewee`, etc.).
