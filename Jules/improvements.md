@@ -248,6 +248,25 @@ Ran npm ci && npm run test -- --run src/ in web directory. 138 frontend tests pa
 ## Test Object Detector Fixes
 - In `test_object_detector.py`, test cases expect a model attribute to be present in `test_cfg` mock but fails due to `AttributeError: Mock object has no attribute 'model'`. Improve mocking inside `frigate.test.test_object_detector` or `test_runner.py` to fix this issue.
 
+## Test Evaluation and Improvements Plan (Latest Update)
+
+Based on a comprehensive run of the test suites, the following areas require optimization and improvement in future development iterations.
+
+### 1. Backend Integration & Mocking Infrastructure
+- **Dependency Isolation**: The custom Python `test_runner.py` framework intercepts standard library imports and injects `MagicMock` to bypass complex C-extensions (`cv2`, `numpy`). This creates false-positive test failures when standard logic operates on multi-dimensional structures.
+  - **Proposed Fix**: Create a dedicated virtual environment bootstrap script or `requirements-test.txt` to install necessary dependencies.
+- **Pydantic Validation**: The ad-hoc `MockBaseModel` fails to evaluate nested schema dictionaries inside `frigate/config/` parsing routines.
+  - **Proposed Fix**: Update the `test_runner.py` fallback to properly reflect Pydantic V2 structural rules or enforce Docker-only backend testing.
+- **Docker BuildKit Stability**: To ensure CI/CD parity, the `make run_tests` command must gracefully handle host-level `overlayfs` mount restrictions, potentially by appending `DOCKER_BUILDKIT=0` fallback strategies for developer environments.
+
+### 2. Frontend Test Stability
+- **Node.js Deprecations**: The Vitest runner outputs several `DEP0040: The punycode module is deprecated` warnings.
+  - **Proposed Fix**: Audit the frontend dependency tree (`npm ls punycode`) and update packages like `whatwg-url` or `tr46` to their modern userland equivalents.
+- **E2E Matcher Separation**: Explicitly separate Vite unit tests from Playwright E2E tests in the configuration to avoid cross-contamination of globals during generic `npm test` invocations.
+
+### 3. Rust Code Health
+- **Dead Code Warning**: The `frigate-detector-rs` crate throws an unused `Shutdown` variant warning in the messaging enum.
+  - **Proposed Fix**: Remove dead code or leverage the `Shutdown` variant in the detector teardown routines for clean exit polling.
 ## Testing Status and Roadmap (Update 4)
 
 ### 1. Test Results Summary
