@@ -160,6 +160,29 @@ Based on the recent test run, the following areas have been identified for futur
 **Optimization Road Map**:
 - Ensure the native test harness either automatically builds and loads the required `.so` extension files via `conn.load_extension()` or explicitly skips these tests when not running inside the Docker environment.
 
+## Testing Status
+
+I ran the test suites for both frontend and backend to identify any failing tests or potential areas of improvement.
+
+### Backend Testing (Python)
+- Many tests are currently failing when running `test_runner.py` outside of the Docker environment due to brittle mocks for `cv2`, `numpy`, `pydantic`, `ruamel.yaml`, and other complex dependencies.
+- Specifically, the fallback environment heavily struggles with mocking Pydantic v2 schemas, `asyncio` execution in `test_onvif_probe.py`, and `cv2` image assertions, leading to a high volume of `TypeError` and `AssertionError` failures.
+- Native testing (`make run_tests`) via Docker BuildKit is currently failing during the build stage (`mount source: "overlay"... err: invalid argument`), blocking proper isolated execution.
+
+### Rust Component Testing
+- Successfully ran all tests across Rust modules (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) via `cargo test`.
+- All tests passed successfully with 0 failures, indicating solid parity and guard configurations in the Rust pipeline.
+
+### Frontend Testing (React/Vitest)
+- Successfully installed frontend dependencies via `npm ci --prefix web` and ran `vitest`.
+- All 153 tests across 17 test files passed successfully.
+- **Note:** Discovered deprecation warnings related to the `punycode` module from Node.js dependencies which will need future updating.
+
+## Proposed Improvements
+
+- **Backend Mock Infrastructure:** The custom `test_runner.py` needs an overhaul. The `sys.modules` patching is extremely fragile, especially for C-extensions (`numpy`, `cv2`) and Pydantic v2. We should either move completely to standard `pytest` with proper `unittest.mock.patch` isolation, or strictly require running unit tests natively within the Docker environment without fallbacks.
+- **Docker Test Fix:** The `make run_tests` command fails due to an overlay mount issue. The `Makefile` should be updated to cleanly bypass BuildKit when running natively, or test workflows should use pre-built images.
+- **Frontend Deprecations:** Update the frontend dependencies (e.g., `whatwg-url`, `tr46`) to resolve the `DEP0040 punycode` Node.js deprecation warnings emitted during Vitest runs.
 ## Optimization and Issues Report (Latest Iteration)
 
 ### Current Testing Environment Issues
