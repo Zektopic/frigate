@@ -227,3 +227,8 @@ Running `DOCKER_BUILDKIT=0 python3 test_runner.py` outside of the Docker environ
 2. I successfully bypassed this by providing actual `numpy` and `opencv-python-headless` instead of mocking it.
 3. Once those missing dependencies are available locally (and mocking is avoided), the unit tests inside `frigate/test/test_video.py` ran correctly without any errors (`Ran 17 tests in 0.002s OK`).
 4. Other tests fail mainly because of the way `sys.modules` are overridden inside `test_runner.py` for mocking. The mocked Pydantic setup causes cascading errors across different files.
+# Codebase Optimizations and Actionable Future Work
+
+- **Node/Vitest Warnings:** Update `whatwg-url` or `tr46` to resolve the `punycode` deprecation warning (DEP0040) during `npm run test` in the web directory.
+- **Test Runner Mocking Infrastructure:** The reliance on `test_runner.py` and `sys.modules` patching for backend logic testing is highly brittle (especially for Pydantic and OpenCV). Consider migrating native tests to mock-free environments or formalizing lightweight dependency layers for core business logic testing.
+- **Dependency Upgrades:** Keep dependencies up to date, including fixing vulnerabilities flagged by `npm audit`.
