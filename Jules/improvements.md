@@ -312,3 +312,7 @@ Based on a comprehensive run of the test suites, the following areas require opt
 ### 3. Better Pydantic Mocks or Removal of Mocks
 - Mocking Pydantic's `BaseModel` and `ValidationError` dynamically inside `test_runner.py` completely bypasses core configuration validation, which makes `test_profiles.py` and similar tests fail or lose assertion value.
 - **Improvement:** Let tests inherently use the real `pydantic` package. Use local virtual environments with `pip install -r requirements.txt` rather than complex `sys.modules` patching for standard Python libraries.
+
+## Local Testing Environment Fixes
+The `test_runner.py` heavily mocks dependencies like `cv2`, `numpy`, and `pydantic`. This causes tests such as `test_shared_memory_frame_manager.py` to fail locally because they expect actual `ndarray` shapes or sizes, not mock objects.
+We should investigate whether it's better to install the actual dependencies (e.g. `pip install 'numpy<2' opencv-python-headless`) and remove the mocks, or improve the mocks to mimic the library behavior closer.

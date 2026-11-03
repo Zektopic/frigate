@@ -407,3 +407,7 @@ Attempting to natively test the application via Python `test_runner.py` bypasses
 ## Test Execution Status Updates
 * **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
 * Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.
+
+## Native Testing Issues Documented
+
+Ran the test suite locally and found that some tests fail because we mocked `cv2` and `numpy` in `test_runner.py` with `MagicMock`. Using real `cv2` and `numpy` fixes `test_shared_memory_frame_manager.py` and potentially others. The user requested this status to be updated, and the issues documented for future work.
