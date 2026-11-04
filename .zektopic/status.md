@@ -407,3 +407,7 @@ Attempting to natively test the application via Python `test_runner.py` bypasses
 ## Test Execution Status Updates
 * **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
 * Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.
+
+## New Test Results
+* `cargo test` ran successfully on all Rust components, passing tests in `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`.
+* Tested Vitest frontend components using `npm run test --prefix web -- --run src/`. All 153 tests across 17 test files passed.
