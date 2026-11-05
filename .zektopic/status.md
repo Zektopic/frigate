@@ -407,3 +407,10 @@ Attempting to natively test the application via Python `test_runner.py` bypasses
 ## Test Execution Status Updates
 * **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
 * Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.
+
+## Agent Testing Summary
+
+We ran tests on `frigate/test/test_shared_memory_frame_manager.py` and `frigate/test/test_video.py`.
+Some tests initially failed when run with mocked `numpy` and `cv2` due to deep mock integration issues, however they passed successfully when we installed `numpy<2` and `opencv-python-headless` and disabled the mocks in `test_runner.py`.
+
+Other native tests in the suite still encounter failures due to mocked dependencies (like `pydantic`, `peewee`, etc) having limitations outside of the docker container.
