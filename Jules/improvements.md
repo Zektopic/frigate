@@ -312,3 +312,10 @@ Based on a comprehensive run of the test suites, the following areas require opt
 ### 3. Better Pydantic Mocks or Removal of Mocks
 - Mocking Pydantic's `BaseModel` and `ValidationError` dynamically inside `test_runner.py` completely bypasses core configuration validation, which makes `test_profiles.py` and similar tests fail or lose assertion value.
 - **Improvement:** Let tests inherently use the real `pydantic` package. Use local virtual environments with `pip install -r requirements.txt` rather than complex `sys.modules` patching for standard Python libraries.
+
+## Test Runner Improvements
+
+- Improve native testing resilience: Update `test_runner.py` to better mock dependencies like `pydantic` so Pydantic v2 validation errors (e.g. `test_invalid_field_value_rejected` in `test_profiles.py`) pass outside of Docker. Alternatively, require `pip install pydantic` instead of mocking it.
+- Remove brittle `cv2` and `numpy` mocks from `test_runner.py` entirely, since they fail type checks (e.g. `>=` on mocks) and cause assertion errors in test suites. Instead, document that `numpy<2` and `opencv-python-headless` must be installed for testing.
+- Address issues with `make run_tests` locally, such as the `overlayfs` mount error during `docker buildx build`. Ensure the Dockerfile builds robustly or provide a fallback native test script that sets up a full virtual environment.
+- Improve YAML modification mocking (`test_update_yaml.py`), as tests relying on `ruamel.yaml` fail when mocked natively.
