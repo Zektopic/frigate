@@ -407,3 +407,14 @@ Attempting to natively test the application via Python `test_runner.py` bypasses
 ## Test Execution Status Updates
 * **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
 * Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.
+
+## Test Run Updates - $(date)
+
+### Outcomes
+- **Frontend Tests (Vitest)**: Ran `npm run test --prefix web`. All 153 tests passed. `DEP0040` deprecation warnings observed.
+- **Rust Tests (Cargo)**: Ran `cargo test` across all four Rust directories. All 51 tests passed without error.
+- **Backend Tests (Python)**: Ran `python3 test_runner.py`. Output 47 failures and 243 errors due to extremely brittle global `sys.modules` monkey-patching for OpenCV and Pydantic.
+
+### Actionable Improvements
+- **Refactor Testing Mocks**: Rework `test_runner.py` to stop using universal `MagicMock` instances for complex libraries like `cv2` and `numpy`. Rely on `pip install opencv-python-headless numpy pydantic` to allow native testing accuracy.
+- **Frontend Dependency Modernization**: Update the frontend library relying on Node's legacy `punycode` module to eliminate the `DEP0040` console warning during testing.
