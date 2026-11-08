@@ -407,3 +407,11 @@ Attempting to natively test the application via Python `test_runner.py` bypasses
 ## Test Execution Status Updates
 * **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
 * Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.
+# Test Results and Status
+
+- **Backend tests:** Most tests are failing natively on `test_runner.py` due to missing or mocked dependencies (like `openvino`). 17 specific video module tests run natively outside of docker.
+- **Frontend tests:** All 153 tests pass.
+- **Codebase:** A lot of modules require heavy docker environments for testing, as documented in memory.
+
+# Improvements and Future Optimizations
+See `Jules/optimization_and_issues_report.md` for detailed optimization suggestions.
