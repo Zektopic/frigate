@@ -595,6 +595,7 @@ _STRIDES = (8, 16, 32)
 _DFL_BINS = np.arange(16, dtype=np.float32)
 # Build grid points once (same every frame)
 _grid_pts = []
+_grid_strides = []
 _offset = 0
 for _s in _STRIDES:
     _g = model_size // _s
@@ -604,7 +605,9 @@ for _s in _STRIDES:
         (_xs.reshape(-1) + 0.5) * _s,
         (_ys.reshape(-1) + 0.5) * _s,
     ]))
+    _grid_strides.append(np.full(_n, _s, dtype=np.float32))
 _ALL_PTS = np.concatenate(_grid_pts, axis=0)  # (8400, 2)
+_ALL_STRIDES = np.concatenate(_grid_strides)[:, None]  # (8400, 1)
 
 def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
     # Key optimisation: pre-filter by class scores BEFORE expensive DFL decode.
@@ -633,7 +636,9 @@ def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
     reg -= reg.max(axis=-1, keepdims=True)
     np.exp(reg, out=reg)
     reg /= reg.sum(axis=-1, keepdims=True)
-    dist = (reg * _DFL_BINS).sum(axis=-1)  # (K, 4)
+    # DFL distances are in grid cells (0-15): scale by the anchor's stride
+    # to get pixels, like the centres.
+    dist = (reg * _DFL_BINS).sum(axis=-1) * _ALL_STRIDES[idx]  # (K, 4)
 
     # ── Step 3: bbox decode (only K candidates) ──────────────────────
     pts = _ALL_PTS[idx]  # (K, 2)
