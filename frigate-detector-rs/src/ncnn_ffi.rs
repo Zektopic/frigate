@@ -138,9 +138,8 @@ impl NcnnFfi {
         // NCNN_FFI_NO_VULKAN=1 forces CPU inference (debug/parity checks).
         // The detector plugin sets this when the only Vulkan device is a
         // software one (llvmpipe), which crashes this backend.
-        let use_vulkan = std::env::var("NCNN_FFI_NO_VULKAN").map_or(1, |v| {
-            if v == "1" { 0 } else { 1 }
-        });
+        let use_vulkan =
+            std::env::var("NCNN_FFI_NO_VULKAN").map_or(1, |v| if v == "1" { 0 } else { 1 });
         unsafe {
             // 2 threads (default) + passive OpenMP waiting: benchmarked
             // optimal for the CPU-fallback layers on this host (see

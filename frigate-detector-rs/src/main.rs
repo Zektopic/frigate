@@ -50,7 +50,14 @@ while True:
   ret,out=ex.extract("{out_}")
  raw=np.array(out).copy().tobytes()
  os.write(1,struct.pack('>I',len(raw)));os.write(1,raw)
-"#, param=param, bin=bin, in_=in_name, out_=out_name, ms=ms, threads=ncnn_ffi::num_threads());
+"#,
+            param = param,
+            bin = bin,
+            in_ = in_name,
+            out_ = out_name,
+            ms = ms,
+            threads = ncnn_ffi::num_threads()
+        );
 
         // ncnn CPU-fallback layers use OpenMP: default thread count (all
         // cores) oversubscribes and the workers spin-wait between parallel
