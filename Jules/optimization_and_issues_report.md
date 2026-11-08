@@ -251,3 +251,15 @@ Running `DOCKER_BUILDKIT=0 python3 test_runner.py` outside of the Docker environ
 ### Proposed Optimizations
 - **Testing Mocks**: Deprecate global `sys.modules` patching in `test_runner.py` in favor of a native `requirements-test.txt` approach to prevent false positive errors during local test execution.
 - **Node Dependency Bump**: Locate the dependency generating the `punycode` warning (`npm ls punycode`) and increment it to a version utilizing userland punycode implementations.
+
+## Testing & Optimization Report - Sat Nov 7 2026
+
+### Test Execution Status
+- **Backend Native Testing:** Running `python3 test_runner.py` yields `FAILED (failures=39, errors=234, skipped=4)`. This is due to the mock infrastructure (`test_runner.py`) lacking complete mocks or correct implementations for complex objects like OpenCV's `NMSBoxes` returning mock objects instead of iterables, Pydantic v2 schemas failing to validate correctly natively, and brittle comparison magic methods (e.g. returning `AssertionError` instead of handling the check properly).
+- **Docker Testing (`make run_tests`):** Attempting to build and test using Docker natively continues to fail with `overlayfs` mount source errors (`invalid argument`) caused by BuildKit limitations in this environment.
+- **Frontend Testing:** Successfully installed dependencies via `npm ci` and ran Vitest (`npm run test --prefix web -- --run src/`). All 153 tests passed. Node.js `DEP0040` punycode deprecation warnings persist during execution.
+
+### Future Improvements Roadmap
+1. **Docker Environment Integration:** Overhaul `make run_tests` to support fallback without BuildKit (e.g., `DOCKER_BUILDKIT=0`) properly, or introduce a `docker-compose.test.yml` to decouple from build caching issues.
+2. **Test Runner Refactoring:** Either refactor `test_runner.py`'s `sys.modules` patching to implement exact lightweight mock classes for OpenCV, Numpy, and Pydantic (e.g. `MockBaseModel` and `Mockcv2`), or strictly enforce that unit tests must be executed with installed dependencies (`opencv-python-headless`, `numpy<2`, `pydantic`) without monkey-patching.
+3. **Frontend Deprecations:** Identify the nested dependencies causing `punycode` warnings (e.g. `whatwg-url`) in `web/package.json` and upgrade them to current standard libraries to maintain a clean testing environment.
