@@ -49,23 +49,28 @@ Future action: It is highly recommended to run backend tests solely via the Dock
 
 ## Test Environment Setup and Code Review Request (Update 2)
 
-I have implemented multiple missing backend mocks in `test_runner.py` (e.g. `numpy`, `cv2`, `peewee`, and better mocked implementations of `pydantic`). We explicitly redirected the `CONFIG_DIR` to `/tmp/config` in the test environment to overcome `os.makedirs` permission errors.
+Running backend tests via `python3 test_runner.py` yields:
+- `FAILED (failures=39, errors=234, skipped=4)`
+- Many TypeErrors related to mock comparisons (e.g. `TypeError: '>' not supported between instances of 'int' and 'ModuleMock'` in `export.py`).
+- RuntimeErrors during FFmpeg mocking (e.g. `RuntimeError: FFmpeg failed: ffmpeg exploded`).
+- SyntaxWarnings regarding invalid escape sequences in regex or strings (e.g., `test_camera_pw.py`).
 
-Despite these improvements, running the backend tests (via `test_runner.py`) still results in numerous failures (50 failures, 164 errors) due to complex dependency structures (e.g. `numpy` dimension assertions, `pydantic` iterative validation and serialization logic, `fastapi` routing, and `openvino` absence). Due to the brittle nature of these `sys.modules` hacks, the backend tests should ideally run in a fully populated Docker environment (`make run_tests`), but `make run_tests` currently fails with `mount source: "overlay"... err: invalid argument` on this environment setup.
+Running Rust tests via `cargo test` on all subdirectories:
+- All tests pass (e.g., 22 passed in frigate-frame-rs, 15 passed in frigate-motion-rs, 12 passed in frigate-yolo-rs).
 
-On the frontend side, I executed the unit tests using `npm install --legacy-peer-deps` and `npm run test src/`. All 115 tests completed successfully and efficiently.
+Running Frontend tests via `npm run test --prefix web -- --run src/`:
+- Test pass normally but with some node deprecation warnings regarding glob and inflight.
 
+## Test Environment Setup and Code Review Request (Update 2)
 
-## Status Update (Backend/Frontend execution tests)
-Tested the execution, frontend test works locally on `web/src`, returning 115 passing tests.
-Backend testing `make run_tests` fails because of Docker BuildKit/containerd overlayfs issue locally.
-Attempted running `test_runner.py` directly, encountering multiple failures requiring better dependency mocking (`requests`, `pydantic`, `cryptography`, `pandas` etc.). `test_runner.py` remains un-usable directly.
+Running backend tests via `python3 test_runner.py` yields:
+- `FAILED (failures=39, errors=234, skipped=4)`
+- Many TypeErrors related to mock comparisons (e.g. `TypeError: '>' not supported between instances of 'int' and 'ModuleMock'` in `export.py`).
+- RuntimeErrors during FFmpeg mocking (e.g. `RuntimeError: FFmpeg failed: ffmpeg exploded`).
+- SyntaxWarnings regarding invalid escape sequences in regex or strings (e.g., `test_camera_pw.py`).
 
-## Testing Status Update (Mocks Fixed)
-- Pydantic ValidationError now properly triggers during unit testing, validating camera config profiles properly.
-- NumPy array shapes and OpenCV tuples were hardcoded accurately inside `test_runner.py` mocks to resolve blocking TypeErrors during the video region detection.
-- Peewee database exceptions have been appended to `sys.modules` mitigating broken test discovery across API endpoints.
-- Backend tests ran with explicit `/tmp/config` paths. 115 Front-End tests passed without issue. Some advanced NumPy slice assertions still throw assertion errors structurally, but the runtime exception barriers are cleared. Tests are ready for further evaluation inside natively built Docker containers.
+Running Rust tests via `cargo test` on all subdirectories:
+- All tests pass (e.g., 22 passed in frigate-frame-rs, 15 passed in frigate-motion-rs, 12 passed in frigate-yolo-rs).
 
 Test results documented for the user
 - Resolved git merge conflict markers in test_runner.py.
@@ -453,3 +458,5 @@ Other native tests in the suite still encounter failures due to mocked dependenc
 1. **Docker Environment Integration:** Overhaul `make run_tests` to support fallback without BuildKit (e.g., `DOCKER_BUILDKIT=0`) properly, or introduce a `docker-compose.test.yml` to decouple from build caching issues.
 2. **Test Runner Refactoring:** Either refactor `test_runner.py`'s `sys.modules` patching to implement exact lightweight mock classes for OpenCV, Numpy, and Pydantic (e.g. `MockBaseModel` and `Mockcv2`), or strictly enforce that unit tests must be executed with installed dependencies (`opencv-python-headless`, `numpy<2`, `pydantic`) without monkey-patching.
 3. **Frontend Deprecations:** Identify the nested dependencies causing `punycode` warnings (e.g. `whatwg-url`) in `web/package.json` and upgrade them to current standard libraries to maintain a clean testing environment.
+Running Frontend tests via `npm run test --prefix web -- --run src/`:
+- Test pass normally but with some node deprecation warnings regarding glob and inflight.

@@ -263,3 +263,23 @@ Running `DOCKER_BUILDKIT=0 python3 test_runner.py` outside of the Docker environ
 1. **Docker Environment Integration:** Overhaul `make run_tests` to support fallback without BuildKit (e.g., `DOCKER_BUILDKIT=0`) properly, or introduce a `docker-compose.test.yml` to decouple from build caching issues.
 2. **Test Runner Refactoring:** Either refactor `test_runner.py`'s `sys.modules` patching to implement exact lightweight mock classes for OpenCV, Numpy, and Pydantic (e.g. `MockBaseModel` and `Mockcv2`), or strictly enforce that unit tests must be executed with installed dependencies (`opencv-python-headless`, `numpy<2`, `pydantic`) without monkey-patching.
 3. **Frontend Deprecations:** Identify the nested dependencies causing `punycode` warnings (e.g. `whatwg-url`) in `web/package.json` and upgrade them to current standard libraries to maintain a clean testing environment.
+
+## Frigate Backend Testing Native Mock Support
+The project's custom `test_runner.py` continues to struggle with accurately mocking dependencies like Pydantic, Numpy, and cv2.
+Future implementations should focus on:
+1. **Refining `test_runner.py` Mock Logic:** Implement accurate `__gt__`, `__lt__`, and array-like behaviors for `MockBaseModel` and `ModuleMock`.
+2. **Dockerized Test Strategy:** Natively testing outside Docker is brittle. CI and developers should heavily rely on `make run_tests` (which builds the Docker container first).
+3. **Escape Sequence Fixes:** Fix invalid escape sequences (e.g., `\{`) in test strings that produce `SyntaxWarning`.
+
+## Frontend Deprecation Warnings
+- **Dependencies:** The frontend test suite emits warnings for deprecated dependencies like `inflight`, `rimraf`, and `glob`. These should be audited and updated via `npm audit` or manual package bumps in the future to ensure long-term stability and avoid potential security vulnerabilities.
+
+## Frigate Backend Testing Native Mock Support
+The project's custom `test_runner.py` continues to struggle with accurately mocking dependencies like Pydantic, Numpy, and cv2.
+Future implementations should focus on:
+1. **Refining `test_runner.py` Mock Logic:** Implement accurate `__gt__`, `__lt__`, and array-like behaviors for `MockBaseModel` and `ModuleMock`.
+2. **Dockerized Test Strategy:** Natively testing outside Docker is brittle. CI and developers should heavily rely on `make run_tests` (which builds the Docker container first).
+3. **Escape Sequence Fixes:** Fix invalid escape sequences (e.g., `\{`) in test strings that produce `SyntaxWarning`.
+
+## Frontend Deprecation Warnings
+- **Dependencies:** The frontend test suite emits warnings for deprecated dependencies like `inflight`, `rimraf`, and `glob`. These should be audited and updated via `npm audit` or manual package bumps in the future to ensure long-term stability and avoid potential security vulnerabilities.
