@@ -504,8 +504,8 @@ class ONNXDetector(DetectionApi):
 
         if self.arch in ("yolov8", "yolo26"):
             # YOLOv8/YOLO11/YOLO26: Vulkan crashes after fork on AMD RADV.
-            # Use worker subprocess — for YOLO26 this is fast (~87ms) because
-            # post-processing is baked into the model (no numpy bottleneck).
+            # Use a worker subprocess: frigate-detector-rs when installed
+            # (inference and post-processing in Rust), else the Python one.
             self._init_ncnn_worker(param_path, bin_path)
             return
         else:
@@ -609,6 +609,9 @@ for _s in _STRIDES:
 _ALL_PTS = np.concatenate(_grid_pts, axis=0)  # (8400, 2)
 _ALL_STRIDES = np.concatenate(_grid_strides)[:, None]  # (8400, 1)
 
+# Ported to frigate-detector-rs/src/anchor_free.rs, which is tested against
+# this function's output. After changing it, regenerate that fixture with
+# frigate-detector-rs/testdata/gen_anchor_free_cases.py.
 def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
     # Key optimisation: pre-filter by class scores BEFORE expensive DFL decode.
     # Most of 8400 candidates have near-zero scores — skip their DFL entirely.
@@ -766,7 +769,7 @@ while True:
     os.write(1, result)
 """
         rust_bin = "/opt/frigate/frigate-detector-rs"
-        if self.arch == "yolo26" and os.path.exists(rust_bin):
+        if self.arch in ("yolo26", "yolov8") and os.path.exists(rust_bin):
             logger.info("Spawning Rust NCNN worker: %s", rust_bin)
             worker_env = os.environ.copy()
             if not self._has_gpu:
