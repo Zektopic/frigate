@@ -1,9 +1,11 @@
 //! Threaded Rust detector — ncnn (direct C-API FFI, or Python subprocess
 //! fallback) + rayon post-process.
-//! Drop-in replacement for Python YOLO worker subprocess.
+//! Drop-in replacement for Python YOLO worker subprocess, for YOLO26
+//! (`yolo26`) and YOLOv8 / YOLO11 (`yolov8`) exports.
 //!
 //! stdin/stdout pipe protocol compatible with ONNX plugin.
 
+mod anchor_free;
 mod ncnn_ffi;
 
 use crossbeam::channel::{bounded, Receiver, Sender};
@@ -14,6 +16,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 // ── Ncnn subprocess (Python — just forward pass, no numpy post) ───
+//
+// The input must be a 3D (c, h, w) array: pyncnn turns a 4D array into a
+// dims=4 c=1 Mat, which the model misreads (class scores collapse).
 
 struct NcnnProc {
     stdin: ChildStdin,
@@ -44,13 +49,20 @@ while True:
   c=os.read(0,s-len(d))
   if not c:break
   d+=c
- f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(1,3,{ms},{ms})
+ f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(3,{ms},{ms})
  with net.create_extractor() as ex:
   ex.input("{in_}",ncnn.Mat(f))
   ret,out=ex.extract("{out_}")
  raw=np.array(out).copy().tobytes()
  os.write(1,struct.pack('>I',len(raw)));os.write(1,raw)
-"#, param=param, bin=bin, in_=in_name, out_=out_name, ms=ms, threads=ncnn_ffi::num_threads());
+"#,
+            param = param,
+            bin = bin,
+            in_ = in_name,
+            out_ = out_name,
+            ms = ms,
+            threads = ncnn_ffi::num_threads()
+        );
 
         // ncnn CPU-fallback layers use OpenMP: default thread count (all
         // cores) oversubscribes and the workers spin-wait between parallel
@@ -104,8 +116,10 @@ while True:
         // (and for n == 0 the dangling pointer is misaligned).  Decode the
         // native-endian floats written by numpy's tobytes() instead.
         let floats: Vec<f32> = buf
-            .chunks_exact(4)
-            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_ne_bytes(*c))
             .collect();
         Ok(floats)
     }
@@ -228,6 +242,19 @@ fn process_rayon(
     keep.len()
 }
 
+/// How the model's output is post-processed, from the `<arch>` argument.
+enum Head {
+    /// YOLO26: boxes and class scores decoded in the graph, `(84, n)`.
+    Yolo26,
+    /// YOLOv8 / YOLO11: DFL box logits and class logits, `(n, 144)`.
+    AnchorFree(anchor_free::AnchorFree),
+}
+
+/// Score threshold of `_process()` in the Python worker, which the
+/// anchor-free path replaces.
+const ANCHOR_FREE_SCORE_THRESH: f32 = 0.25;
+const NMS_THRESH: f32 = 0.45;
+
 // ── Channel types ─────────────────────────────────────────────────
 
 struct Frame {
@@ -250,7 +277,16 @@ fn main() -> io::Result<()> {
     }
 
     let ms: u32 = args[5].parse().unwrap_or(640);
-    let is_yolo26 = args[6] == "yolo26";
+    // Checked before the model loads, so a bad argument fails fast instead
+    // of every frame coming back empty.
+    let head = match args[6].as_str() {
+        "yolo26" => Head::Yolo26,
+        "yolov8" => Head::AnchorFree(anchor_free::AnchorFree::new(ms)),
+        other => {
+            eprintln!("Unsupported arch {other:?}: expected yolo26 or yolov8");
+            std::process::exit(1);
+        }
+    };
 
     // OpenMP tuning must be in our environment before libncnn's first
     // parallel region (harmless for the subprocess fallback, which sets
@@ -268,14 +304,24 @@ fn main() -> io::Result<()> {
 
     // Thread 2: Inference + post-process
     std::thread::spawn(move || {
+        let mut reported_shape = false;
         while let Ok(frame) = rx_frame.recv() {
             let raw = ncnn.forward(&frame.data).unwrap_or_default();
-            let n_cells = raw.len() / if is_yolo26 { 84 } else { 144 };
             let mut out = [0.0f32; 120];
-            let n = if is_yolo26 {
-                process_rayon(&raw, n_cells, ms as f32, 0.05, 0.45, &mut out)
-            } else {
-                0
+            let n = match &head {
+                Head::Yolo26 => {
+                    process_rayon(&raw, raw.len() / 84, ms as f32, 0.05, NMS_THRESH, &mut out)
+                }
+                Head::AnchorFree(decoder) => decoder
+                    .process(&raw, ANCHOR_FREE_SCORE_THRESH, NMS_THRESH, &mut out)
+                    .unwrap_or_else(|e| {
+                        // Same model every frame: report once, not per frame.
+                        if !reported_shape {
+                            eprintln!("{e}");
+                            reported_shape = true;
+                        }
+                        0
+                    }),
             };
             if tx_result.send((out, n)).is_err() {
                 break;
