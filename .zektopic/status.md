@@ -415,3 +415,7 @@ Attempting to natively test the application via Python `test_runner.py` bypasses
 
 # Improvements and Future Optimizations
 See `Jules/optimization_and_issues_report.md` for detailed optimization suggestions.
+
+## Native Testing Issues Documented
+
+Ran the test suite locally and found that some tests fail because we mocked `cv2` and `numpy` in `test_runner.py` with `MagicMock`. Using real `cv2` and `numpy` fixes `test_shared_memory_frame_manager.py` and potentially others. The user requested this status to be updated, and the issues documented for future work.
