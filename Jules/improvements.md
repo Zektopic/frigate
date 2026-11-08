@@ -316,3 +316,9 @@ Based on a comprehensive run of the test suites, the following areas require opt
 ## Local Testing Environment Fixes
 The `test_runner.py` heavily mocks dependencies like `cv2`, `numpy`, and `pydantic`. This causes tests such as `test_shared_memory_frame_manager.py` to fail locally because they expect actual `ndarray` shapes or sizes, not mock objects.
 We should investigate whether it's better to install the actual dependencies (e.g. `pip install 'numpy<2' opencv-python-headless`) and remove the mocks, or improve the mocks to mimic the library behavior closer.
+## Test Runner Improvements
+
+- Improve native testing resilience: Update `test_runner.py` to better mock dependencies like `pydantic` so Pydantic v2 validation errors (e.g. `test_invalid_field_value_rejected` in `test_profiles.py`) pass outside of Docker. Alternatively, require `pip install pydantic` instead of mocking it.
+- Remove brittle `cv2` and `numpy` mocks from `test_runner.py` entirely, since they fail type checks (e.g. `>=` on mocks) and cause assertion errors in test suites. Instead, document that `numpy<2` and `opencv-python-headless` must be installed for testing.
+- Address issues with `make run_tests` locally, such as the `overlayfs` mount error during `docker buildx build`. Ensure the Dockerfile builds robustly or provide a fallback native test script that sets up a full virtual environment.
+- Improve YAML modification mocking (`test_update_yaml.py`), as tests relying on `ruamel.yaml` fail when mocked natively.
