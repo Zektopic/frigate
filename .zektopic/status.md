@@ -430,3 +430,14 @@ We ran tests on `frigate/test/test_shared_memory_frame_manager.py` and `frigate/
 Some tests initially failed when run with mocked `numpy` and `cv2` due to deep mock integration issues, however they passed successfully when we installed `numpy<2` and `opencv-python-headless` and disabled the mocks in `test_runner.py`.
 
 Other native tests in the suite still encounter failures due to mocked dependencies (like `pydantic`, `peewee`, etc) having limitations outside of the docker container.
+
+## Test Run Updates - $(date)
+
+### Outcomes
+- **Frontend Tests (Vitest)**: Ran `npm run test --prefix web`. All 153 tests passed. `DEP0040` deprecation warnings observed.
+- **Rust Tests (Cargo)**: Ran `cargo test` across all four Rust directories. All 51 tests passed without error.
+- **Backend Tests (Python)**: Ran `python3 test_runner.py`. Output 47 failures and 243 errors due to extremely brittle global `sys.modules` monkey-patching for OpenCV and Pydantic.
+
+### Actionable Improvements
+- **Refactor Testing Mocks**: Rework `test_runner.py` to stop using universal `MagicMock` instances for complex libraries like `cv2` and `numpy`. Rely on `pip install opencv-python-headless numpy pydantic` to allow native testing accuracy.
+- **Frontend Dependency Modernization**: Update the frontend library relying on Node's legacy `punycode` module to eliminate the `DEP0040` console warning during testing.

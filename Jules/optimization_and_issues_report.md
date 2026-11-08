@@ -240,3 +240,14 @@ Running `DOCKER_BUILDKIT=0 python3 test_runner.py` outside of the Docker environ
 ## New Test Results
 * `cargo test` ran successfully on all Rust components, passing tests in `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`.
 * Tested Vitest frontend components using `npm run test --prefix web -- --run src/`. All 153 tests across 17 test files passed.
+
+## Testing Suite Analysis - $(date)
+
+### Execution Results
+1. **Frontend**: Ran `npm run test --prefix web` with vitest. 153 tests completed successfully. Identified `DEP0040` deprecation warnings.
+2. **Rust Backend**: Executed `cargo test` on all crates (`detector`, `frame`, `motion`, `yolo`). 51 tests passed correctly.
+3. **Python Backend**: Native execution using `test_runner.py` produced 47 failures and 243 errors. This stems from `MagicMock` type mismatches when standard Frigate code performs array math or Pydantic nested object evaluation on mocked targets.
+
+### Proposed Optimizations
+- **Testing Mocks**: Deprecate global `sys.modules` patching in `test_runner.py` in favor of a native `requirements-test.txt` approach to prevent false positive errors during local test execution.
+- **Node Dependency Bump**: Locate the dependency generating the `punycode` warning (`npm ls punycode`) and increment it to a version utilizing userland punycode implementations.
