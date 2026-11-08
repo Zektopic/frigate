@@ -243,8 +243,8 @@ impl NcnnFfi {
                 format!("expected {} fp16 values, got {n}", self.f32_buf.len()),
             ));
         }
-        for (i, chunk) in frame_f16.chunks_exact(2).enumerate() {
-            self.f32_buf[i] = f16_to_f32(u16::from_le_bytes([chunk[0], chunk[1]]));
+        for (dst, bytes) in self.f32_buf.iter_mut().zip(frame_f16.as_chunks::<2>().0) {
+            *dst = f16_to_f32(u16::from_le_bytes(*bytes));
         }
 
         let ms = self.model_size as c_int;

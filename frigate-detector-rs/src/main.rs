@@ -113,8 +113,10 @@ while True:
         // (and for n == 0 the dangling pointer is misaligned).  Decode the
         // native-endian floats written by numpy's tobytes() instead.
         let floats: Vec<f32> = buf
-            .chunks_exact(4)
-            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_ne_bytes(*c))
             .collect();
         Ok(floats)
     }
