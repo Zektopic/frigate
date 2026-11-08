@@ -16,6 +16,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 // ── Ncnn subprocess (Python — just forward pass, no numpy post) ───
+//
+// The input must be a 3D (c, h, w) array: pyncnn turns a 4D array into a
+// dims=4 c=1 Mat, which the model misreads (class scores collapse).
 
 struct NcnnProc {
     stdin: ChildStdin,
@@ -46,7 +49,7 @@ while True:
   c=os.read(0,s-len(d))
   if not c:break
   d+=c
- f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(1,3,{ms},{ms})
+ f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(3,{ms},{ms})
  with net.create_extractor() as ex:
   ex.input("{in_}",ncnn.Mat(f))
   ret,out=ex.extract("{out_}")
