@@ -232,3 +232,11 @@ Running `DOCKER_BUILDKIT=0 python3 test_runner.py` outside of the Docker environ
 - **Node/Vitest Warnings:** Update `whatwg-url` or `tr46` to resolve the `punycode` deprecation warning (DEP0040) during `npm run test` in the web directory.
 - **Test Runner Mocking Infrastructure:** The reliance on `test_runner.py` and `sys.modules` patching for backend logic testing is highly brittle (especially for Pydantic and OpenCV). Consider migrating native tests to mock-free environments or formalizing lightweight dependency layers for core business logic testing.
 - **Dependency Upgrades:** Keep dependencies up to date, including fixing vulnerabilities flagged by `npm audit`.
+
+## Test Execution Status Updates
+* **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
+* Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.
+
+## New Test Results
+* `cargo test` ran successfully on all Rust components, passing tests in `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`.
+* Tested Vitest frontend components using `npm run test --prefix web -- --run src/`. All 153 tests across 17 test files passed.
