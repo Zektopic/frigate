@@ -481,3 +481,9 @@ When using targeted evaluation (`frigate/test/<module>.py`) with unmodified runt
 
 **Frontend (Vitest)**: Passed ✅
 Executed successfully (`17 files`, `153 tests`). Components render correctly and configurations validate successfully. Node deprecation emitted (`DEP0040` on `punycode` dependency chain), but zero logic failures occurred.
+
+## Additional Native Test Execution Observations
+- Frontend (Vitest): `npm run test --prefix web -- --run src/`. All 153 tests across 17 test files passed.
+- Rust Backend: `cargo test` on all crates. All tests passed successfully.
+- Python Backend (Docker): BuildKit overlayfs setup note recorded.
+- Python Backend (Native via `test_runner.py`): Identified brittle mock infrastructure quirks in global mode, addressed by targeted test running.
