@@ -322,3 +322,21 @@ We should investigate whether it's better to install the actual dependencies (e.
 - Remove brittle `cv2` and `numpy` mocks from `test_runner.py` entirely, since they fail type checks (e.g. `>=` on mocks) and cause assertion errors in test suites. Instead, document that `numpy<2` and `opencv-python-headless` must be installed for testing.
 - Address issues with `make run_tests` locally, such as the `overlayfs` mount error during `docker buildx build`. Ensure the Dockerfile builds robustly or provide a fallback native test script that sets up a full virtual environment.
 - Improve YAML modification mocking (`test_update_yaml.py`), as tests relying on `ruamel.yaml` fail when mocked natively.
+
+## Infrastructure & Architectural Optimizations Roadmap
+
+### 1. Robust Mock Subsystems (`test_runner.py`)
+**Issue:** Blanket `MagicMock` application to high-level dependencies (`cv2`, `numpy`, `peewee`) triggers massive type resolution issues (`TypeError: '>=' not supported between instances of 'MagicMock' and 'int'`) inside matrix and mathematical operations (`frigate/util/object.py`).
+**Fix Roadmap:** Implement lightweight, targeted Mock types in `test_runner.py` that implement standard arithmetic interfaces (`__gt__`, `__ge__`, `__getitem__`) returning deterministically mockable primitives (or install `numpy<2` headless dependencies directly and omit mocking them altogether).
+
+### 2. Pydantic v2 Compatibility in Local Tests
+**Issue:** `MockBaseModel` fails to simulate real `pydantic_core.ValidationError`, and nested dictionaries do not inherently convert to structured Mock properties, breaking routing and testing that rely on strictly typed dictionary destructuring.
+**Fix Roadmap:** Convert `test_runner.py` logic to recursively wrap configuration dictionaries into `MockBaseModel` schemas and simulate standard `.dict()`, `.keys()` endpoints for full interoperability.
+
+### 3. File System Emulation for Testing
+**Issue:** Tests assume root-access or hardcoded writable paths like `/config`. Emitting environment variables does not reliably override deep static paths evaluated at compile time (`MODEL_CACHE_DIR`).
+**Fix Roadmap:** Inject `tempfile.TemporaryDirectory()` structures using `unittest.mock.patch` onto `frigate.const` locations inside `setUpClass()` rather than modifying local system permissions.
+
+### 4. Frontend Ecosystem Refactor
+**Issue:** Dependency vulnerability graph exposes `punycode` deprecations inside core Vite plugins, risking future ecosystem fractures.
+**Fix Roadmap:** Trigger a strategic bump of `whatwg-url` and resolve outdated glob patterns inherited from deep UI component transitive dependencies.

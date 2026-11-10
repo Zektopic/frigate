@@ -430,8 +430,8 @@ sys.modules["shapely.geometry.polygon"] = ModuleMock()
 sys.modules["ai_edge_litert"] = ModuleMock()
 sys.modules["ai_edge_litert.interpreter"] = ModuleMock()
 sys.modules["tflite_runtime"] = ModuleMock()
-sys.modules["cv2"] = MagicMock()
-sys.modules["numpy"] = MagicMock()
+# sys.modules["cv2"] = MagicMock()
+# sys.modules["numpy"] = MagicMock()
 
 
 class MockPydanticValidationError(Exception):
