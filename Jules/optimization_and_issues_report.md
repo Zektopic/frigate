@@ -283,3 +283,17 @@ Future implementations should focus on:
 
 ## Frontend Deprecation Warnings
 - **Dependencies:** The frontend test suite emits warnings for deprecated dependencies like `inflight`, `rimraf`, and `glob`. These should be audited and updated via `npm audit` or manual package bumps in the future to ensure long-term stability and avoid potential security vulnerabilities.
+
+## Test Execution & Codebase Optimizations
+
+### Findings from Recent Tests
+1. **Frontend**: Vitest ran 153 tests successfully but reported several `DEP0040` (DeprecationWarning: The `punycode` module is deprecated).
+2. **Rust Backend**: `cargo test` succeeded for all crates (`detector`, `frame`, `motion`, `yolo`), showing 0 failures.
+3. **Python Backend**:
+    - Dockerized testing (`make run_tests`) failed due to an `overlayfs` error.
+    - Native testing via `test_runner.py` continues to fail with 41 failures and 245 errors due to brittle mock logic (specifically with Pydantic schemas, `cv2` array/math assertions, and mock objects incorrectly comparing against native types).
+
+### Proposed Improvements Roadmap
+- **Frontend Deprecation Warnings**: Identify nested dependencies relying on `punycode` (such as `whatwg-url` or `tr46`) and upgrade them to silence the `DEP0040` warnings. Address additional deprecated packages like `inflight`, `rimraf`, and `glob` reported during `npm ci`.
+- **Backend Mock Infrastructure**: Refactor `test_runner.py` to provide highly accurate implementations for `MockBaseModel` and `ModuleMock` (specifically handling `__gt__`, `__lt__`, `__eq__`, etc. natively).
+- **Docker Test Reliability**: Improve `make run_tests` compatibility by decoupling from BuildKit caching issues, potentially introducing a lightweight `docker-compose.test.yml` strictly for CI/CD testing.

@@ -460,3 +460,11 @@ Other native tests in the suite still encounter failures due to mocked dependenc
 3. **Frontend Deprecations:** Identify the nested dependencies causing `punycode` warnings (e.g. `whatwg-url`) in `web/package.json` and upgrade them to current standard libraries to maintain a clean testing environment.
 Running Frontend tests via `npm run test --prefix web -- --run src/`:
 - Test pass normally but with some node deprecation warnings regarding glob and inflight.
+
+## Testing Status
+
+I ran the following tests:
+- Frontend (Vitest): `npm run test --prefix web -- --run src/`. All 153 tests across 17 test files passed. Identified `DEP0040` deprecation warnings about the `punycode` module.
+- Rust Backend: `cargo test` on all crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`). All tests passed successfully.
+- Python Backend (Docker): `DOCKER_BUILDKIT=0 make run_tests` failed with an `overlayfs` mount error (`invalid argument`), typical of BuildKit issues when DOCKER_BUILDKIT is not respected properly.
+- Python Backend (Native via `test_runner.py`): Executed after installing `numpy<2`, `opencv-python-headless`, and `pathvalidate`. Resulted in 41 failures and 245 errors. This confirms that the custom mock infrastructure inside `test_runner.py` is brittle and continues to struggle with correctly mocking libraries like Pydantic, Numpy, and `cv2`.
