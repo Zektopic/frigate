@@ -297,3 +297,27 @@ Future implementations should focus on:
 - **Frontend Deprecation Warnings**: Identify nested dependencies relying on `punycode` (such as `whatwg-url` or `tr46`) and upgrade them to silence the `DEP0040` warnings. Address additional deprecated packages like `inflight`, `rimraf`, and `glob` reported during `npm ci`.
 - **Backend Mock Infrastructure**: Refactor `test_runner.py` to provide highly accurate implementations for `MockBaseModel` and `ModuleMock` (specifically handling `__gt__`, `__lt__`, `__eq__`, etc. natively).
 - **Docker Test Reliability**: Improve `make run_tests` compatibility by decoupling from BuildKit caching issues, potentially introducing a lightweight `docker-compose.test.yml` strictly for CI/CD testing.
+
+## Testing Status Update (Native Execution without buildx)
+
+**Frontend Testing (Vitest)**
+- Executed successfully (`npm run test --prefix web -- --run src/`).
+- All 17 test files and 153 tests passed successfully.
+- Dependency warning (`DEP0040`) for `punycode` still active.
+
+**Rust Components**
+- All 4 crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) passed natively without issues.
+
+**Python Backend Testing**
+- `make run_tests` fails locally using `DOCKER_BUILDKIT=0` or native `docker buildx` with an `overlayfs` mount source error (`invalid argument`) stemming from BuildKit / snapshotter limitations on the host.
+- Falling back to `python3 test_runner.py discover -s frigate/test -p "test_*.py"` results in numerous failures due to environment limitations.
+- 883 total tests executed. 30 failures, 207 errors, 5 skipped.
+- Some specific module mock bugs discovered:
+  - `playhouse` missing mocks causing Peewee migrations or db creations to fail.
+  - `REGEXP_TIMEOUT_SECONDS` missing regex dependency logic or failing due to sqlite missing REGEXP native function locally outside the `sqlitevec` extension. `test_sqlitevecq_regexp.py` completely fails.
+  - Missing deep-learning components (`onnxruntime`, `ai_edge_litert`, etc) locally.
+
+**Actionable Future Implementations**
+1. **Mock Enhancement for `test_runner.py`**: Fix deep mock implementations for Peewee extensions (playhouse) and proper native sqlite `REGEXP` bindings so that queues and databases can be properly instantiated natively.
+2. **Container Testing Overhaul**: Fix the host-level BuildKit overlayfs limitation so that CI or developer environments can execute `make run_tests` directly inside the fully-installed Docker container.
+3. **Frontend Refactoring**: Replace the deprecated `punycode` dependency module throughout the frontend node configuration to completely silence the Node warning in the CI output.
