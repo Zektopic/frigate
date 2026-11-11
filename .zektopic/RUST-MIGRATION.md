@@ -22,6 +22,13 @@ These performance-critical components have been successfully migrated to Rust to
    * `motion_pixel_pipeline` FFI (blur → absdiff → threshold → dilate → contours) wired into `ImprovedMotionDetector.detect()`, replacing the OpenCV/scipy pixel math per frame; all Python post-processing (PTZ, calibration, `accumulateWeighted`) retained.
 3. **`frigate-frame-rs`**:
    * Handles frame processing, scaling, crop operations, and pixel format conversions directly inside shared memory (`/dev/shm`).
+4. **`frigate-stats-rs`** (2026-11-11): the resource monitor behind the System page and `/api/stats`.
+   * One call per stats interval (`frigate/stats/rust_stats.py`) returns per-process CPU and memory for Frigate's process tree, AMD GPU usage and AMD XDNA NPU usage as JSON. The library keeps the previous counters, so every figure covers the whole interval between two collections.
+   * **Fixes per-process CPU reading 0.0 for everything.** The Python collector built new `psutil.Process` objects on every collection, and the first `cpu_percent()` of a new object is always 0.0. (The psutil fallback is fixed too: it now keeps the objects.)
+   * **Detectors report their whole process tree.** Inference runs in the `frigate-detector-rs` child, which was not listed at all, so the detector always looked idle.
+   * **AMD GPU without `radeontop`**: device load (mean of 1 Hz readings of `gpu_busy_percent`, not one instantaneous sample), VRAM, temperature and power from sysfs; decode and compute time per process from DRM fdinfo. On video cores with a unified queue (VCN 4, e.g. Radeon 760M) the kernel accounts decode as `enc`; it is shown as decode. A GPU that only runs the detector (no VAAPI hwaccel) is now reported as well.
+   * **AMD XDNA NPU** straight from the `amdxdna` driver when `/dev/accel/accel0` is passed into the container (contexts, commands per second, buffer memory, column occupancy). A runtime-suspended NPU is never queried, since any query wakes it. The npu-face service's own figures still take precedence when it is in use.
+   * Intel, NVIDIA and Rockchip stats are unchanged and still collected in Python.
 
 ---
 
@@ -40,7 +47,7 @@ The core coordination layer and non-performance-critical logic remain in Python:
 5. **Process Supervision**:
    * Monitoring/respawning helper processes (`go2rtc`, FFmpeg capture, Rust detector binary).
 6. **Telemetry & Stats**:
-   * Resource statistics aggregator (queries CPU, GPU, memory stats via `psutil`/helpers).
+   * The stats snapshot, history and Prometheus export. The collection itself is in `frigate-stats-rs`; Intel, NVIDIA and Rockchip GPU stats are still read by Python helpers.
 7. **Semantic Search & Face Recognition**:
    * Embedding computations and database indexing (`frigate/data_processing/`).
 
@@ -63,5 +70,5 @@ To achieve a minimal CPU/RAM footprint and completely remove the Python GIL over
 * **Rust Target**: Shift event state classification (start, active, end) to Rust to prevent GIL lag during busy periods.
 
 ### 4. Telemetry Collector
-* **Current State**: **Optimized**. Refactored `get_cpu_stats` to query only Frigate's descendant processes (ffmpeg, go2rtc, python, workers) recursively instead of scanning all system-wide processes, avoiding high CPU/RAM overhead and GIL lag.
-* **Rust Target**: Complete lightweight background stats-gathering thread in Rust to entirely bypass Python `psutil` dependencies.
+* **Current State**: **Migrated to Rust** (`frigate-stats-rs`, see above) for process, AMD GPU and AMD XDNA NPU stats. psutil and `radeontop` remain only as the fallback when the library is missing.
+* **Remaining**: Intel (i915/xe fdinfo), NVIDIA (NVML) and Rockchip collectors are still Python; they could move behind the same call, but need that hardware to verify.
