@@ -49,15 +49,16 @@ COPY frigate-detector-rs/ frigate-detector-rs/
 COPY frigate-motion-rs/ frigate-motion-rs/
 COPY frigate-yolo-rs/ frigate-yolo-rs/
 COPY frigate-frame-rs/ frigate-frame-rs/
+COPY frigate-stats-rs/ frigate-stats-rs/
 
 # AVX2 paths in frigate-motion-rs are selected at runtime and compiled out
 # on aarch64, so the same sources build for both targets.
 RUN T="$(cat /rust-target)" && mkdir -p /build/out \
-    && for crate in detector motion yolo frame; do \
+    && for crate in detector motion yolo frame stats; do \
         (cd frigate-$crate-rs && cargo build --release --target "$T") || exit 1; \
     done \
     && cp frigate-detector-rs/target/$T/release/frigate-detector-rs /build/out/ \
-    && for crate in motion yolo frame; do \
+    && for crate in motion yolo frame stats; do \
         cp frigate-$crate-rs/target/$T/release/libfrigate_${crate}_rs.so /build/out/; \
     done
 
@@ -82,6 +83,7 @@ COPY --from=rust-builder /build/out/frigate-detector-rs /opt/frigate/frigate-det
 COPY --from=rust-builder /build/out/libfrigate_motion_rs.so /opt/frigate/libfrigate_motion_rs.so
 COPY --from=rust-builder /build/out/libfrigate_yolo_rs.so /opt/frigate/libfrigate_yolo_rs.so
 COPY --from=rust-builder /build/out/libfrigate_frame_rs.so /opt/frigate/libfrigate_frame_rs.so
+COPY --from=rust-builder /build/out/libfrigate_stats_rs.so /opt/frigate/libfrigate_stats_rs.so
 
 # Copy migrations
 COPY migrations/ /opt/frigate/migrations/

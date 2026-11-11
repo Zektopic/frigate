@@ -84,6 +84,19 @@ def yolo_rs_loads() -> bool:
     return yolo_available()
 
 
+def stats_rs_collects() -> bool:
+    from frigate.stats.rust_stats import collect, stats_rs_available
+
+    if not stats_rs_available():
+        return False
+
+    # A real collection, not just a successful dlopen: this process must be
+    # in it, with the fields the stats snapshot reads.
+    doc = collect()
+    me = (doc or {}).get("processes", {}).get(str(os.getpid()), {})
+    return {"cpu", "cpu_average", "mem", "tree_cpu", "cmdline"} <= set(me)
+
+
 def detector_binary_runs() -> bool:
     # With no arguments the binary prints its usage line and exits 1. Getting
     # that far proves it is executable and its glibc symbols resolve.
@@ -105,6 +118,7 @@ INTEGRATION_TESTS = [
     "frigate.test.test_stationary_classifier",
     "frigate.test.test_face_preview_yolo_fixes",
     "frigate.test.test_stress_concurrency",
+    "frigate.test.test_rust_stats",
 ]
 
 
@@ -124,6 +138,7 @@ def main() -> int:
     check("libfrigate_frame_rs.so loads", frame_rs_loads)
     check("libfrigate_motion_rs.so loads", motion_rs_loads)
     check("libfrigate_yolo_rs.so loads", yolo_rs_loads)
+    check("libfrigate_stats_rs.so collects", stats_rs_collects)
     check("frigate-detector-rs executes", detector_binary_runs)
     check("frigate.app imports", frigate_app_imports)
 
