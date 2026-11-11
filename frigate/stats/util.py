@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import time
+from functools import cache
 from json import JSONDecodeError
 from multiprocessing.managers import DictProxy
 from typing import Any, Optional
@@ -16,6 +17,7 @@ from frigate.config import FrigateConfig
 from frigate.const import CACHE_DIR, CLIPS_DIR, RECORD_DIR
 from frigate.data_processing.types import DataProcessorMetrics
 from frigate.object_detection.base import ObjectDetectProcess
+from frigate.stats import rust_stats
 from frigate.types import StatsTrackingTypes
 from frigate.util.services import (
     calculate_shm_requirements,
@@ -38,6 +40,15 @@ from frigate.version import VERSION
 logger = logging.getLogger(__name__)
 
 HWACCEL_ERROR_COOLDOWN_SECONDS = 3600
+
+
+@cache
+def _is_amd_vaapi() -> bool:
+    """Cached vaapi driver check, the driver cannot change at runtime.
+
+    Uncached, this ran vainfo in a subprocess on every stats collection.
+    """
+    return is_vaapi_amd_driver()
 
 
 def get_latest_version(config: FrigateConfig) -> str:
@@ -175,14 +186,21 @@ def get_processing_stats(
     config: FrigateConfig,
     stats: dict[str, str],
     hwaccel_errors: dict[str, float],
-) -> None:
-    """Get stats for cpu / gpu."""
+) -> dict[str, Any] | None:
+    """Get stats for cpu / gpu.
+
+    Returns the collection of the Rust resource monitor, if it is available,
+    for the per-process details that are not part of the published stats.
+    """
+    # One collection feeds the cpu, gpu and npu stats, so all three cover the
+    # same interval.
+    native = rust_stats.collect()
 
     async def run_tasks() -> None:
         stats_tasks = [
-            asyncio.create_task(set_gpu_stats(config, stats, hwaccel_errors)),
-            asyncio.create_task(set_cpu_stats(stats)),
-            asyncio.create_task(set_npu_usages(config, stats)),
+            asyncio.create_task(set_gpu_stats(config, stats, hwaccel_errors, native)),
+            asyncio.create_task(set_cpu_stats(stats, native)),
+            asyncio.create_task(set_npu_usages(config, stats, native)),
         ]
 
         if config.telemetry.stats.network_bandwidth:
@@ -194,11 +212,14 @@ def get_processing_stats(
     asyncio.set_event_loop(loop)
     loop.run_until_complete(run_tasks())
     loop.close()
+    return native
 
 
-async def set_cpu_stats(all_stats: dict[str, Any]) -> None:
-    """Set cpu usage from top."""
-    cpu_stats = get_cpu_stats()
+async def set_cpu_stats(
+    all_stats: dict[str, Any], native: dict[str, Any] | None = None
+) -> None:
+    """Set cpu usage per process."""
+    cpu_stats = get_cpu_stats(native)
 
     if cpu_stats:
         all_stats["cpu_usages"] = cpu_stats
@@ -216,6 +237,7 @@ async def set_gpu_stats(
     config: FrigateConfig,
     all_stats: dict[str, Any],
     hwaccel_errors: dict[str, float],
+    native: dict[str, Any] | None = None,
 ) -> None:
     """Parse GPUs from hwaccel args and use for stats."""
     hwaccel_args = []
@@ -241,6 +263,17 @@ async def set_gpu_stats(
     stats: dict[str, dict] = {}
     intel_gpu_collected = False
     now = time.monotonic()
+
+    # AMD GPUs are read from sysfs and fdinfo by the Rust monitor. Unlike the
+    # hwaccel scan below this also covers a GPU that only runs the detector.
+    amd_gpu_collected = False
+
+    if native is not None and config.telemetry.stats.amd_gpu_stats:
+        amd_usages = rust_stats.amd_gpu_usages(native)
+
+        if amd_usages:
+            stats.update(amd_usages)
+            amd_gpu_collected = True
 
     for args in hwaccel_args:
         last_error = hwaccel_errors.get(args)
@@ -276,7 +309,7 @@ async def set_gpu_stats(
             else:
                 stats["jetson-gpu"] = {"vendor": "nvidia", "gpu": "", "mem": ""}
                 hwaccel_errors[args] = time.monotonic()
-        elif "qsv" in args or ("vaapi" in args and not is_vaapi_amd_driver()):
+        elif "qsv" in args or ("vaapi" in args and not _is_amd_vaapi()):
             if not config.telemetry.stats.intel_gpu_stats:
                 continue
 
@@ -295,10 +328,10 @@ async def set_gpu_stats(
                     stats["intel-gpu"] = {"vendor": "intel", "gpu": "", "mem": ""}
                     hwaccel_errors[args] = time.monotonic()
         elif "vaapi" in args:
-            if not config.telemetry.stats.amd_gpu_stats:
+            if not config.telemetry.stats.amd_gpu_stats or amd_gpu_collected:
                 continue
 
-            # AMD VAAPI GPU
+            # AMD VAAPI GPU, without the Rust monitor
             amd_usage = get_amd_gpu_stats()
 
             if amd_usage:
@@ -319,7 +352,11 @@ async def set_gpu_stats(
         all_stats["gpu_usages"] = stats
 
 
-async def set_npu_usages(config: FrigateConfig, all_stats: dict[str, Any]) -> None:
+async def set_npu_usages(
+    config: FrigateConfig,
+    all_stats: dict[str, Any],
+    native: dict[str, Any] | None = None,
+) -> None:
     stats: dict[str, dict] = {}
 
     for detector in config.detectors.values():
@@ -336,6 +373,13 @@ async def set_npu_usages(config: FrigateConfig, all_stats: dict[str, Any]) -> No
             axcl_usage = get_axcl_npu_stats()
             stats["axengine"] = axcl_usage
 
+    # AMD XDNA NPU, read from the driver when /dev/accel is passed in
+    if native is not None:
+        xdna_direct = rust_stats.xdna_npu_usage(native)
+
+        if xdna_direct is not None:
+            stats["amd-xdna"] = xdna_direct
+
     # AMD XDNA NPU used through the npu-face service (face recognition)
     from frigate.detectors.npu_service_runner import (
         get_npu_service_stats,
@@ -350,7 +394,13 @@ async def set_npu_usages(config: FrigateConfig, all_stats: dict[str, Any]) -> No
     if endpoint is not None:
         xdna_usage = await asyncio.to_thread(get_npu_service_stats, endpoint)
         if xdna_usage:
-            stats["amd-xdna"] = xdna_usage
+            # The service measures the time it spends in NPU calls, which is
+            # more precise than the driver's column occupancy, so its figures
+            # win; the driver adds what the service does not know.
+            stats["amd-xdna"] = {
+                **stats.get("amd-xdna", {}),
+                **{k: v for k, v in xdna_usage.items() if v is not None},
+            }
 
     if stats:
         all_stats["npu_usages"] = stats
@@ -502,7 +552,7 @@ def stats_snapshot(
                 embeddings_metrics.classification_cps[key].value, 2
             )
 
-    get_processing_stats(config, stats, hwaccel_errors)
+    native = get_processing_stats(config, stats, hwaccel_errors)
 
     stats["service"] = {
         "uptime": (int(time.time()) - stats_tracking["started"]),
@@ -540,7 +590,11 @@ def stats_snapshot(
 
     for det_stats in stats["detectors"].values():
         pid_str = str(det_stats.get("pid", ""))
-        usage = cpu_usages.get(pid_str, {})
+        # Inference may run in a child process (frigate-detector-rs), so a
+        # detector's usage is that of its whole process tree
+        usage = rust_stats.tree_usage(native, det_stats.get("pid")) or cpu_usages.get(
+            pid_str, {}
+        )
         det_stats["cpu"] = usage.get("cpu")
         det_stats["mem"] = usage.get("mem")
 

@@ -105,8 +105,62 @@ def get_docker_memlimit_bytes() -> int:
     return -1
 
 
-def get_cpu_stats() -> dict[str, dict]:
-    """Get cpu usages for each process id"""
+# psutil measures a process's CPU between two cpu_percent() calls on the same
+# Process object, and the first call on a new object always returns 0.0. The
+# objects therefore have to be kept from one collection to the next.
+_cpu_stat_processes: dict[int, psutil.Process] = {}
+
+
+def _tracked_processes() -> list[psutil.Process]:
+    """Frigate's process tree and its supervised helpers, as reused objects."""
+    try:
+        main_proc = psutil.Process()
+        found = [main_proc] + main_proc.children(recursive=True)
+    except Exception:
+        found = []
+
+    known = {proc.pid for proc in found}
+
+    # go2rtc and certsync are supervised next to Python, not started by it
+    try:
+        for p in psutil.process_iter(attrs=["pid", "name"]):
+            try:
+                if (
+                    p.pid not in known
+                    and p.info["name"]
+                    and any(k in p.info["name"] for k in ["go2rtc", "certsync"])
+                ):
+                    found.append(p)
+                    known.add(p.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except Exception:
+        logger.warning("Exception caught and ignored")
+
+    current: dict[int, psutil.Process] = {}
+
+    for proc in found:
+        cached = _cpu_stat_processes.get(proc.pid)
+        # Process equality includes the start time, so a reused pid is a
+        # different process and starts over
+        current[proc.pid] = cached if cached == proc else proc
+
+    _cpu_stat_processes.clear()
+    _cpu_stat_processes.update(current)
+    return list(current.values())
+
+
+def get_cpu_stats(native: dict[str, Any] | None = None) -> dict[str, dict]:
+    """Get cpu usages for each process id.
+
+    `native` is a collection from the Rust resource monitor. Without it the
+    usage is read with psutil.
+    """
+    if native is not None:
+        from frigate.stats.rust_stats import cpu_usages
+
+        return cpu_usages(native)
+
     usages = {}
     docker_memlimit = get_docker_memlimit_bytes() / 1024
     total_mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024
@@ -120,28 +174,9 @@ def get_cpu_stats() -> dict[str, dict]:
         "mem": str(system_mem.percent),
     }
 
-    keywords = ["ffmpeg", "go2rtc", "frigate.", "python3"]
-    try:
-        main_proc = psutil.Process()
-        our_processes = [main_proc] + main_proc.children(recursive=True)
-    except Exception:
-        our_processes = []
+    keywords = ["ffmpeg", "go2rtc", "frigate.", "frigate-detector", "python3"]
 
-    # Include go2rtc and supervised helper processes that are not direct children of Python
-    try:
-        for p in psutil.process_iter(attrs=["pid", "name"]):
-            try:
-                if p.info["name"] and any(
-                    k in p.info["name"] for k in ["go2rtc", "certsync"]
-                ):
-                    if p.pid not in [proc.pid for proc in our_processes]:
-                        our_processes.append(p)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-    except Exception:
-        logger.warning("Exception caught and ignored")
-
-    for process in our_processes:
+    for process in _tracked_processes():
         try:
             info = process.as_dict(attrs=["pid", "name", "cpu_percent", "cmdline"])
             pid = str(info["pid"])
@@ -168,7 +203,9 @@ def get_cpu_stats() -> dict[str, dict]:
             process_stime_sec = stime // clk_tck
             process_start_time_sec = start_time // clk_tck
 
-            process_elapsed_sec = system_uptime_sec - process_start_time_sec
+            # a process in its first second has no elapsed time yet, which
+            # used to divide by zero and drop it from the stats
+            process_elapsed_sec = max(system_uptime_sec - process_start_time_sec, 1)
             process_usage_sec = process_utime_sec + process_stime_sec
             cpu_average_usage = process_usage_sec * 100 // process_elapsed_sec
 
