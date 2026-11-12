@@ -769,8 +769,12 @@ while True:
     os.write(1, result)
 """
         rust_bin = "/opt/frigate/frigate-detector-rs"
+        # Only the Rust worker understands raw uint8 frames (see
+        # accepts_uint8_nhwc); the Python worker below reads fp16.
+        self._worker_accepts_uint8 = False
         if self.arch in ("yolo26", "yolov8") and os.path.exists(rust_bin):
             logger.info("Spawning Rust NCNN worker: %s", rust_bin)
+            self._worker_accepts_uint8 = True
             worker_env = os.environ.copy()
             if not self._has_gpu:
                 worker_env["NCNN_FFI_NO_VULKAN"] = "1"
@@ -822,12 +826,13 @@ while True:
         if not ready:
             self._worker.kill()
             raise RuntimeError("NCNN worker did not become ready within 30s")
+        self._use_worker = True
         logger.info(
-            "NCNN: inference worker ready (pid=%d, Vulkan=%s)",
+            "NCNN: inference worker ready (pid=%d, Vulkan=%s, frames=%s)",
             self._worker.pid,
             "on" if self._has_gpu else "off",
+            "raw uint8" if self.accepts_uint8_nhwc else "fp16",
         )
-        self._use_worker = True
 
         # The worker keeps writing to stderr after READY -- the Rust worker
         # prints a STATS line every 100 frames, and ncnn/Vulkan errors land
@@ -984,13 +989,58 @@ while True:
             buf += chunk
         return buf
 
+    @property
+    def accepts_uint8_nhwc(self) -> bool:
+        """Whether detect_raw takes Frigate's raw (1, H, W, 3) uint8 frame.
+
+        The Rust worker normalises and transposes the frame itself in one
+        pass, so Frigate does not build the float tensor, this process does
+        not convert it to fp16, and half as many bytes cross the pipe.
+        """
+        return getattr(self, "_use_worker", False) and getattr(
+            self, "_worker_accepts_uint8", False
+        )
+
+    @staticmethod
+    def _write_all(fd: int, data) -> None:
+        """Write a whole buffer, looping on partial writes."""
+        view = memoryview(data).cast("B")
+        while view:
+            view = view[os.write(fd, view) :]
+
+    def _worker_payload(self, tensor_input: np.ndarray):
+        """The frame as the worker reads it.
+
+        Raw uint8 NHWC goes as is to the Rust worker; anything else is the
+        normalised float NCHW tensor, sent as fp16 to halve the pipe I/O.
+        """
+        size = self.model_input_size
+
+        if tensor_input.dtype == np.uint8:
+            if (
+                self.accepts_uint8_nhwc
+                and tensor_input.shape == (1, size, size, 3)
+                and tensor_input.flags.c_contiguous
+            ):
+                return tensor_input
+
+            # Not a frame the worker can take raw: build the float tensor
+            tensor_input = np.ascontiguousarray(
+                np.transpose(tensor_input, (0, 3, 1, 2)), dtype=np.float32
+            )
+            tensor_input *= np.float32(1.0 / 255.0)
+
+        # C order: Frigate's own float path transposes with a view, and the
+        # worker reads plain NCHW bytes
+        return np.ascontiguousarray(tensor_input, dtype=np.float16)
+
     def _detect_worker(self, tensor_input: np.ndarray) -> np.ndarray:
-        """Send frame to the persistent ncnn Vulkan worker, get detections.
-        Uses float16 to halve pipe I/O (2.5MB vs 5MB per frame)."""
-        data = tensor_input.astype(np.float16).tobytes()
+        """Send frame to the persistent ncnn Vulkan worker, get detections."""
+        data = self._worker_payload(tensor_input)
         try:
-            os.write(self._worker.stdin.fileno(), struct.pack(">I", len(data)))
-            os.write(self._worker.stdin.fileno(), data)
+            fd = self._worker.stdin.fileno()
+            os.write(fd, struct.pack(">I", data.nbytes))
+            self._write_all(fd, data)
             header = self._pipe_read(self._worker.stdout.fileno(), 4)
             size = struct.unpack(">I", header)[0]
             result = self._pipe_read(self._worker.stdout.fileno(), size)

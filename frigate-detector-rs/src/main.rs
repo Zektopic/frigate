@@ -19,6 +19,8 @@ use std::time::Instant;
 //
 // The input must be a 3D (c, h, w) array: pyncnn turns a 4D array into a
 // dims=4 c=1 Mat, which the model misreads (class scores collapse).
+// A frame is either fp16 NCHW (normalised) or u8 NHWC (raw), told apart by
+// its size, as in `ncnn_ffi::FrameFormat`.
 
 struct NcnnProc {
     stdin: ChildStdin,
@@ -49,7 +51,8 @@ while True:
   c=os.read(0,s-len(d))
   if not c:break
   d+=c
- f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(3,{ms},{ms})
+ if len(d)==3*{ms}*{ms}:f=np.ascontiguousarray(np.frombuffer(d,dtype=np.uint8).reshape({ms},{ms},3).transpose(2,0,1),dtype=np.float32)*np.float32(1.0/255.0)
+ else:f=np.frombuffer(d,dtype=np.float16).astype(np.float32).copy().reshape(3,{ms},{ms})
  with net.create_extractor() as ex:
   ex.input("{in_}",ncnn.Mat(f))
   ret,out=ex.extract("{out_}")
@@ -100,10 +103,10 @@ while True:
         })
     }
 
-    fn forward(&mut self, frame_f16: &[u8]) -> io::Result<Vec<f32>> {
-        let size = (frame_f16.len() as u32).to_be_bytes();
+    fn forward(&mut self, frame: &[u8]) -> io::Result<Vec<f32>> {
+        let size = (frame.len() as u32).to_be_bytes();
         self.stdin.write_all(&size)?;
-        self.stdin.write_all(frame_f16)?;
+        self.stdin.write_all(frame)?;
         self.stdin.flush()?;
 
         let mut hdr = [0u8; 4];
@@ -149,10 +152,10 @@ impl Backend {
         }
     }
 
-    fn forward(&mut self, frame_f16: &[u8]) -> io::Result<Vec<f32>> {
+    fn forward(&mut self, frame: &[u8]) -> io::Result<Vec<f32>> {
         match self {
-            Backend::Ffi(f) => f.forward(frame_f16),
-            Backend::Proc(p) => p.forward(frame_f16),
+            Backend::Ffi(f) => f.forward(frame),
+            Backend::Proc(p) => p.forward(frame),
         }
     }
 }
@@ -305,8 +308,17 @@ fn main() -> io::Result<()> {
     // Thread 2: Inference + post-process
     std::thread::spawn(move || {
         let mut reported_shape = false;
+        let mut reported_forward = false;
         while let Ok(frame) = rx_frame.recv() {
-            let raw = ncnn.forward(&frame.data).unwrap_or_default();
+            // A failed frame returns no detections. Report the first failure:
+            // it is usually a frame of the wrong size, which repeats.
+            let raw = ncnn.forward(&frame.data).unwrap_or_else(|e| {
+                if !reported_forward {
+                    eprintln!("{e}");
+                    reported_forward = true;
+                }
+                Vec::new()
+            });
             let mut out = [0.0f32; 120];
             let n = match &head {
                 Head::Yolo26 => {

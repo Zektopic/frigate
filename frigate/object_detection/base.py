@@ -82,6 +82,18 @@ class BaseLocalDetector(ObjectDetector):
     def _transform_input(self, tensor_input: np.ndarray) -> np.ndarray:
         if (
             self.dtype == InputDTypeEnum.float
+            and self.input_transform == (0, 3, 1, 2)
+            and getattr(tensor_input, "dtype", None) == np.uint8
+            and getattr(getattr(self, "detect_api", None), "accepts_uint8_nhwc", None)
+            is True
+        ):
+            # The detector normalises and transposes the raw frame itself
+            # (ncnn-vulkan with frigate-detector-rs), so building the float
+            # tensor here would only be undone again.
+            return tensor_input
+
+        if (
+            self.dtype == InputDTypeEnum.float
             and getattr(tensor_input, "dtype", None) == np.uint8
         ):
             try:
