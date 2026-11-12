@@ -321,3 +321,22 @@ Future implementations should focus on:
 1. **Mock Enhancement for `test_runner.py`**: Fix deep mock implementations for Peewee extensions (playhouse) and proper native sqlite `REGEXP` bindings so that queues and databases can be properly instantiated natively.
 2. **Container Testing Overhaul**: Fix the host-level BuildKit overlayfs limitation so that CI or developer environments can execute `make run_tests` directly inside the fully-installed Docker container.
 3. **Frontend Refactoring**: Replace the deprecated `punycode` dependency module throughout the frontend node configuration to completely silence the Node warning in the CI output.
+
+## Testing Status Update (Native Execution without buildx) - 2026-11-12
+
+**Frontend Testing (Vitest)**
+- Executed successfully (`npm run test --prefix web -- --run src/`).
+- All 17 test files and 153 tests passed successfully.
+- Dependency warning (`DEP0040`) for `punycode` still active.
+
+**Rust Components**
+- All 4 crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) passed natively without issues.
+
+**Python Backend Testing**
+- `make run_tests` fails locally using `DOCKER_BUILDKIT=0` or native `docker buildx` with an `overlayfs` mount source error (`invalid argument`) stemming from BuildKit / snapshotter limitations on the host.
+- Falling back to `python3 test_runner.py` results in numerous failures due to environment limitations.
+- 99 errors and 1 failures due to missing modules like `cv2`, `numpy`, `pathvalidate`, `cryptography` in native Python test execution environment.
+
+**Actionable Future Implementations**
+1. **Container Testing Overhaul**: Fix the host-level BuildKit overlayfs limitation so that CI or developer environments can execute `make run_tests` directly inside the fully-installed Docker container, removing the brittle test_runner mocking issues.
+2. **Frontend Refactoring**: Replace the deprecated `punycode` dependency module throughout the frontend node configuration to completely silence the Node warning in the CI output.
