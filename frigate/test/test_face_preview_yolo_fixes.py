@@ -392,6 +392,27 @@ class TestRustTier1AndTier2Parity(unittest.TestCase):
         s20 = af_flat[8000:].T.reshape(1, 144, 20, 20)
         dets_af_multi = post_process_yolo([s80, s40, s20], 640, 640)
         np.testing.assert_allclose(dets_af_single, dets_af_multi, rtol=1e-5, atol=1e-5)
+        # Cell 100 is the stride-8 cell at row 1, column 20, centred on
+        # (164, 12). A DFL peak at bin 4 is 4 cells, i.e. 32 px, per side;
+        # y1 is clamped to the image. [ymin, xmin, ymax, xmax] / 640:
+        np.testing.assert_allclose(
+            dets_af_single[0, 2:6],
+            [0.0, 132.0 / 640.0, 44.0 / 640.0, 196.0 / 640.0],
+            atol=1e-4,
+        )
+
+        # The stride-32 cell at row 10, column 10, centred on (336, 336):
+        # the same 4-cell distances are 128 px
+        af_32 = np.full((8400, 144), -10.0, dtype=np.float32)
+        for side in range(4):
+            af_32[8000 + 210, side * 16 + 4] = 10.0
+        af_32[8000 + 210, 64 + 0] = 5.0
+        dets_32 = post_process_yolo([af_32[np.newaxis, ...]], 640, 640)
+        np.testing.assert_allclose(
+            dets_32[0, 2:6],
+            [208.0 / 640.0, 208.0 / 640.0, 464.0 / 640.0, 464.0 / 640.0],
+            atol=1e-4,
+        )
 
         # 3. YOLOX and RF-DETR NMS via Rust nms_boxes
         yolox_preds = np.zeros((1, 10, 85), dtype=np.float32)

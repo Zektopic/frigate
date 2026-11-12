@@ -474,6 +474,88 @@ pub unsafe extern "C" fn yolo26_post_process(
 mod tests {
     use super::*;
 
+    /// Grid centres as get_anchor_free_grid_points builds them.
+    fn grid_points(model_size: usize) -> Vec<f32> {
+        let mut pts = Vec::new();
+        for stride in [8usize, 16, 32] {
+            let side = model_size / stride;
+            for y in 0..side {
+                for x in 0..side {
+                    pts.push((x as f32 + 0.5) * stride as f32);
+                    pts.push((y as f32 + 0.5) * stride as f32);
+                }
+            }
+        }
+        pts
+    }
+
+    #[test]
+    fn anchor_strides_follow_the_grid_layout() {
+        assert_eq!(anchor_stride(0, 640.0), 8.0);
+        assert_eq!(anchor_stride(6399, 640.0), 8.0);
+        assert_eq!(anchor_stride(6400, 640.0), 16.0);
+        assert_eq!(anchor_stride(7999, 640.0), 16.0);
+        assert_eq!(anchor_stride(8000, 640.0), 32.0);
+        assert_eq!(anchor_stride(8399, 640.0), 32.0);
+        // 320 input: 1600 + 400 + 100 cells
+        assert_eq!(anchor_stride(1599, 320.0), 8.0);
+        assert_eq!(anchor_stride(1600, 320.0), 16.0);
+        assert_eq!(anchor_stride(2000, 320.0), 32.0);
+    }
+
+    #[test]
+    fn anchor_free_boxes_are_scaled_by_stride() {
+        // One confident anchor per stride, each with a DFL peak at bin 4 on
+        // all four sides, i.e. a box 4 grid cells from the centre per side.
+        let n = 8400;
+        let mut raw = vec![-10.0f32; n * 144];
+        let pts = grid_points(640);
+        let cells = [
+            (80 * 40 + 40, 0usize),
+            (6400 + 40 * 20 + 20, 1),
+            (8000 + 20 * 10 + 10, 2),
+        ];
+        for &(cell, class) in &cells {
+            for side in 0..4 {
+                raw[cell * 144 + side * 16 + 4] = 10.0;
+            }
+            raw[cell * 144 + 64 + class] = 5.0;
+        }
+        let mut out = vec![0.0f32; MAX_DETECTIONS * DETECTION_STRIDE];
+        let written = unsafe {
+            yolo_anchor_free_post_process(
+                raw.as_ptr(),
+                n as u32,
+                pts.as_ptr(),
+                640.0,
+                640.0, // frame size = model size, so boxes stay in pixels
+                640.0,
+                0.4,
+                0.45,
+                out.as_mut_ptr(),
+            )
+        };
+        assert_eq!(written, 3);
+        for row in out.chunks(DETECTION_STRIDE).take(3) {
+            let (class, ymin, xmin, ymax, xmax) = (row[0] as usize, row[2], row[3], row[4], row[5]);
+            let (cell, _) = cells[class];
+            let stride = [8.0f32, 16.0, 32.0][class];
+            let (cx, cy) = (pts[cell * 2], pts[cell * 2 + 1]);
+            let half = 4.0 * stride; // 32, 64 and 128 px
+            for (got, want) in [
+                (xmin, cx - half),
+                (ymin, cy - half),
+                (xmax, cx + half),
+                (ymax, cy + half),
+            ] {
+                assert!(
+                    (got - want).abs() < 1e-2,
+                    "class {class}: got {got}, want {want}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_nms_single() {
         let b = vec![(0.0, 0.0, 1.0, 1.0)];
@@ -539,9 +621,27 @@ const DFL_BINS: [f32; 16] = [
     0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0,
 ];
 
+/// Stride of anchor `idx` for a square `model_size` input, in the order
+/// `get_anchor_free_grid_points` (frigate/detectors/rust_yolo.py) lays the
+/// grid out: every stride-8 cell, then every stride-16 cell, then stride 32.
+fn anchor_stride(idx: usize, model_size: f32) -> f32 {
+    let ms = model_size as usize;
+    let mut end = 0;
+    for stride in [8usize, 16, 32] {
+        let side = ms / stride;
+        end += side * side;
+        if idx < end {
+            return stride as f32;
+        }
+    }
+    32.0
+}
+
 /// YOLOv8/YOLO11 anchor-free post-process: sigmoid + DFL + grid decode + NMS.
 /// `raw` has shape (N, 144) where 144 = 64(reg) + 80(cls).
-/// `all_pts` is concatenated grid points for all 3 scales.
+/// `all_pts` is concatenated grid points for all 3 scales, in model pixels.
+/// DFL distances are in grid cells, so they are scaled by each anchor's
+/// stride (see [`anchor_stride`]) to get pixels.
 ///
 /// Returns the number of detections written.
 ///
@@ -642,10 +742,11 @@ pub unsafe extern "C" fn yolo_anchor_free_post_process(
 
         let px = pts[idx * 2];
         let py = pts[idx * 2 + 1];
-        let x1 = (px - dist[0]).max(0.0).min(model_size);
-        let y1 = (py - dist[1]).max(0.0).min(model_size);
-        let x2 = (px + dist[2]).max(0.0).min(model_size);
-        let y2 = (py + dist[3]).max(0.0).min(model_size);
+        let stride = anchor_stride(idx, model_size);
+        let x1 = (px - dist[0] * stride).max(0.0).min(model_size);
+        let y1 = (py - dist[1] * stride).max(0.0).min(model_size);
+        let x2 = (px + dist[2] * stride).max(0.0).min(model_size);
+        let y2 = (py + dist[3] * stride).max(0.0).min(model_size);
 
         if x2 <= x1 || y2 <= y1 {
             continue;
