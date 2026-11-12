@@ -95,6 +95,12 @@ def capture_frames(
         _use_rust_reader = False
 
     read_failures = 0
+    frame_times = frame_manager.frame_times(config.name)
+
+    if frame_times is None:
+        # readers only accept a slot whose ledger entry matches the frame time
+        logger.error(f"{config.name}: frame time ledger is missing, no frames sent.")
+        return
 
     try:
         while not stop_event.is_set():
@@ -110,6 +116,11 @@ def capture_frames(
                 _last_metrics_update = now_ts
             frame_name = f"{config.name}_frame{frame_index}"
             frame_buffer = frame_manager.write(frame_name)
+
+            # the read fills the slot for the whole pipe wait, so readers must
+            # not match it until the frame is complete
+            frame_times[frame_index] = 0
+
             try:
                 if frame_buffer is None:
                     raise ValueError("frame_buffer is None")
@@ -155,6 +166,7 @@ def capture_frames(
                 )
 
             read_failures = 0
+            frame_times[frame_index] = now_ts
             frame_rate.update()
 
             # don't lock the queue to check, just try since it should rarely be full
@@ -164,10 +176,10 @@ def capture_frames(
                 # only advances once a second, which gave every frame captured
                 # in the same second an identical timestamp
                 frame_queue.put((frame_name, now_ts), False)
-                frame_manager.close(frame_name)
             except queue.Full:
-                # if the queue is full, skip this frame
+                # nobody was told about this slot, so the next frame reuses it
                 skipped_eps.update()
+                continue
 
             frame_index = 0 if frame_index == shm_frame_count - 1 else frame_index + 1
     finally:
