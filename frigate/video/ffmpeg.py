@@ -121,8 +121,10 @@ def capture_frames(
                     )
                     if rc <= 0:
                         raise OSError("Rust frame reader failed or EOF")
-                else:
-                    frame_buffer[:] = ffmpeg_process.stdout.read(frame_size)
+                elif ffmpeg_process.stdout.readinto(frame_buffer) != frame_size:
+                    # reads straight into shared memory instead of through a
+                    # temporary bytes object the size of a frame
+                    raise EOFError("incomplete frame")
             except Exception:
                 # shutdown has been initiated
                 if stop_event.is_set():
