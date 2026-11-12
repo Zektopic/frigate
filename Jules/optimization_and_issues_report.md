@@ -131,3 +131,212 @@ The `test_video` tests were failing natively due to missing/inadequate mocks of 
 
 #### Frontend Tests and E2E
 - Resolve deprecation warnings logged in the Vitest suite (e.g. `[DEP0040] DeprecationWarning: The punycode module is deprecated. Please use a userland alternative instead.`). This requires bumping related networking/dependency libraries (like `tr46` or `whatwg-url`) within `package.json` that still rely on Node's native `punycode`.
+
+# Optimization and Issues Report
+
+Based on the recent test run, the following areas have been identified for future improvement and optimization:
+
+## 1. Native Testing Environment (`test_runner.py`) Improvements
+**Issue**: The current fallback testing framework (`test_runner.py`) uses an aggressive `MagicMock` strategy for nearly all external dependencies (`sys.modules["cv2"] = MagicMock()`, etc.). This breaks tests that rely on basic functionality, type checking, or specific method return values (like `numpy` array shapes, SQLite connections, or Pydantic validation errors).
+**Optimization Road Map**:
+- **Partial Mocking / Dependency Injection**: Instead of blanket mocking `numpy`, `cv2`, and database connectors, refactor tests to use dependency injection or establish a lightweight, mockable interface.
+- **Improve `MockBaseModel`**: The custom `MockBaseModel` in `test_runner.py` bypasses true validation. Investigate using `pydantic-core` directly or constructing mock classes that accurately reflect Pydantic V2 validation errors to prevent false positives in tests like `test_profiles.py`.
+- **Refined Database Mocks**: The SQLite and Peewee mocks lack essential connection lifecycle methods (e.g., `_connect`, `stop`). These need to be fleshed out to allow database tests (like `test_sqlite_wal_queue.py`) to run natively without raising `AttributeError`.
+
+## 2. Docker BuildKit Caching Fixes
+**Issue**: Running tests via `make run_tests` fails with Docker BuildKit `overlayfs` mount errors (`err: invalid argument`), likely due to host kernel compatibility or stale cache layers that cannot be cleared effectively.
+**Optimization Road Map**:
+- **Docker Compose Integration**: Consider migrating test execution to a dedicated `docker-compose.test.yml` file rather than relying on complex `docker buildx build` cache mounts within the Makefile. This provides better isolation and easier cache invalidation.
+- **Pre-built Test Container**: Publish a pre-built testing Docker image to GHCR to avoid building the complex C-extensions and Rust binaries from scratch during every local test run.
+
+## 3. Frontend Dependency Updates
+**Issue**: Vitest execution produces multiple Node.js deprecation warnings: `[DEP0040] DeprecationWarning: The punycode module is deprecated`.
+**Optimization Road Map**:
+- Identify dependencies in `web/package.json` that rely on the deprecated `punycode` module (commonly `whatwg-url`, `tr46`, or `ajv`).
+- Upgrade these dependencies to their latest major versions to ensure compatibility with future Node.js releases and clean up test output.
+
+## 4. SQLite Vector and Regex Extensions
+**Issue**: Tests targeting custom SQLite extensions (like `REGEXP` in `test_sqlitevecq_regexp.py`) fail natively because the extensions are not loaded in the standard Python `sqlite3` module.
+**Optimization Road Map**:
+- Ensure the native test harness either automatically builds and loads the required `.so` extension files via `conn.load_extension()` or explicitly skips these tests when not running inside the Docker environment.
+
+## Testing Status
+
+I ran the test suites for both frontend and backend to identify any failing tests or potential areas of improvement.
+
+### Backend Testing (Python)
+- Many tests are currently failing when running `test_runner.py` outside of the Docker environment due to brittle mocks for `cv2`, `numpy`, `pydantic`, `ruamel.yaml`, and other complex dependencies.
+- Specifically, the fallback environment heavily struggles with mocking Pydantic v2 schemas, `asyncio` execution in `test_onvif_probe.py`, and `cv2` image assertions, leading to a high volume of `TypeError` and `AssertionError` failures.
+- Native testing (`make run_tests`) via Docker BuildKit is currently failing during the build stage (`mount source: "overlay"... err: invalid argument`), blocking proper isolated execution.
+
+### Rust Component Testing
+- Successfully ran all tests across Rust modules (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) via `cargo test`.
+- All tests passed successfully with 0 failures, indicating solid parity and guard configurations in the Rust pipeline.
+
+### Frontend Testing (React/Vitest)
+- Successfully installed frontend dependencies via `npm ci --prefix web` and ran `vitest`.
+- All 153 tests across 17 test files passed successfully.
+- **Note:** Discovered deprecation warnings related to the `punycode` module from Node.js dependencies which will need future updating.
+
+## Proposed Improvements
+
+- **Backend Mock Infrastructure:** The custom `test_runner.py` needs an overhaul. The `sys.modules` patching is extremely fragile, especially for C-extensions (`numpy`, `cv2`) and Pydantic v2. We should either move completely to standard `pytest` with proper `unittest.mock.patch` isolation, or strictly require running unit tests natively within the Docker environment without fallbacks.
+- **Docker Test Fix:** The `make run_tests` command fails due to an overlay mount issue. The `Makefile` should be updated to cleanly bypass BuildKit when running natively, or test workflows should use pre-built images.
+- **Frontend Deprecations:** Update the frontend dependencies (e.g., `whatwg-url`, `tr46`) to resolve the `DEP0040 punycode` Node.js deprecation warnings emitted during Vitest runs.
+## Optimization and Issues Report (Latest Iteration)
+
+### Current Testing Environment Issues
+
+1. **Docker BuildKit Limitations (`overlayfs`)**: Running `make run_tests` fails early due to an `overlayfs` mount source error (`invalid argument`) generated by BuildKit. This prevents the execution of accurate backend tests inside a fully configured environment.
+2. **Brittle Backend Test Runner (`test_runner.py`)**: The local fallback test runner relies heavily on monkey-patching `sys.modules`. This results in false-positive failures in 832 backend unit tests due to imprecise implementations of complex modules (e.g., `MockPydanticValidationError` issues with nested schemas, missing iterables from mocked `cv2.dnn.NMSBoxes`, and `ModuleMock` being returned instead of parsed strings for `pathvalidate`).
+3. **Node.js Deprecation Warnings**: The frontend test suite, although completely successful (153 tests passed), emits `[DEP0040] DeprecationWarning: The punycode module is deprecated` warnings from underlying network dependencies.
+
+### Proposed Roadmap and Actionable Optimizations
+
+#### A. Docker and Native Testing Enhancements
+- **Bypass BuildKit for Tests**: Adjust the Makefile or local Docker daemon configuration to fallback to the `vfs` storage driver or utilize `DOCKER_BUILDKIT=0` so that `make run_tests` can successfully build the container on constrained host environments.
+- **Refactor Dependency Injection**: If `test_runner.py` is maintained, shift away from blanket `MagicMock` patches. Instead, define proper lightweight abstract interfaces for `numpy`, `cv2`, and database engines (`peewee`). For example, ensure `cv2.dnn.NMSBoxes` strictly returns standard Python list indices, and SQLite connection mocks implement missing lifecycle methods (`_connect`, `stop`).
+
+#### B. Component and Logic Refinement
+- **Path Validation Verification**: Refactor `frigate/util/path.py` (specifically `sanitize_path_component`) to ensure it correctly and securely rejects relative path traversal components (`.`, `..`), and remove its global mock status in `test_runner.py` to allow the logic to be tested natively via `pip install pathvalidate`.
+- **Review Object Detection Reductions**: Review `reduce_detections` and `get_cluster_candidates` inside `frigate/util/object.py`. Ensure that overlapping detection boxes with drastically varying sizes and vertically stacked bounding boxes aren't incorrectly merged or reduced during false-positive test outputs.
+
+#### C. Frontend Maintenance
+- **Upgrade NPM Dependencies**: Identify the specific library relying on `punycode` (often `whatwg-url`, `tr46`, or similar internal node libraries) in `web/package.json`. Upgrade these dependencies or integrate standard userland alternatives to silence `DEP0040` warnings, maintaining a pristine CI test log environment.
+## Testing & Optimization Report - $(date)
+
+### Issues Discovered
+1. **Mock Environment Fragility:** Running backend tests via `test_runner.py` outside of the Docker environment produces 95 failures and 230 errors. The fundamental issue is that using `sys.modules` patching to inject `MagicMock` instances for `cv2`, `numpy`, and Pydantic v2 breaks concrete assertion evaluations. E.g., `mock.sanitize_filename()` returns strings that fail `None` assertions in `test_util_path.py`, and mock shapes in OpenCV functions cause `TypeError`s during matrix math.
+2. **Type Checking Errors:** Mypy scanning discovered 117 static analysis errors in the backend codebase, primarily related to unused type ignores and missing overload matching in `frigate/data_processing/real_time/face.py`.
+3. **Frontend Deprecation Warnings:** The frontend test suite heavily logs `DEP0040` for the `punycode` module.
+
+### Optimizations and Improvements Roadmap
+- **Overhaul Native Testing Strategy:** Stop relying on `test_runner.py`'s extensive monkey-patching for missing C-extensions and Pydantic v2. Instead, optimize the developer experience by explicitly documenting the required native dependencies (e.g. `numpy<2`, `opencv-python-headless`) or creating a lightweight `test-requirements.txt` to let tests run with real libraries, yielding true correctness validation.
+- **Strict Typing Compliance:**
+  - Fix `frigate/data_processing/real_time/face.py:106` by explicitly casting or validating the OpenCV `imwrite` inputs to match expected numpy array properties.
+  - Remove all unused `# type: ignore` directives flagged by mypy across `frigate/data_processing/`.
+  - Fix the generic instance access errors in `frigate/camera/maintainer.py`.
+- **Frontend Dependency Maintenance:** Identify which sub-dependency uses `punycode` (often `whatwg-url` or `jsdom`) using `npm ls punycode --prefix web` and upgrade the offending parent packages to their latest major versions to clean up the test output and avoid future Node incompatibility.
+## Native Test Optimization
+
+Running `DOCKER_BUILDKIT=0 python3 test_runner.py` outside of the Docker environment shows numerous test failures primarily caused by mock objects incorrectly comparing natively against constants or other types. This results in assertions firing. Specifically, `sys.modules["cv2"]` and `sys.modules["numpy"]` should *not* be mocked if `numpy<2` and `opencv-python-headless` are natively installed.
+
+## Testing Video module (frigate/test/test_video.py)
+
+1. The test `test_video.py` initially fails when running with `python3 test_runner.py frigate/test/test_video.py` due to mocked `cv2` and `numpy`.
+2. I successfully bypassed this by providing actual `numpy` and `opencv-python-headless` instead of mocking it.
+3. Once those missing dependencies are available locally (and mocking is avoided), the unit tests inside `frigate/test/test_video.py` ran correctly without any errors (`Ran 17 tests in 0.002s OK`).
+4. Other tests fail mainly because of the way `sys.modules` are overridden inside `test_runner.py` for mocking. The mocked Pydantic setup causes cascading errors across different files.
+# Codebase Optimizations and Actionable Future Work
+
+- **Node/Vitest Warnings:** Update `whatwg-url` or `tr46` to resolve the `punycode` deprecation warning (DEP0040) during `npm run test` in the web directory.
+- **Test Runner Mocking Infrastructure:** The reliance on `test_runner.py` and `sys.modules` patching for backend logic testing is highly brittle (especially for Pydantic and OpenCV). Consider migrating native tests to mock-free environments or formalizing lightweight dependency layers for core business logic testing.
+- **Dependency Upgrades:** Keep dependencies up to date, including fixing vulnerabilities flagged by `npm audit`.
+
+## Test Execution Status Updates
+* **frigate/test/test_video.py**: Execution successful when natively using real dependencies (`numpy` and `cv2`) rather than testing via global `test_runner.py` mocks.
+* Found multiple mock-related test failures using `test_runner.py` directly for backend testing. These relate to limitations of overriding `sys.modules` for complex models like Pydantic and OpenCV. Recommendation for future improvements is to run them inside Docker using `make run_tests` or create a more robust mock for `test_runner.py`.
+
+## New Test Results
+* `cargo test` ran successfully on all Rust components, passing tests in `frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`.
+* Tested Vitest frontend components using `npm run test --prefix web -- --run src/`. All 153 tests across 17 test files passed.
+
+## Testing Suite Analysis - $(date)
+
+### Execution Results
+1. **Frontend**: Ran `npm run test --prefix web` with vitest. 153 tests completed successfully. Identified `DEP0040` deprecation warnings.
+2. **Rust Backend**: Executed `cargo test` on all crates (`detector`, `frame`, `motion`, `yolo`). 51 tests passed correctly.
+3. **Python Backend**: Native execution using `test_runner.py` produced 47 failures and 243 errors. This stems from `MagicMock` type mismatches when standard Frigate code performs array math or Pydantic nested object evaluation on mocked targets.
+
+### Proposed Optimizations
+- **Testing Mocks**: Deprecate global `sys.modules` patching in `test_runner.py` in favor of a native `requirements-test.txt` approach to prevent false positive errors during local test execution.
+- **Node Dependency Bump**: Locate the dependency generating the `punycode` warning (`npm ls punycode`) and increment it to a version utilizing userland punycode implementations.
+
+## Testing & Optimization Report - Sat Nov 7 2026
+
+### Test Execution Status
+- **Backend Native Testing:** Running `python3 test_runner.py` yields `FAILED (failures=39, errors=234, skipped=4)`. This is due to the mock infrastructure (`test_runner.py`) lacking complete mocks or correct implementations for complex objects like OpenCV's `NMSBoxes` returning mock objects instead of iterables, Pydantic v2 schemas failing to validate correctly natively, and brittle comparison magic methods (e.g. returning `AssertionError` instead of handling the check properly).
+- **Docker Testing (`make run_tests`):** Attempting to build and test using Docker natively continues to fail with `overlayfs` mount source errors (`invalid argument`) caused by BuildKit limitations in this environment.
+- **Frontend Testing:** Successfully installed dependencies via `npm ci` and ran Vitest (`npm run test --prefix web -- --run src/`). All 153 tests passed. Node.js `DEP0040` punycode deprecation warnings persist during execution.
+
+### Future Improvements Roadmap
+1. **Docker Environment Integration:** Overhaul `make run_tests` to support fallback without BuildKit (e.g., `DOCKER_BUILDKIT=0`) properly, or introduce a `docker-compose.test.yml` to decouple from build caching issues.
+2. **Test Runner Refactoring:** Either refactor `test_runner.py`'s `sys.modules` patching to implement exact lightweight mock classes for OpenCV, Numpy, and Pydantic (e.g. `MockBaseModel` and `Mockcv2`), or strictly enforce that unit tests must be executed with installed dependencies (`opencv-python-headless`, `numpy<2`, `pydantic`) without monkey-patching.
+3. **Frontend Deprecations:** Identify the nested dependencies causing `punycode` warnings (e.g. `whatwg-url`) in `web/package.json` and upgrade them to current standard libraries to maintain a clean testing environment.
+
+## Frigate Backend Testing Native Mock Support
+The project's custom `test_runner.py` continues to struggle with accurately mocking dependencies like Pydantic, Numpy, and cv2.
+Future implementations should focus on:
+1. **Refining `test_runner.py` Mock Logic:** Implement accurate `__gt__`, `__lt__`, and array-like behaviors for `MockBaseModel` and `ModuleMock`.
+2. **Dockerized Test Strategy:** Natively testing outside Docker is brittle. CI and developers should heavily rely on `make run_tests` (which builds the Docker container first).
+3. **Escape Sequence Fixes:** Fix invalid escape sequences (e.g., `\{`) in test strings that produce `SyntaxWarning`.
+
+## Frontend Deprecation Warnings
+- **Dependencies:** The frontend test suite emits warnings for deprecated dependencies like `inflight`, `rimraf`, and `glob`. These should be audited and updated via `npm audit` or manual package bumps in the future to ensure long-term stability and avoid potential security vulnerabilities.
+
+## Frigate Backend Testing Native Mock Support
+The project's custom `test_runner.py` continues to struggle with accurately mocking dependencies like Pydantic, Numpy, and cv2.
+Future implementations should focus on:
+1. **Refining `test_runner.py` Mock Logic:** Implement accurate `__gt__`, `__lt__`, and array-like behaviors for `MockBaseModel` and `ModuleMock`.
+2. **Dockerized Test Strategy:** Natively testing outside Docker is brittle. CI and developers should heavily rely on `make run_tests` (which builds the Docker container first).
+3. **Escape Sequence Fixes:** Fix invalid escape sequences (e.g., `\{`) in test strings that produce `SyntaxWarning`.
+
+## Frontend Deprecation Warnings
+- **Dependencies:** The frontend test suite emits warnings for deprecated dependencies like `inflight`, `rimraf`, and `glob`. These should be audited and updated via `npm audit` or manual package bumps in the future to ensure long-term stability and avoid potential security vulnerabilities.
+
+## Test Execution & Codebase Optimizations
+
+### Findings from Recent Tests
+1. **Frontend**: Vitest ran 153 tests successfully but reported several `DEP0040` (DeprecationWarning: The `punycode` module is deprecated).
+2. **Rust Backend**: `cargo test` succeeded for all crates (`detector`, `frame`, `motion`, `yolo`), showing 0 failures.
+3. **Python Backend**:
+    - Dockerized testing (`make run_tests`) failed due to an `overlayfs` error.
+    - Native testing via `test_runner.py` continues to fail with 41 failures and 245 errors due to brittle mock logic (specifically with Pydantic schemas, `cv2` array/math assertions, and mock objects incorrectly comparing against native types).
+
+### Proposed Improvements Roadmap
+- **Frontend Deprecation Warnings**: Identify nested dependencies relying on `punycode` (such as `whatwg-url` or `tr46`) and upgrade them to silence the `DEP0040` warnings. Address additional deprecated packages like `inflight`, `rimraf`, and `glob` reported during `npm ci`.
+- **Backend Mock Infrastructure**: Refactor `test_runner.py` to provide highly accurate implementations for `MockBaseModel` and `ModuleMock` (specifically handling `__gt__`, `__lt__`, `__eq__`, etc. natively).
+- **Docker Test Reliability**: Improve `make run_tests` compatibility by decoupling from BuildKit caching issues, potentially introducing a lightweight `docker-compose.test.yml` strictly for CI/CD testing.
+
+## Testing Status Update (Native Execution without buildx)
+
+**Frontend Testing (Vitest)**
+- Executed successfully (`npm run test --prefix web -- --run src/`).
+- All 17 test files and 153 tests passed successfully.
+- Dependency warning (`DEP0040`) for `punycode` still active.
+
+**Rust Components**
+- All 4 crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) passed natively without issues.
+
+**Python Backend Testing**
+- `make run_tests` fails locally using `DOCKER_BUILDKIT=0` or native `docker buildx` with an `overlayfs` mount source error (`invalid argument`) stemming from BuildKit / snapshotter limitations on the host.
+- Falling back to `python3 test_runner.py discover -s frigate/test -p "test_*.py"` results in numerous failures due to environment limitations.
+- 883 total tests executed. 30 failures, 207 errors, 5 skipped.
+- Some specific module mock bugs discovered:
+  - `playhouse` missing mocks causing Peewee migrations or db creations to fail.
+  - `REGEXP_TIMEOUT_SECONDS` missing regex dependency logic or failing due to sqlite missing REGEXP native function locally outside the `sqlitevec` extension. `test_sqlitevecq_regexp.py` completely fails.
+  - Missing deep-learning components (`onnxruntime`, `ai_edge_litert`, etc) locally.
+
+**Actionable Future Implementations**
+1. **Mock Enhancement for `test_runner.py`**: Fix deep mock implementations for Peewee extensions (playhouse) and proper native sqlite `REGEXP` bindings so that queues and databases can be properly instantiated natively.
+2. **Container Testing Overhaul**: Fix the host-level BuildKit overlayfs limitation so that CI or developer environments can execute `make run_tests` directly inside the fully-installed Docker container.
+3. **Frontend Refactoring**: Replace the deprecated `punycode` dependency module throughout the frontend node configuration to completely silence the Node warning in the CI output.
+
+## Testing Status Update (Native Execution without buildx) - 2026-11-12
+
+**Frontend Testing (Vitest)**
+- Executed successfully (`npm run test --prefix web -- --run src/`).
+- All 17 test files and 153 tests passed successfully.
+- Dependency warning (`DEP0040`) for `punycode` still active.
+
+**Rust Components**
+- All 4 crates (`frigate-detector-rs`, `frigate-frame-rs`, `frigate-motion-rs`, `frigate-yolo-rs`) passed natively without issues.
+
+**Python Backend Testing**
+- `make run_tests` fails locally using `DOCKER_BUILDKIT=0` or native `docker buildx` with an `overlayfs` mount source error (`invalid argument`) stemming from BuildKit / snapshotter limitations on the host.
+- Falling back to `python3 test_runner.py` results in numerous failures due to environment limitations.
+- 99 errors and 1 failures due to missing modules like `cv2`, `numpy`, `pathvalidate`, `cryptography` in native Python test execution environment.
+
+**Actionable Future Implementations**
+1. **Container Testing Overhaul**: Fix the host-level BuildKit overlayfs limitation so that CI or developer environments can execute `make run_tests` directly inside the fully-installed Docker container, removing the brittle test_runner mocking issues.
+2. **Frontend Refactoring**: Replace the deprecated `punycode` dependency module throughout the frontend node configuration to completely silence the Node warning in the CI output.

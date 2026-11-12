@@ -357,7 +357,11 @@ class BirdsEyeFrameManager:
             ],
             "last_active_frame": 0.0,
             "current_frame": 0.0,
-            "layout_frame": 0.0,
+            # bumped whenever current_frame is replaced; drawn_frame_seq is
+            # the value that is currently painted on the canvas (None when
+            # the camera's tile has not been drawn since the last clear)
+            "frame_seq": 0,
+            "drawn_frame_seq": None,
             "channel_dims": {
                 "y": y,
                 "u1": u1,
@@ -375,6 +379,8 @@ class BirdsEyeFrameManager:
     def clear_frame(self) -> None:
         logger.debug("Clearing the birdseye frame")
         self.frame[:] = self.blank_frame
+        for cam_data in self.cameras.values():
+            cam_data["drawn_frame_seq"] = None
 
     def copy_to_position(
         self,
@@ -575,14 +581,20 @@ class BirdsEyeFrameManager:
                     self.camera_layout = layout_candidate or []
                 frame_changed = True
 
-            # Draw the layout
+            # Draw the layout.  Tiles only move when the layout is reset, which
+            # clears the canvas, so a camera whose frame has not changed since
+            # it was last drawn is already correct and is not resized again.
             for row in self.camera_layout:
                 for position in row:
-                    src_frame = self.cameras[position[0]]["current_frame"]
+                    cam_data = self.cameras[position[0]]
+                    if cam_data["drawn_frame_seq"] == cam_data["frame_seq"]:
+                        continue
+                    src_frame = cam_data["current_frame"]
                     if src_frame is None or src_frame.size == 0:
-                        logger.debug(f"Skipping invalid frame for {position[0]}")
+                        logger.debug("Skipping invalid frame for %s", position[0])
                         continue
                     self.copy_to_position(position[1], position[0], src_frame)
+                    cam_data["drawn_frame_seq"] = cam_data["frame_seq"]
             if frame is not None:  # Frame presence indicates a potential change
                 frame_changed = True
 
@@ -764,6 +776,7 @@ class BirdsEyeFrameManager:
 
         # update the last active frame for the camera
         self.cameras[camera]["current_frame"] = frame.copy()
+        self.cameras[camera]["frame_seq"] += 1
         self.cameras[camera]["current_frame_time"] = frame_time
         if self.camera_active(camera_config.birdseye.mode, object_count, motion_count):
             self.cameras[camera]["last_active_frame"] = frame_time

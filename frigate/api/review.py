@@ -19,6 +19,7 @@ from frigate.api.auth import (
     get_allowed_cameras_for_filter,
     get_current_user,
     require_camera_access,
+    require_full_camera_access,
     require_role,
 )
 from frigate.api.defs.query.review_query_parameters import (
@@ -548,6 +549,12 @@ def delete_reviews(body: ReviewModifyMultipleBody):
         start_time = review["start_time"]
         end_time = review["end_time"]
 
+        # An in-progress segment has no end_time yet. The old per-review
+        # BETWEEN query matched no recordings for it (NULL bound), so keep
+        # that behavior -- and min()/max() below cannot compare None.
+        if end_time is None:
+            continue
+
         if camera not in camera_ranges:
             camera_ranges[camera] = {
                 "min_start": start_time,
@@ -746,6 +753,7 @@ async def get_review(request: Request, review_id: str):
     dependencies=[Depends(allow_any_authenticated())],
 )
 async def set_not_reviewed(
+    request: Request,
     review_id: str,
     current_user: dict = Depends(get_current_user),
 ):
@@ -764,6 +772,8 @@ async def set_not_reviewed(
             status_code=404,
         )
 
+    await require_camera_access(review.camera, request=request)
+
     try:
         user_review = UserReviewStatus.get(
             UserReviewStatus.user_id == user_id,
@@ -780,9 +790,12 @@ async def set_not_reviewed(
     )
 
 
+# Intentionally not camera scoped, as the summary correlates each flagged event
+# with overlapping activity on other cameras. Restricted to callers who can
+# already see every camera, so the unscoped query discloses nothing.
 @router.post(
     "/review/summarize/start/{start_ts}/end/{end_ts}",
-    dependencies=[Depends(require_role(["admin"]))],
+    dependencies=[Depends(require_full_camera_access)],
     description="Use GenAI to summarize review items over a period of time.",
 )
 def generate_review_summary(request: Request, start_ts: float, end_ts: float):

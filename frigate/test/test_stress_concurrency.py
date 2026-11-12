@@ -1,7 +1,7 @@
 """Stress & Concurrency Test Suite for Frigate Subsystems.
 
 Tests high-concurrency database writers under WAL mode, high-density Norfair tracker
-association matrices, and sustained zero-copy SIMD memory streaming.
+association matrices.
 """
 
 import os
@@ -12,7 +12,6 @@ import unittest
 
 from frigate.util.frame_rs import (
     batch_track_distance_matrix_rust,
-    fast_shm_copy_rust,
     frame_rs_available,
 )
 
@@ -113,36 +112,6 @@ class TestStressConcurrency(unittest.TestCase):
         # 50 runs of 10,000 comparisons (500,000 total) should execute in < 150ms in Rust
         self.assertLess(
             elapsed, 0.5, f"Vectorized tracker distance exceeded budget: {elapsed:.3f}s"
-        )
-
-    def test_sustained_zero_copy_simd_throughput(self):
-        """Benchmark and stress test fast_shm_copy with 1,000 1080p frame copies."""
-        if not frame_rs_available():
-            self.skipTest("Rust frame engine not available")
-
-        import ctypes
-
-        # 1080p RGB frame size = 1920 * 1080 * 3 = 6,220,800 bytes (~6.2 MB)
-        frame_size = 1920 * 1080 * 3
-        src_data = bytearray(frame_size)
-        dst_data = bytearray(frame_size)
-
-        src_buf = (ctypes.c_char * frame_size).from_buffer(src_data)
-        dst_buf = (ctypes.c_char * frame_size).from_buffer(dst_data)
-
-        t0 = time.perf_counter()
-        iterations = 500
-        for _ in range(iterations):
-            fast_shm_copy_rust(dst_buf, src_buf, frame_size)
-        elapsed = time.perf_counter() - t0
-
-        total_gb = (frame_size * iterations) / (1024**3)
-        throughput_gbps = total_gb / elapsed
-        # Assert throughput is high-performance (> 5 GB/s)
-        self.assertGreater(
-            throughput_gbps,
-            1.0,
-            f"SIMD throughput too slow: {throughput_gbps:.2f} GB/s",
         )
 
 

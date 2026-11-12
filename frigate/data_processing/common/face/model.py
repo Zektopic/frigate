@@ -92,6 +92,8 @@ class FaceRecognizer(ABC):
         # image to the ratio of distance between eyes in the
         # *desired* image
         dist = np.sqrt((dX**2) + (dY**2))
+        if dist < 1e-6:
+            return cv2.resize(image, (output_width, output_height))
         desiredDist = desiredRightEyeX - 0.35
         desiredDist *= output_width
         scale = desiredDist / dist
@@ -118,10 +120,25 @@ class FaceRecognizer(ABC):
 
     def get_blur_confidence_reduction(self, input: np.ndarray) -> float:
         """Calculates the reduction in confidence based on the blur of the image."""
-        if not self.config.face_recognition.blur_confidence_filter:
+        if (
+            not self.config.face_recognition.blur_confidence_filter
+            or input is None
+            or input.size == 0
+        ):
             return 0.0
 
-        variance = cv2.Laplacian(input, cv2.CV_64F).var()
+        try:
+            from frigate.util.frame_rs import (
+                frame_rs_available,
+                laplacian_variance_u8_rust,
+            )
+
+            if frame_rs_available():
+                variance = laplacian_variance_u8_rust(input)
+            else:
+                variance = cv2.Laplacian(input, cv2.CV_64F).var()
+        except Exception:
+            variance = cv2.Laplacian(input, cv2.CV_64F).var()
         logger.debug(f"face detected with blurriness {variance}")
 
         if variance < 120:  # image is very blurry
@@ -292,7 +309,7 @@ class FaceNetRecognizer(FaceRecognizer):
         logger.debug("Finished building ArcFace model")
 
     def classify(self, face_image: np.ndarray) -> tuple[str, float] | None:
-        if not self.landmark_detector:
+        if face_image is None or face_image.size == 0 or not self.landmark_detector:
             return None
 
         if not self.mean_embs:
@@ -314,12 +331,29 @@ class FaceNetRecognizer(FaceRecognizer):
         runner_up: float = 0
         label = ""
 
-        for name, mean_emb in self.mean_embs.items():
-            dot_product = np.dot(embedding, mean_emb)
-            magnitude_A = np.linalg.norm(embedding)
-            magnitude_B = np.linalg.norm(mean_emb)
+        names = list(self.mean_embs.keys())
+        sims = None
+        try:
+            from frigate.util.frame_rs import (
+                batch_cosine_similarity_f32_rust,
+                frame_rs_available,
+            )
 
-            cosine_similarity = dot_product / (magnitude_A * magnitude_B)
+            if frame_rs_available() and names:
+                gallery = np.stack([self.mean_embs[n] for n in names], axis=0)
+                sims = batch_cosine_similarity_f32_rust(embedding, gallery)
+        except Exception:
+            sims = None
+
+        for i, name in enumerate(names):
+            if sims is not None:
+                cosine_similarity = float(sims[i])
+            else:
+                mean_emb = self.mean_embs[name]
+                dot_product = np.dot(embedding, mean_emb)
+                magnitude_A = np.linalg.norm(embedding)
+                magnitude_B = np.linalg.norm(mean_emb)
+                cosine_similarity = dot_product / (magnitude_A * magnitude_B)
             confidence = similarity_to_confidence(
                 cosine_similarity, median=0.5, range_width=0.6
             )
@@ -408,7 +442,7 @@ class ArcFaceRecognizer(FaceRecognizer):
         logger.debug("Finished building ArcFace model")
 
     def classify(self, face_image: np.ndarray) -> tuple[str, float] | None:
-        if not self.landmark_detector:
+        if face_image is None or face_image.size == 0 or not self.landmark_detector:
             return None
 
         if not self.mean_embs:
@@ -430,12 +464,29 @@ class ArcFaceRecognizer(FaceRecognizer):
         runner_up: float = 0
         label = ""
 
-        for name, mean_emb in self.mean_embs.items():
-            dot_product = np.dot(embedding, mean_emb)
-            magnitude_A = np.linalg.norm(embedding)
-            magnitude_B = np.linalg.norm(mean_emb)
+        names = list(self.mean_embs.keys())
+        sims = None
+        try:
+            from frigate.util.frame_rs import (
+                batch_cosine_similarity_f32_rust,
+                frame_rs_available,
+            )
 
-            cosine_similarity = dot_product / (magnitude_A * magnitude_B)
+            if frame_rs_available() and names:
+                gallery = np.stack([self.mean_embs[n] for n in names], axis=0)
+                sims = batch_cosine_similarity_f32_rust(embedding, gallery)
+        except Exception:
+            sims = None
+
+        for i, name in enumerate(names):
+            if sims is not None:
+                cosine_similarity = float(sims[i])
+            else:
+                mean_emb = self.mean_embs[name]
+                dot_product = np.dot(embedding, mean_emb)
+                magnitude_A = np.linalg.norm(embedding)
+                magnitude_B = np.linalg.norm(mean_emb)
+                cosine_similarity = dot_product / (magnitude_A * magnitude_B)
             confidence = similarity_to_confidence(cosine_similarity)
 
             if confidence > score:

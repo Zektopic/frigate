@@ -73,6 +73,7 @@ export type GpuStats = {
   compute?: string;
   pstate?: string;
   temp?: number;
+  power?: number;
   clients?: { [pid: string]: string };
 };
 
@@ -80,6 +81,12 @@ export type NpuStats = {
   npu: number;
   mem: string;
   temp?: number;
+  state?: string;
+  clock_mhz?: number;
+  contexts?: number;
+  commands_per_s?: number;
+  embeddings_per_s?: number;
+  mean_latency_ms?: number;
 };
 
 export type GpuInfo = "vainfo" | "nvinfo";

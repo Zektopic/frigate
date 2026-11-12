@@ -17,11 +17,14 @@ IMPORTANT — lazy ncnn import:
 """
 
 import logging
+import math
 import os
+import re
 import select
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 import numpy as np
@@ -51,6 +54,69 @@ _YOLOV5_ANCHORS = {
 
 # DFL bins for YOLOv8/YOLO11 bounding-box regression
 _REG_MAX = 16
+
+
+# Environment override for ncnn CPU threads (all backends). On small hosts
+# the detector competes with ffmpeg decode, so fewer threads often win.
+NCNN_THREADS_ENV = "NCNN_NUM_THREADS"
+
+
+def _resolve_model_input_size(model_config) -> int:
+    """Network input size from the Frigate model config.
+
+    Frigate resizes every detection tensor to ``model.width x model.height``,
+    so the ncnn worker must use the same size (e.g. 320 for a cheaper run of
+    a 640-exported YOLO). Falls back to 640 for non-square or non-stride-32
+    sizes, which is what the plugin always assumed before.
+    """
+    width = getattr(model_config, "width", None)
+    height = getattr(model_config, "height", None)
+
+    if width and width == height and width % 32 == 0:
+        return int(width)
+
+    logger.warning(
+        "NCNN: model size %sx%s is not square and a multiple of 32, using 640",
+        width,
+        height,
+    )
+    return 640
+
+
+# ncnn GpuInfo.type(): 0 discrete, 1 integrated, 2 virtual, 3 cpu
+_NCNN_GPU_TYPE_CPU = 3
+
+
+def _usable_vulkan_gpu(ncnn) -> bool:
+    """True when ncnn sees a real Vulkan GPU.
+
+    On hosts without a GPU (or containers without /dev/dri) Mesa still
+    exposes llvmpipe, a software Vulkan device. ncnn on llvmpipe is far
+    slower than its native CPU kernels and segfaults the Rust FFI worker,
+    so treat a CPU-type device as no GPU at all.
+    """
+    if ncnn.get_gpu_count() <= 0:
+        return False
+
+    try:
+        return ncnn.get_gpu_info(0).type() != _NCNN_GPU_TYPE_CPU
+    except AttributeError:
+        return True
+
+
+def _ncnn_num_threads() -> int | None:
+    """Return the NCNN_NUM_THREADS override, or None to keep the default."""
+    value = os.environ.get(NCNN_THREADS_ENV)
+    if not value:
+        return None
+
+    try:
+        threads = int(value)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r", NCNN_THREADS_ENV, value)
+        return None
+
+    return threads if threads > 0 else None
 
 
 # ---------------------------------------------------------------------------
@@ -140,8 +206,8 @@ def _post_process_yolov8(
     x2 = np.concatenate([b[2] for b in box_parts])
     y2 = np.concatenate([b[3] for b in box_parts])
 
-    # Sigmoid on class logits
-    cls_raw = cls_raw - cls_raw.max(axis=1, keepdims=True)
+    # Sigmoid on class logits (clamp to avoid overflow in exp)
+    cls_raw = np.clip(cls_raw, -20.0, 20.0)
     cls_scores = 1.0 / (1.0 + np.exp(-cls_raw))
     class_ids = np.argmax(cls_scores, axis=1)
     scores = cls_scores[np.arange(cls_scores.shape[0]), class_ids]
@@ -199,6 +265,17 @@ def _pad_detections(dets: np.ndarray, max_det: int = 20) -> np.ndarray:
 
 def _nms(x1, y1, x2, y2, scores, iou_threshold):
     """Greedy class-agnostic NMS."""
+    if len(scores) == 0:
+        return np.array([], dtype=np.int32)
+    try:
+        from frigate.detectors.rust_yolo import nms_boxes, yolo_available
+
+        if yolo_available():
+            boxes = np.column_stack([x1, y1, x2, y2])
+            return nms_boxes(boxes, scores, iou_threshold, max_indices=len(scores))
+    except Exception:
+        pass
+
     areas = (x2 - x1) * (y2 - y1)
     order = scores.argsort()[::-1]
     keep = []
@@ -228,11 +305,24 @@ def _nms(x1, y1, x2, y2, scores, iou_threshold):
 # ---------------------------------------------------------------------------
 
 
+def _has_yolo_anchor_grid(param_text: str) -> bool:
+    """True if a MemoryData blob holds a strides-8/16/32 anchor grid.
+
+    The grid size is 21 * (imgsz / 32) ** 2 (8400 at 640, 2100 at 320), so
+    this matches exports at any input size, not only 640.
+    """
+    for match in re.finditer(r"^MemoryData\s.*?\s0=(\d+)", param_text, re.M):
+        cells = int(match.group(1))
+        if cells % 21 == 0 and math.isqrt(cells // 21) ** 2 == cells // 21:
+            return True
+    return False
+
+
 def _detect_architecture(param_text: str) -> str:
     """Return model architecture from .param file contents."""
     # Ultralytics YOLO26+ export: 84-channel output (4 bbox + 80 classes),
     # post-processing baked in, no DFL/sigmoid needed.
-    if "cat_22" in param_text and "8400" in param_text:
+    if "cat_22" in param_text and _has_yolo_anchor_grid(param_text):
         return "yolo26"
     if "view_" in param_text and "144" in param_text:
         return "yolov8"
@@ -383,7 +473,7 @@ class ONNXDetector(DetectionApi):
         self.arch = _detect_architecture(param_text)
         self._in_name, self._out_names = _parse_blobs(param_path)
 
-        self.model_input_size = 640
+        self.model_input_size = _resolve_model_input_size(detector_config.model)
         self._num_classes = 80
         self._class_names = None
 
@@ -401,23 +491,30 @@ class ONNXDetector(DetectionApi):
             self._anchors = dict(_YOLOV5_ANCHORS)
 
         # ── create network ──────────────────────────────────────────
-        gpu_count = self.ncnn.get_gpu_count()
-        if gpu_count > 0:
-            logger.info("NCNN: Vulkan GPU detected - %s", self.ncnn.get_gpu_info(0))
+        self._has_gpu = _usable_vulkan_gpu(self.ncnn)
+        if self._has_gpu:
+            logger.info(
+                "NCNN: Vulkan GPU detected - %s",
+                self.ncnn.get_gpu_info(0).device_name(),
+            )
         else:
-            logger.warning("NCNN: No Vulkan GPU found, using CPU")
+            logger.warning("NCNN: No hardware Vulkan GPU found, using CPU")
 
         self.net = self.ncnn.Net()
 
         if self.arch in ("yolov8", "yolo26"):
             # YOLOv8/YOLO11/YOLO26: Vulkan crashes after fork on AMD RADV.
-            # Use worker subprocess — for YOLO26 this is fast (~87ms) because
-            # post-processing is baked into the model (no numpy bottleneck).
+            # Use a worker subprocess: frigate-detector-rs when installed
+            # (inference and post-processing in Rust), else the Python one.
             self._init_ncnn_worker(param_path, bin_path)
             return
         else:
-            # YOLOv5/v7/YOLO26 — Vulkan is stable for these
-            self.net.opt.use_vulkan_compute = True
+            # YOLOv5/v7/YOLO26 — Vulkan is stable for these. Without a GPU
+            # keep ncnn on its CPU path explicitly.
+            self.net.opt.use_vulkan_compute = self._has_gpu
+            num_threads = _ncnn_num_threads()
+            if num_threads:
+                self.net.opt.num_threads = num_threads
             self.net.opt.use_fp16_arithmetic = True
             self.net.opt.use_fp16_packed = True
             self.net.opt.use_fp16_storage = True
@@ -434,7 +531,7 @@ class ONNXDetector(DetectionApi):
         logger.info(
             "NCNN: model loaded (arch=%s, Vulkan=%s)",
             self.arch,
-            "on" if gpu_count > 0 else "off",
+            "on" if self._has_gpu else "off",
         )
 
     # ------------------------------------------------------------------
@@ -461,8 +558,10 @@ param = {param_path!r}
 binf = {bin_path!r}
 in_name = {in_name!r}
 out_names = {out_names!r}
-model_size = 640
+model_size = {self.model_input_size!r}
 arch = {arch!r}  # yolo26, yolov8, etc.
+num_threads = {_ncnn_num_threads()!r}
+has_gpu = {self._has_gpu!r}
 
 # ── load ncnn Vulkan (suppress stdout — used for IPC data) ───
 _real_stdout_fd = os.dup(1)
@@ -474,10 +573,12 @@ ncnn.destroy_gpu_instance()
 ncnn.create_gpu_instance()
 
 net = ncnn.Net()
-if ncnn.get_gpu_count() > 0:
+if has_gpu:
     dev = ncnn.get_gpu_device(0)
     net.set_vulkan_device(dev)
-net.opt.use_vulkan_compute = True
+net.opt.use_vulkan_compute = has_gpu
+if num_threads:
+    net.opt.num_threads = num_threads
 net.opt.use_fp16_arithmetic = True
 net.opt.use_fp16_packed = True
 net.opt.use_fp16_storage = True
@@ -494,6 +595,7 @@ _STRIDES = (8, 16, 32)
 _DFL_BINS = np.arange(16, dtype=np.float32)
 # Build grid points once (same every frame)
 _grid_pts = []
+_grid_strides = []
 _offset = 0
 for _s in _STRIDES:
     _g = model_size // _s
@@ -503,8 +605,13 @@ for _s in _STRIDES:
         (_xs.reshape(-1) + 0.5) * _s,
         (_ys.reshape(-1) + 0.5) * _s,
     ]))
+    _grid_strides.append(np.full(_n, _s, dtype=np.float32))
 _ALL_PTS = np.concatenate(_grid_pts, axis=0)  # (8400, 2)
+_ALL_STRIDES = np.concatenate(_grid_strides)[:, None]  # (8400, 1)
 
+# Ported to frigate-detector-rs/src/anchor_free.rs, which is tested against
+# this function's output. After changing it, regenerate that fixture with
+# frigate-detector-rs/testdata/gen_anchor_free_cases.py.
 def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
     # Key optimisation: pre-filter by class scores BEFORE expensive DFL decode.
     # Most of 8400 candidates have near-zero scores — skip their DFL entirely.
@@ -532,7 +639,9 @@ def _process(raw, w, h, score_thresh=0.25, nms_thresh=0.45):
     reg -= reg.max(axis=-1, keepdims=True)
     np.exp(reg, out=reg)
     reg /= reg.sum(axis=-1, keepdims=True)
-    dist = (reg * _DFL_BINS).sum(axis=-1)  # (K, 4)
+    # DFL distances are in grid cells (0-15): scale by the anchor's stride
+    # to get pixels, like the centres.
+    dist = (reg * _DFL_BINS).sum(axis=-1) * _ALL_STRIDES[idx]  # (K, 4)
 
     # ── Step 3: bbox decode (only K candidates) ──────────────────────
     pts = _ALL_PTS[idx]  # (K, 2)
@@ -660,8 +769,15 @@ while True:
     os.write(1, result)
 """
         rust_bin = "/opt/frigate/frigate-detector-rs"
-        if self.arch == "yolo26" and os.path.exists(rust_bin):
+        # Only the Rust worker understands raw uint8 frames (see
+        # accepts_uint8_nhwc); the Python worker below reads fp16.
+        self._worker_accepts_uint8 = False
+        if self.arch in ("yolo26", "yolov8") and os.path.exists(rust_bin):
             logger.info("Spawning Rust NCNN worker: %s", rust_bin)
+            self._worker_accepts_uint8 = True
+            worker_env = os.environ.copy()
+            if not self._has_gpu:
+                worker_env["NCNN_FFI_NO_VULKAN"] = "1"
             self._worker = subprocess.Popen(
                 [
                     rust_bin,
@@ -675,6 +791,7 @@ while True:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                env=worker_env,
             )
         else:
             logger.info("Spawning Python NCNN worker")
@@ -709,8 +826,52 @@ while True:
         if not ready:
             self._worker.kill()
             raise RuntimeError("NCNN worker did not become ready within 30s")
-        logger.info("NCNN: Vulkan inference worker ready (pid=%d)", self._worker.pid)
         self._use_worker = True
+        logger.info(
+            "NCNN: inference worker ready (pid=%d, Vulkan=%s, frames=%s)",
+            self._worker.pid,
+            "on" if self._has_gpu else "off",
+            "raw uint8" if self.accepts_uint8_nhwc else "fp16",
+        )
+
+        # The worker keeps writing to stderr after READY -- the Rust worker
+        # prints a STATS line every 100 frames, and ncnn/Vulkan errors land
+        # there too. Nothing else reads this pipe, so once its 64 KiB buffer
+        # fills the worker blocks on that write, stops reading stdin, and
+        # _detect_worker() hangs in os.write() until the watchdog declares
+        # detection stuck and kills this process. Drain it for the worker's
+        # whole lifetime.
+        threading.Thread(
+            target=self._drain_worker_stderr,
+            args=(stderr_fd,),
+            name="ncnn_worker_stderr",
+            daemon=True,
+        ).start()
+
+    @staticmethod
+    def _drain_worker_stderr(stderr_fd: int) -> None:
+        """Consume the worker's stderr until it exits, logging complete lines."""
+        buf = b""
+        while True:
+            try:
+                chunk = os.read(stderr_fd, 4096)
+            except OSError:
+                return
+
+            if not chunk:
+                return
+
+            buf += chunk
+            *lines, buf = buf.split(b"\n")
+            for raw_line in lines:
+                line = raw_line.decode(errors="replace").strip()
+                if not line:
+                    continue
+
+                if line.startswith("STATS "):
+                    logger.debug("NCNN worker stderr: %s", line)
+                else:
+                    logger.warning("NCNN worker stderr: %s", line)
 
     # ------------------------------------------------------------------
     def detect_raw(self, tensor_input: np.ndarray) -> np.ndarray:
@@ -752,6 +913,21 @@ while True:
         if raw.ndim != 2 or raw.shape[0] != 84:
             logger.error("YOLO26: unexpected output shape %s", raw.shape)
             return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+
+        try:
+            from frigate.detectors.rust_yolo import yolo26_post_process, yolo_available
+
+            if yolo_available():
+                return yolo26_post_process(
+                    raw,
+                    model_size=self.model_input_size,
+                    frame_w=1.0,
+                    frame_h=1.0,
+                    score_thresh=0.25,
+                    nms_thresh=0.45,
+                )
+        except Exception:
+            pass
 
         bboxes = raw[:4, :].T  # (N, 4) — cx, cy, w, h
         scores = raw[4:, :].T  # (N, 80) — already sigmoid'd
@@ -813,13 +989,58 @@ while True:
             buf += chunk
         return buf
 
+    @property
+    def accepts_uint8_nhwc(self) -> bool:
+        """Whether detect_raw takes Frigate's raw (1, H, W, 3) uint8 frame.
+
+        The Rust worker normalises and transposes the frame itself in one
+        pass, so Frigate does not build the float tensor, this process does
+        not convert it to fp16, and half as many bytes cross the pipe.
+        """
+        return getattr(self, "_use_worker", False) and getattr(
+            self, "_worker_accepts_uint8", False
+        )
+
+    @staticmethod
+    def _write_all(fd: int, data) -> None:
+        """Write a whole buffer, looping on partial writes."""
+        view = memoryview(data).cast("B")
+        while view:
+            view = view[os.write(fd, view) :]
+
+    def _worker_payload(self, tensor_input: np.ndarray):
+        """The frame as the worker reads it.
+
+        Raw uint8 NHWC goes as is to the Rust worker; anything else is the
+        normalised float NCHW tensor, sent as fp16 to halve the pipe I/O.
+        """
+        size = self.model_input_size
+
+        if tensor_input.dtype == np.uint8:
+            if (
+                self.accepts_uint8_nhwc
+                and tensor_input.shape == (1, size, size, 3)
+                and tensor_input.flags.c_contiguous
+            ):
+                return tensor_input
+
+            # Not a frame the worker can take raw: build the float tensor
+            tensor_input = np.ascontiguousarray(
+                np.transpose(tensor_input, (0, 3, 1, 2)), dtype=np.float32
+            )
+            tensor_input *= np.float32(1.0 / 255.0)
+
+        # C order: Frigate's own float path transposes with a view, and the
+        # worker reads plain NCHW bytes
+        return np.ascontiguousarray(tensor_input, dtype=np.float16)
+
     def _detect_worker(self, tensor_input: np.ndarray) -> np.ndarray:
-        """Send frame to the persistent ncnn Vulkan worker, get detections.
-        Uses float16 to halve pipe I/O (2.5MB vs 5MB per frame)."""
-        data = tensor_input.astype(np.float16).tobytes()
+        """Send frame to the persistent ncnn Vulkan worker, get detections."""
+        data = self._worker_payload(tensor_input)
         try:
-            os.write(self._worker.stdin.fileno(), struct.pack(">I", len(data)))
-            os.write(self._worker.stdin.fileno(), data)
+            fd = self._worker.stdin.fileno()
+            os.write(fd, struct.pack(">I", data.nbytes))
+            self._write_all(fd, data)
             header = self._pipe_read(self._worker.stdout.fileno(), 4)
             size = struct.unpack(">I", header)[0]
             result = self._pipe_read(self._worker.stdout.fileno(), size)
@@ -938,6 +1159,24 @@ while True:
                 "NCNN: unexpected output shape %s (expected (N, 144))", raw.shape
             )
             return _pad_detections(np.zeros((0, 6), dtype=np.float32))
+
+        try:
+            from frigate.detectors.rust_yolo import (
+                anchor_free_post_process,
+                yolo_available,
+            )
+
+            if yolo_available():
+                return anchor_free_post_process(
+                    raw,
+                    model_size=self.model_input_size,
+                    frame_w=1.0,
+                    frame_h=1.0,
+                    score_thresh=0.25,
+                    nms_thresh=0.45,
+                )
+        except Exception:
+            pass
 
         dets = _post_process_yolov8(
             raw, self.model_input_size, score_thresh=0.25, nms_thresh=0.45

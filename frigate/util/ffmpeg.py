@@ -7,20 +7,106 @@ from typing import Any, Callable, Optional
 from frigate.const import PROCESS_PRIORITY_LOW
 from frigate.log import LogPipe
 
+FFMPEG_GRACEFUL_EXIT_TIMEOUT = 30
+"""Seconds to wait for ffmpeg to exit after SIGTERM before sending SIGKILL."""
 
-def stop_ffmpeg(ffmpeg_process: sp.Popen[Any], logger: logging.Logger):
+FFMPEG_KILL_TIMEOUT = 10
+"""Seconds to wait for ffmpeg to be reaped after SIGKILL.
+
+A process blocked in an uninterruptible GPU driver call (for example during a
+hardware decoder reset) only dies once the call returns, so this wait is
+bounded instead of blocking the caller forever; callers keep the process and
+retry reaping it later with :func:`reap_ffmpeg`."""
+
+
+def close_process_pipes(ffmpeg_process: sp.Popen[Any]) -> None:
+    """Close the parent's ends of an ffmpeg process's pipes."""
+    for stream in (ffmpeg_process.stdin, ffmpeg_process.stdout, ffmpeg_process.stderr):
+        if stream is None:
+            continue
+
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
+def reap_ffmpeg(ffmpeg_process: sp.Popen[Any]) -> bool:
+    """Reap an ffmpeg process without blocking, closing its pipes once dead.
+
+    Returns True when the process has exited and been reaped.
+    """
+    if ffmpeg_process.poll() is None:
+        return False
+
+    close_process_pipes(ffmpeg_process)
+    return True
+
+
+def terminate_ffmpeg(
+    ffmpeg_process: sp.Popen[Any],
+    logger: logging.Logger,
+    timeout: float = FFMPEG_GRACEFUL_EXIT_TIMEOUT,
+    kill_timeout: float = FFMPEG_KILL_TIMEOUT,
+    drain_output: bool = True,
+    close_pipes: bool = True,
+) -> bool:
+    """Terminate an ffmpeg process: SIGTERM, bounded wait, SIGKILL, bounded wait.
+
+    Args:
+        ffmpeg_process: The process to stop.
+        logger: Logger for progress messages.
+        timeout: Seconds to wait for a graceful exit after SIGTERM.
+        kill_timeout: Seconds to wait for the process to be reaped after SIGKILL.
+        drain_output: Read (and discard) stdout while waiting so ffmpeg cannot
+            block on a full pipe during shutdown.
+        close_pipes: Close the parent's pipe ends once the process is reaped.
+            Pass False when another thread may still be reading stdout.
+
+    Returns:
+        True if the process was reaped, False if it is still alive after SIGKILL
+        (the caller should retry with :func:`reap_ffmpeg`).
+    """
+    if ffmpeg_process.poll() is None:
+        ffmpeg_process.terminate()
+
+        try:
+            logger.info("Waiting for ffmpeg to exit gracefully...")
+
+            if drain_output:
+                ffmpeg_process.communicate(timeout=timeout)
+            else:
+                ffmpeg_process.wait(timeout=timeout)
+
+            logger.info("FFmpeg has exited")
+        except sp.TimeoutExpired:
+            logger.info("FFmpeg didn't exit. Force killing...")
+            ffmpeg_process.kill()
+
+            try:
+                # SIGKILL needs no cooperation from ffmpeg, so the pipe does
+                # not have to be drained here
+                ffmpeg_process.wait(timeout=kill_timeout)
+            except sp.TimeoutExpired:
+                logger.warning(
+                    "FFmpeg (pid %s) did not exit %ss after SIGKILL",
+                    ffmpeg_process.pid,
+                    kill_timeout,
+                )
+                return False
+
+            logger.info("FFmpeg has been killed")
+
+    if close_pipes:
+        close_process_pipes(ffmpeg_process)
+
+    return True
+
+
+def stop_ffmpeg(ffmpeg_process: sp.Popen[Any], logger: logging.Logger) -> bool:
+    """Stop an ffmpeg process, returning True once it has been reaped."""
     logger.info("Terminating the existing ffmpeg process...")
-    ffmpeg_process.terminate()
-    try:
-        logger.info("Waiting for ffmpeg to exit gracefully...")
-        ffmpeg_process.communicate(timeout=30)
-        logger.info("FFmpeg has exited")
-    except sp.TimeoutExpired:
-        logger.info("FFmpeg didn't exit. Force killing...")
-        ffmpeg_process.kill()
-        ffmpeg_process.communicate()
-        logger.info("FFmpeg has been killed")
-    ffmpeg_process = None
+    return terminate_ffmpeg(ffmpeg_process, logger)
 
 
 def start_or_restart_ffmpeg(

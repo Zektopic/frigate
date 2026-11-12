@@ -71,7 +71,12 @@ function MSEPlayer({
   // closure — onCloseRef pins the callback at attach time, so a
   // socket attached while this read CLOSED never reconnected.
   const [, setWsState] = useState<number>(WebSocket.CLOSED);
-  const [connectTS, setConnectTS] = useState<number>(0);
+  // A ref, not state: onClose is pinned at attach time (see onCloseRef),
+  // so the reconnect() it calls would read the connectTS of the first
+  // render, always 0. The computed delay was then always 0 and a socket
+  // that kept closing (go2rtc or nginx down during a restart) was
+  // reopened in a hot loop, hundreds of times per second per camera.
+  const connectTSRef = useRef<number>(0);
   const [bufferTimeout, setBufferTimeout] = useState<NodeJS.Timeout>();
   const [errorCount, setErrorCount] = useState<number>(0);
   const totalBytesLoaded = useRef(0);
@@ -171,7 +176,7 @@ function MSEPlayer({
 
     setWsState(WebSocket.CONNECTING);
 
-    setConnectTS(Date.now());
+    connectTSRef.current = Date.now();
 
     wsRef.current = new WebSocket(wsURL);
     wsRef.current.binaryType = "arraybuffer";
@@ -297,7 +302,8 @@ function MSEPlayer({
     wsRef.current = null;
 
     const delay =
-      timeout ?? Math.max(RECONNECT_TIMEOUT - (Date.now() - connectTS), 0);
+      timeout ??
+      Math.max(RECONNECT_TIMEOUT - (Date.now() - connectTSRef.current), 0);
 
     reconnectTIDRef.current = window.setTimeout(() => {
       reconnectTIDRef.current = null;

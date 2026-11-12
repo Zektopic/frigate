@@ -31,6 +31,7 @@ from frigate.api.auth import (
     get_allowed_cameras_for_filter,
     require_role,
 )
+from frigate.api.config_util import swap_runtime_config
 from frigate.api.defs.query.app_query_parameters import AppTimelineHourlyQueryParameters
 from frigate.api.defs.request.app_body import (
     AppConfigSetBody,
@@ -66,6 +67,7 @@ from frigate.util.config import (
     apply_section_update,
     find_config_file,
     redact_credential,
+    redact_go2rtc_credentials,
 )
 from frigate.util.schema import get_config_schema
 from frigate.util.services import (
@@ -383,6 +385,12 @@ def config(request: Request):
                 cleaned.append(clean_camera_user_pass(item))
 
         config["go2rtc"]["streams"][stream_name] = cleaned
+
+    # go2rtc's own rtsp/api listener credentials and WebRTC TURN credentials
+    # are only needed when an admin edits the config; never hand them to
+    # other roles
+    if request.headers.get("remote-role") != "admin":
+        redact_go2rtc_credentials(config.get("go2rtc", {}))
 
     config["plus"] = {"enabled": request.app.frigate_config.plus_api.is_active()}
     config["model"]["colormap"] = config_obj.model.colormap
@@ -936,19 +944,7 @@ def config_set(request: Request, body: AppConfigSetBody):
 
             if body.requires_restart == 0 or body.update_topic:
                 old_config: FrigateConfig = request.app.frigate_config
-                request.app.frigate_config = config
-                request.app.genai_manager.update_config(config)
-
-                if request.app.profile_manager is not None:
-                    request.app.profile_manager.update_config(config)
-
-                if request.app.stats_emitter is not None:
-                    request.app.stats_emitter.config = config
-
-                if request.app.dispatcher is not None:
-                    request.app.dispatcher.config = config
-                    for comm in request.app.dispatcher.comms:
-                        comm.config = config
+                swap_runtime_config(request.app, config)
 
                 if body.update_topic:
                     if body.update_topic.startswith("config/cameras/"):

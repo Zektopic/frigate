@@ -59,6 +59,28 @@ def redact_credential(obj: dict[str, Any], key: str) -> None:
         obj.pop(key, None)
 
 
+def redact_go2rtc_credentials(go2rtc: dict[str, Any]) -> None:
+    """Redact go2rtc listener and WebRTC ICE server credentials in place.
+
+    go2rtc is an open-ended section, so its rtsp/api passwords and TURN
+    credentials survive the model dump untouched unless they are removed
+    explicitly.
+    """
+    for section in ("api", "rtsp"):
+        listener = go2rtc.get(section)
+
+        if isinstance(listener, dict):
+            redact_credential(listener, "password")
+
+    webrtc = go2rtc.get("webrtc")
+    ice_servers = webrtc.get("ice_servers") if isinstance(webrtc, dict) else None
+
+    if isinstance(ice_servers, list):
+        for server in ice_servers:
+            if isinstance(server, dict):
+                redact_credential(server, "credential")
+
+
 def find_config_file() -> str:
     config_path = os.environ.get("CONFIG_FILE", DEFAULT_CONFIG_FILE)
 

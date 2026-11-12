@@ -25,6 +25,7 @@ from frigate.api.auth import (
     require_go2rtc_stream_access,
     require_role,
 )
+from frigate.api.config_util import swap_runtime_config
 from frigate.api.defs.request.app_body import CameraSetBody
 from frigate.api.defs.tags import Tags
 from frigate.config import FrigateConfig
@@ -74,8 +75,16 @@ def _is_valid_host(host: str) -> bool:
 
 @router.get("/go2rtc/streams", dependencies=[Depends(allow_any_authenticated())])
 async def go2rtc_streams(request: Request):
-    async with httpx.AsyncClient() as client:
-        r = await client.get("http://127.0.0.1:1984/api/streams")
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get("http://127.0.0.1:1984/api/streams")
+    except httpx.RequestError:
+        # go2rtc not running / unreachable: same contract as a non-2xx reply
+        logger.error("Failed to connect to go2rtc to fetch streams")
+        return JSONResponse(
+            content=({"success": False, "message": "Error fetching stream data"}),
+            status_code=500,
+        )
     if not r.is_success:
         logger.error("Failed to fetch streams from go2rtc")
         return JSONResponse(
@@ -112,17 +121,22 @@ async def go2rtc_streams(request: Request):
     dependencies=[Depends(require_go2rtc_stream_access)],
 )
 async def go2rtc_camera_stream(request: Request, stream_name: str):
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            "http://127.0.0.1:1984/api/streams",
-            params={
-                "src": stream_name,
-                "video": "all",
-                "audio": "all",
-                "microphone": "",
-            },
-        )
-    if not r.is_success:
+    r: httpx.Response | None
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                "http://127.0.0.1:1984/api/streams",
+                params={
+                    "src": stream_name,
+                    "video": "all",
+                    "audio": "all",
+                    "microphone": "",
+                },
+            )
+    except httpx.RequestError:
+        # go2rtc not running / unreachable: treat like a non-2xx reply below
+        r = None
+    if r is None or not r.is_success:
         camera_config = request.app.frigate_config.cameras.get(stream_name)
 
         if camera_config is None:
@@ -1279,9 +1293,14 @@ async def delete_camera(
 
     config = result["config"]
 
-    # Update runtime config
-    request.app.frigate_config = config
-    request.app.genai_manager.update_config(config)
+    # rebind every collaborator to the new config and re-layer runtime
+    # toggles for the surviving cameras, same as /api/config/set
+    swap_runtime_config(request.app, config)
+
+    # drop the deleted camera's persisted overrides so a camera later
+    # added under the same name doesn't inherit them
+    if request.app.dispatcher is not None:
+        request.app.dispatcher.clear_runtime_state_for_camera(camera_name)
 
     # Publish removal to stop ffmpeg processes and clean up runtime state
     request.app.config_publisher.publish_update(

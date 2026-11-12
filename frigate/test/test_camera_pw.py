@@ -47,3 +47,31 @@ class TestUserPassMasking(unittest.TestCase):
         escaped = clean_camera_user_pass(self.rtsp_log_message)
         print(f"The escaped is {escaped}")
         assert escaped == "Did you mean file:rtsp://*:*@192.168.1.3:554"
+
+
+class TestUserPassMaskingUsernames(unittest.TestCase):
+    """Credentials must be masked whatever characters the username uses."""
+
+    def test_dotted_username_is_masked(self):
+        clean = clean_camera_user_pass("rtsp://john.doe:s3cret@192.168.1.3:554/live")
+        assert "s3cret" not in clean
+        assert clean == "rtsp://*:*@192.168.1.3:554/live"
+
+    def test_percent_encoded_username_is_masked(self):
+        clean = clean_camera_user_pass("rtsp://admin%40site:s3cret@cam.local/live")
+        assert "s3cret" not in clean
+
+    def test_empty_username_is_masked(self):
+        clean = clean_camera_user_pass("rtsp://:s3cret@192.168.1.3/live")
+        assert "s3cret" not in clean
+
+    def test_http_query_dotted_username_is_masked(self):
+        clean = clean_camera_user_pass(
+            "http://192.168.1.3/cgi-bin/api.cgi?cmd=Snap&user=john.doe&password=s3cret"
+        )
+        assert "s3cret" not in clean
+        assert "user=*&password=*" in clean
+
+    def test_host_with_port_is_untouched(self):
+        url = "rtsp://192.168.1.3:554/live"
+        assert clean_camera_user_pass(url) == url

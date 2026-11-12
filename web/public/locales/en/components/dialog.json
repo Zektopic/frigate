@@ -6,6 +6,7 @@
     "restarting": {
       "title": "Frigate is Restarting",
       "content": "This page will reload in {{countdown}} seconds.",
+      "waiting": "Waiting for Frigate to come back online…",
       "button": "Force Reload Now"
     }
   },

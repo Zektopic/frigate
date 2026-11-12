@@ -302,18 +302,26 @@ def create_tensor_input(frame, model_config: ModelConfig, region):
     return np.expand_dims(cropped_frame, axis=0)
 
 
-def box_overlaps(b1, b2):
+def box_overlaps(b1: Sequence[int], b2: Sequence[int]) -> bool:
     return not (b1[2] < b2[0] or b1[0] > b2[2] or b1[1] > b2[3] or b1[3] < b2[1])
 
 
-def box_inside(b1, b2):
+def box_inside(b1: Sequence[int], b2: Sequence[int]) -> bool:
     # check if b2 is inside b1
-    if b2[0] >= b1[0] and b2[1] >= b1[1] and b2[2] <= b1[2] and b2[3] <= b1[3]:
-        return True
     return b2[0] >= b1[0] and b2[1] >= b1[1] and b2[2] <= b1[2] and b2[3] <= b1[3]
 
 
 def reduce_boxes(boxes, iou_threshold=0.0):
+    if len(boxes) == 0:
+        return []
+    try:
+        from frigate.util.frame_rs import frame_rs_available, reduce_boxes_rust
+
+        if frame_rs_available():
+            return [tuple(c) for c in reduce_boxes_rust(boxes, iou_threshold)]
+    except Exception:
+        pass
+
     clusters = []
 
     for box in boxes:
@@ -347,18 +355,20 @@ def median_of_boxes(
     boxes: Sequence[list[int] | tuple[int, ...]],
 ) -> list[int] | tuple[int, ...]:
     """Return a box that is the median of a list of boxes."""
-    sorted_boxes = sorted(boxes, key=lambda x: area(x))
+    sorted_boxes = sorted(boxes, key=area)
     return sorted_boxes[int(len(sorted_boxes) / 2.0)]
 
 
-def intersects_any(box_a, boxes):
+def intersects_any(box_a: Sequence[int], boxes: Sequence[Sequence[int]]) -> bool:
+    # Plain Python on purpose: motion box lists are short and the ctypes
+    # marshalling of a Rust call cost several times more than this loop.
     for box in boxes:
         if box_overlaps(box_a, box):
             return True
     return False
 
 
-def inside_any(box_a, boxes):
+def inside_any(box_a: Sequence[int], boxes: Sequence[Sequence[int]]) -> bool:
     for box in boxes:
         # check if box_a is inside of box
         if box_inside(box, box_a):
@@ -393,6 +403,14 @@ def get_cluster_candidates(frame_shape, min_region, boxes):
     # determined by the max_region size minus half the box + 20%
     if len(boxes) == 0:
         return []
+
+    try:
+        from frigate.util.frame_rs import cluster_candidates_rust, frame_rs_available
+
+        if frame_rs_available():
+            return cluster_candidates_rust(frame_shape, min_region, boxes)
+    except Exception:
+        pass
 
     cluster_candidates = []
     used_boxes = set()
@@ -556,6 +574,26 @@ def reduce_detections(
 
             # sort smallest to largest by area
             sorted_by_area = sorted(group, key=lambda g: g[3])
+
+            try:
+                from frigate.util.frame_rs import (
+                    consolidate_detections_rust,
+                    frame_rs_available,
+                )
+
+                if frame_rs_available():
+                    current_label = sorted_by_area[0][0]
+                    thresh = LABEL_CONSOLIDATION_MAP.get(
+                        current_label, LABEL_CONSOLIDATION_DEFAULT
+                    )
+                    kept_idxs = consolidate_detections_rust(
+                        [d[2] for d in sorted_by_area], thresh
+                    )
+                    for idx in kept_idxs:
+                        consolidated_detections.append(sorted_by_area[idx])
+                    continue
+            except Exception:
+                pass
 
             for current_detection_idx in range(len(sorted_by_area)):
                 current_detection = sorted_by_area[current_detection_idx]

@@ -33,6 +33,20 @@ from .util import tensor_transform
 logger = logging.getLogger(__name__)
 
 
+def write_detections(out: np.ndarray, detections: np.ndarray) -> None:
+    """Copy a detector result into the fixed-size (20, 6) output buffer.
+
+    Plugins are expected to return exactly 20 rows, but one that returns
+    fewer or more (e.g. an empty (0, 6) array on an inference error) would
+    raise a broadcast ValueError on a plain slice assignment. That exception
+    kills the detection process, and the watchdog used to answer a dead
+    detector by restarting all of Frigate.
+    """
+    rows = min(len(detections), out.shape[0])
+    out[:rows] = detections[:rows]
+    out[rows:] = 0
+
+
 class ObjectDetector(ABC):
     @abstractmethod
     def detect(self, tensor_input: np.ndarray, threshold: float = 0.4) -> list:
@@ -66,6 +80,41 @@ class BaseLocalDetector(ObjectDetector):
             self.detect_api.set_stop_event(stop_event)
 
     def _transform_input(self, tensor_input: np.ndarray) -> np.ndarray:
+        if (
+            self.dtype == InputDTypeEnum.float
+            and self.input_transform == (0, 3, 1, 2)
+            and getattr(tensor_input, "dtype", None) == np.uint8
+            and getattr(getattr(self, "detect_api", None), "accepts_uint8_nhwc", None)
+            is True
+        ):
+            # The detector normalises and transposes the raw frame itself
+            # (ncnn-vulkan with frigate-detector-rs), so building the float
+            # tensor here would only be undone again.
+            return tensor_input
+
+        if (
+            self.dtype == InputDTypeEnum.float
+            and getattr(tensor_input, "dtype", None) == np.uint8
+        ):
+            try:
+                from frigate.util.frame_rs import (
+                    frame_rs_available,
+                    normalize_u8_to_f32_rust,
+                    transform_detect_input_rust,
+                )
+
+                if frame_rs_available():
+                    if (
+                        self.input_transform == (0, 3, 1, 2)
+                        and tensor_input.ndim == 4
+                        and tensor_input.shape[0] == 1
+                    ):
+                        return transform_detect_input_rust(tensor_input)
+                    if self.input_transform is None:
+                        return normalize_u8_to_f32_rust(tensor_input)
+            except Exception:
+                pass
+
         if self.input_transform:
             tensor_input = np.transpose(tensor_input, self.input_transform)
 
@@ -175,7 +224,7 @@ class DetectorRunner(FrigateProcess):
             if connection_id not in self.outputs:
                 self.create_output_shm(connection_id)
 
-            self.outputs[connection_id]["np"][:] = detections[:]
+            write_detections(self.outputs[connection_id]["np"], detections)
             detector_publisher.publish(connection_id)
             self.start_time.value = 0.0
 
@@ -269,7 +318,7 @@ class AsyncDetectorRunner(FrigateProcess):
 
             # write results and publish
             if detections is not None:
-                self.outputs[connection_id]["np"][:] = detections[:]
+                write_detections(self.outputs[connection_id]["np"], detections)
             assert self._publisher is not None
             self._publisher.publish(connection_id)
 

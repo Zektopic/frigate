@@ -1,0 +1,19 @@
+[package]
+name = "frigate-stats-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Resource monitor for Frigate NVR: per-process CPU, GPU (DRM fdinfo) and NPU usage"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+# Unlike the other crates this one keeps the default unwinding panics: it runs
+# inside the main Frigate process, and the FFI entry point catches a panic and
+# reports an error instead of taking the whole NVR down with it.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -12,6 +12,7 @@ These performance-critical components have been successfully migrated to Rust to
    * Rayon-parallel and hardware-optimized post-processing (DFL decoding, Non-Maximum Suppression (NMS), coordinate scaling, and class filters) for YOLO models.
    * **Direct ncnn C-API inference** (2026-07-13): dlopens `/opt/frigate/libncnn.so` (built in a dedicated Docker stage, version-matched to pip ncnn) and runs the Vulkan forward pass in-process — no Python subprocess, no second pipe hop, fp16→f32 converted in Rust (exhaustively unit-tested). Python subprocess retained as automatic fallback when the lib is absent.
    * Parity-verified against the PyTorch model. This surfaced a long-standing accuracy bug: pyncnn maps 4D numpy input to a `dims=4 c=1` Mat, systematically crushing class scores (chair 0.56 → refrigerator 0.11). The FFI's 3D mat is correct; the Python fallback now reshapes to 3D as well.
+   * **YOLOv8 / YOLO11 raw-DFL exports** (2026-11-08): `frigate-detector-rs <...> yolov8` decodes the `(N, 144)` head (DFL boxes, class sigmoid, NMS) in `src/anchor_free.rs`, so the ncnn-vulkan plugin no longer needs the Python worker for these models (it stays as the fallback when the binary is missing). Parity is tested against the numpy worker's `_process()` via `testdata/gen_anchor_free_cases.py`. The port found that `_process()` never multiplied DFL distances by the stride (every box was at most 15 px a side); both are fixed. The same bug remains in `frigate-yolo-rs`'s `yolo_anchor_free_post_process` (used by `frigate/util/model.py`).
    * Debug switch: `NCNN_FFI_NO_VULKAN=1` forces CPU inference for parity checks.
    * ncnn worker pinned to `num_threads=2` with `OMP_WAIT_POLICY=PASSIVE` — default OpenMP threading oversubscribed the CPU on Vulkan-fallback layers and spin-waited between parallel regions (~2× slower inference at ~174% CPU). See GPU-DETECTOR.md § ncnn thread tuning.
 2. **`frigate-frame-rs` tracker distance** (2026-07-13): the norfair association distance (`track_distance`) runs in Rust — 8.3x faster per call (21.9us → 2.6us), executed per detection×tracked-object pair per frame. Parity-fuzzed against the numpy implementation (2000 random pairs + NaN/inf/degenerate cases) in `frigate/test/test_track_distance_rust.py`.
@@ -21,6 +22,13 @@ These performance-critical components have been successfully migrated to Rust to
    * `motion_pixel_pipeline` FFI (blur → absdiff → threshold → dilate → contours) wired into `ImprovedMotionDetector.detect()`, replacing the OpenCV/scipy pixel math per frame; all Python post-processing (PTZ, calibration, `accumulateWeighted`) retained.
 3. **`frigate-frame-rs`**:
    * Handles frame processing, scaling, crop operations, and pixel format conversions directly inside shared memory (`/dev/shm`).
+4. **`frigate-stats-rs`** (2026-11-11): the resource monitor behind the System page and `/api/stats`.
+   * One call per stats interval (`frigate/stats/rust_stats.py`) returns per-process CPU and memory for Frigate's process tree, AMD GPU usage and AMD XDNA NPU usage as JSON. The library keeps the previous counters, so every figure covers the whole interval between two collections.
+   * **Fixes per-process CPU reading 0.0 for everything.** The Python collector built new `psutil.Process` objects on every collection, and the first `cpu_percent()` of a new object is always 0.0. (The psutil fallback is fixed too: it now keeps the objects.)
+   * **Detectors report their whole process tree.** Inference runs in the `frigate-detector-rs` child, which was not listed at all, so the detector always looked idle.
+   * **AMD GPU without `radeontop`**: device load (mean of 1 Hz readings of `gpu_busy_percent`, not one instantaneous sample), VRAM, temperature and power from sysfs; decode and compute time per process from DRM fdinfo. On video cores with a unified queue (VCN 4, e.g. Radeon 760M) the kernel accounts decode as `enc`; it is shown as decode. A GPU that only runs the detector (no VAAPI hwaccel) is now reported as well.
+   * **AMD XDNA NPU** straight from the `amdxdna` driver when `/dev/accel/accel0` is passed into the container (contexts, commands per second, buffer memory, column occupancy). A runtime-suspended NPU is never queried, since any query wakes it. The npu-face service's own figures still take precedence when it is in use.
+   * Intel, NVIDIA and Rockchip stats are unchanged and still collected in Python.
 
 ---
 
@@ -39,7 +47,7 @@ The core coordination layer and non-performance-critical logic remain in Python:
 5. **Process Supervision**:
    * Monitoring/respawning helper processes (`go2rtc`, FFmpeg capture, Rust detector binary).
 6. **Telemetry & Stats**:
-   * Resource statistics aggregator (queries CPU, GPU, memory stats via `psutil`/helpers).
+   * The stats snapshot, history and Prometheus export. The collection itself is in `frigate-stats-rs`; Intel, NVIDIA and Rockchip GPU stats are still read by Python helpers.
 7. **Semantic Search & Face Recognition**:
    * Embedding computations and database indexing (`frigate/data_processing/`).
 
@@ -62,5 +70,5 @@ To achieve a minimal CPU/RAM footprint and completely remove the Python GIL over
 * **Rust Target**: Shift event state classification (start, active, end) to Rust to prevent GIL lag during busy periods.
 
 ### 4. Telemetry Collector
-* **Current State**: **Optimized**. Refactored `get_cpu_stats` to query only Frigate's descendant processes (ffmpeg, go2rtc, python, workers) recursively instead of scanning all system-wide processes, avoiding high CPU/RAM overhead and GIL lag.
-* **Rust Target**: Complete lightweight background stats-gathering thread in Rust to entirely bypass Python `psutil` dependencies.
+* **Current State**: **Migrated to Rust** (`frigate-stats-rs`, see above) for process, AMD GPU and AMD XDNA NPU stats. psutil and `radeontop` remain only as the fallback when the library is missing.
+* **Remaining**: Intel (i915/xe fdinfo), NVIDIA (NVML) and Rockchip collectors are still Python; they could move behind the same call, but need that hardware to verify.

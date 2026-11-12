@@ -144,6 +144,8 @@ class FFMpegConverter(threading.Thread):
         item_count = len(self.frame_times)
         playlist = []
 
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+
         for t_idx in range(0, item_count):
             if t_idx == item_count - 1:
                 # last frame does not get a duration
@@ -361,6 +363,7 @@ class PreviewRecorder:
             small_frame,
             cv2.COLOR_YUV2BGR_I420,
         )
+        Path(PREVIEW_CACHE_DIR).mkdir(parents=True, exist_ok=True)
         cache_path = get_cache_image_name(self.camera_name, frame_time)
 
         if not cv2.imwrite(
@@ -385,15 +388,16 @@ class PreviewRecorder:
         # always write the first frame
         if self.start_time == 0:
             self.start_time = frame_time
-            self.output_frames.append(frame_time)
-            self.write_frame_to_cache(frame_time, frame)
+            if self.config.record.enabled:
+                self.output_frames.append(frame_time)
+                self.write_frame_to_cache(frame_time, frame)
             return
 
         # check if PREVIEW clip should be generated and cached frames reset
         if frame_time >= self.segment_end:
             if len(self.output_frames) > 0:
                 # save last frame to ensure consistent duration
-                if self.config.record:
+                if self.config.record.enabled:
                     self.output_frames.append(frame_time)
                     self.write_frame_to_cache(frame_time, frame)
 

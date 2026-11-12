@@ -1,0 +1,7 @@
+[target.x86_64-unknown-linux-gnu]
+# Avoid weak GLIBC_2.39 symbol version dependencies (pidfd_spawnp / pidfd_getpid)
+# when compiling on newer hosts (e.g. Ubuntu 24.04) for Debian Bookworm (GLIBC 2.36) containers.
+rustflags = [
+    "-C", "link-arg=-Wl,--defsym,pidfd_spawnp=0",
+    "-C", "link-arg=-Wl,--defsym,pidfd_getpid=0",
+]

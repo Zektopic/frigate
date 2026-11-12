@@ -1523,6 +1523,18 @@
       "description": "Numeric order used to sort camera groups in the UI; larger numbers appear later."
     }
   },
+  "low_resource": {
+    "label": "Low-resource mode",
+    "description": "Tuning for small hosts (old dual/quad-core CPUs, 2-4 GB RAM, Raspberry Pi class boards).",
+    "enabled": {
+      "label": "Enable low-resource mode",
+      "description": "Apply cheaper defaults for small hosts (fewer shared memory frames, Birdseye off, lower jsmpeg live resolution). Values set explicitly in the config always take precedence."
+    },
+    "shm_frames": {
+      "label": "Shared memory frames per camera",
+      "description": "Number of decoded frames buffered per camera in /dev/shm. Defaults to 50, or 20 when low-resource mode is enabled. Overrides the SHM_MAX_FRAMES environment variable."
+    }
+  },
   "profiles": {
     "label": "Profiles",
     "description": "Named profile definitions with friendly names. Camera profiles must reference names defined here.",

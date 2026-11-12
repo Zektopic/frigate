@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 MAX_RESTARTS = 5
 RESTART_WINDOW_S = 60
 
+# A dead detection process is restarted in place. Only when it keeps dying
+# is the whole container restarted: that takes the web UI, go2rtc and every
+# camera down with it, so it is the last resort rather than the first one.
+MAX_DETECTOR_RESTARTS = 3
+DETECTOR_RESTART_WINDOW_S = 300
+
 
 @dataclass
 class MonitoredProcess:
@@ -50,6 +56,7 @@ class FrigateWatchdog(threading.Thread):
         self.stop_event = stop_event
         self._monitored: list[MonitoredProcess] = []
         self._restart_times: dict[str, float] = {}
+        self._detector_deaths: dict[str, deque[float]] = {}
 
     def register(
         self,
@@ -112,6 +119,51 @@ class FrigateWatchdog(threading.Thread):
         except Exception:
             logger.exception("Failed to restart %s", entry.name)
 
+    def _handle_dead_detector(
+        self, name: str, detector: ObjectDetectProcess, now: float
+    ) -> None:
+        """Restart a detection process that exited, escalating if it keeps dying.
+
+        This used to call restart_frigate() on the first death, which sends
+        SIGTERM to s6 and restarts the whole container -- the API, nginx and
+        websocket go away with it and the UI has to reconnect or be reloaded.
+        A negative exit code is the signal that killed it (-11 SIGSEGV,
+        -6 SIGABRT, -9 SIGKILL e.g. from the OOM killer).
+        """
+        process = detector.detect_process
+        exitcode = process.exitcode if process is not None else None
+
+        deaths = self._detector_deaths.setdefault(name, deque())
+        while deaths and now - deaths[0] > DETECTOR_RESTART_WINDOW_S:
+            deaths.popleft()
+
+        if len(deaths) >= MAX_DETECTOR_RESTARTS:
+            logger.error(
+                "Detection process %s exited with code %s and has died %d times "
+                "in %ds. Exiting Frigate...",
+                name,
+                exitcode,
+                len(deaths) + 1,
+                DETECTOR_RESTART_WINDOW_S,
+            )
+            restart_frigate()
+            return
+
+        deaths.append(now)
+        logger.warning(
+            "Detection process %s exited with code %s. Restarting detection process...",
+            name,
+            exitcode,
+        )
+
+        try:
+            detector.start_or_restart()
+        except Exception:
+            logger.exception("Failed to restart detection process %s", name)
+            return
+
+        self._restart_times[name] = now
+
     def run(self) -> None:
         time.sleep(10)
         while not self.stop_event.wait(10):
@@ -140,8 +192,7 @@ class FrigateWatchdog(threading.Thread):
                     detector.detect_process is not None
                     and not detector.detect_process.is_alive()
                 ):
-                    logger.info("Detection appears to have stopped. Exiting Frigate...")
-                    restart_frigate()
+                    self._handle_dead_detector(name, detector, now)
 
             for entry in self._monitored:
                 self._check_process(entry)

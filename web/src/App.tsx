@@ -1,5 +1,5 @@
 import Providers from "@/context/providers";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import Wrapper from "@/components/Wrapper";
 import Sidebar from "@/components/navigation/Sidebar";
 
@@ -15,6 +15,7 @@ import useSWR from "swr";
 import { FrigateConfig } from "./types/frigateConfig";
 import ActivityIndicator from "@/components/indicators/activity-indicator";
 import { isRedirectingToLogin } from "@/api/auth-redirect";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 const Live = lazy(() => import("@/pages/Live"));
 const Events = lazy(() => import("@/pages/Events"));
@@ -51,6 +52,7 @@ function DefaultAppView() {
   const { data: config } = useSWR<FrigateConfig>("config", {
     revalidateOnFocus: false,
   });
+  const location = useLocation();
 
   // Compute required roles for main routes, ensuring we have config first
   // to prevent race condition where custom roles are temporarily unavailable
@@ -84,33 +86,37 @@ function DefaultAppView() {
             : "bottom-8 left-[52px]",
         )}
       >
-        <Suspense
-          fallback={
-            <ActivityIndicator className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
-          }
-        >
-          <Routes>
-            <Route element={<ProtectedRoute requiredRoles={mainRouteRoles} />}>
-              <Route index element={<Live />} />
-              <Route path="/review" element={<Events />} />
-              <Route path="/explore" element={<Explore />} />
-              <Route path="/export" element={<Exports />} />
-              <Route path="/settings" element={<Settings />} />
-            </Route>
-            <Route element={<ProtectedRoute requiredRoles={["admin"]} />}>
-              <Route path="/system" element={<System />} />
-              <Route path="/config" element={<ConfigEditor />} />
-              <Route path="/logs" element={<Logs />} />
-              <Route path="/faces" element={<FaceLibrary />} />
-              <Route path="/classification" element={<Classification />} />
-              <Route path="/chat" element={<Chat />} />
-              <Route path="/playground" element={<UIPlayground />} />{" "}
-              <Route path="/replay" element={<Replay />} />{" "}
-            </Route>
-            <Route path="/unauthorized" element={<AccessDenied />} />
-            <Route path="*" element={<Redirect to="/" />} />
-          </Routes>
-        </Suspense>
+        <ErrorBoundary resetKey={location.pathname}>
+          <Suspense
+            fallback={
+              <ActivityIndicator className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" />
+            }
+          >
+            <Routes>
+              <Route
+                element={<ProtectedRoute requiredRoles={mainRouteRoles} />}
+              >
+                <Route index element={<Live />} />
+                <Route path="/review" element={<Events />} />
+                <Route path="/explore" element={<Explore />} />
+                <Route path="/export" element={<Exports />} />
+                <Route path="/settings" element={<Settings />} />
+              </Route>
+              <Route element={<ProtectedRoute requiredRoles={["admin"]} />}>
+                <Route path="/system" element={<System />} />
+                <Route path="/config" element={<ConfigEditor />} />
+                <Route path="/logs" element={<Logs />} />
+                <Route path="/faces" element={<FaceLibrary />} />
+                <Route path="/classification" element={<Classification />} />
+                <Route path="/chat" element={<Chat />} />
+                <Route path="/playground" element={<UIPlayground />} />{" "}
+                <Route path="/replay" element={<Replay />} />{" "}
+              </Route>
+              <Route path="/unauthorized" element={<AccessDenied />} />
+              <Route path="*" element={<Redirect to="/" />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </div>
     </div>
   );
