@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -8,7 +9,8 @@ import frigate.detectors as detectors
 import frigate.object_detection.base
 from frigate.config import DetectorConfig, ModelConfig
 from frigate.detectors import DetectorTypeEnum
-from frigate.detectors.detector_config import InputTensorEnum
+from frigate.detectors.detector_config import InputDTypeEnum, InputTensorEnum
+from frigate.object_detection.util import tensor_transform
 
 
 class TestLocalObjectDetector(unittest.TestCase):
@@ -136,6 +138,57 @@ class TestLocalObjectDetector(unittest.TestCase):
             == np.zeros((1, 32, 32, 3)).shape
         )
         assert test_result == TEST_DETECT_RESULT
+
+
+class TestRawFrameHandThrough(unittest.TestCase):
+    """A detector that normalises the raw frame itself is handed it untouched."""
+
+    def _detector(self, api, input_tensor=InputTensorEnum.nchw, dtype=None):
+        det = frigate.object_detection.base.BaseLocalDetector.__new__(
+            frigate.object_detection.base.BaseLocalDetector
+        )
+        det.input_transform = tensor_transform(input_tensor)
+        det.dtype = dtype or InputDTypeEnum.float
+        det.detect_api = api
+        return det
+
+    def test_raw_frame_is_handed_through(self):
+        frame = np.zeros((1, 8, 8, 3), np.uint8)
+        det = self._detector(SimpleNamespace(accepts_uint8_nhwc=True))
+        self.assertIs(det._transform_input(frame), frame)
+
+    def test_other_detectors_still_get_the_float_tensor(self):
+        frame = np.full((1, 8, 8, 3), 255, np.uint8)
+        for api in (SimpleNamespace(accepts_uint8_nhwc=False), SimpleNamespace()):
+            out = self._detector(api)._transform_input(frame)
+            self.assertEqual(out.shape, (1, 3, 8, 8))
+            self.assertEqual(out.dtype, np.float32)
+            self.assertEqual(float(out.max()), 1.0)
+
+    def test_a_mock_detector_is_not_taken_for_support(self):
+        # Mock answers every attribute with a truthy Mock
+        frame = np.zeros((1, 8, 8, 3), np.uint8)
+        self.assertEqual(
+            self._detector(Mock())._transform_input(frame).dtype, np.float32
+        )
+
+    def test_only_the_normalised_nchw_input_is_replaced(self):
+        frame = np.zeros((1, 8, 8, 3), np.uint8)
+        api = SimpleNamespace(accepts_uint8_nhwc=True)
+        nhwc = self._detector(api, input_tensor=InputTensorEnum.nhwc)._transform_input(
+            frame
+        )
+        self.assertEqual((nhwc.shape, nhwc.dtype), ((1, 8, 8, 3), np.float32))
+        denorm = self._detector(
+            api, dtype=InputDTypeEnum.float_denorm
+        )._transform_input(frame)
+        self.assertEqual((denorm.shape, denorm.dtype), ((1, 3, 8, 8), np.float32))
+
+    def test_detector_without_the_attribute_set_up_does_not_fail(self):
+        det = self._detector(None)
+        del det.detect_api
+        frame = np.zeros((1, 8, 8, 3), np.uint8)
+        self.assertEqual(det._transform_input(frame).dtype, np.float32)
 
 
 class TestWriteDetections(unittest.TestCase):

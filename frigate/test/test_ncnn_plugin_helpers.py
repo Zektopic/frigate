@@ -2,10 +2,14 @@
 
 import importlib.util
 import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import numpy as np
 
 PLUGIN_PATH = Path(__file__).resolve().parents[2] / "docker/ncnn-vulkan/onnx.py"
 
@@ -88,3 +92,113 @@ class TestNcnnPluginHelpers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Reads requests like frigate-detector-rs and answers with one detection
+# whose x1 is the size of the request it read.
+FAKE_WORKER = r"""
+import os, struct, sys
+import numpy as np
+
+def read_exact(n):
+    buf = b""
+    while len(buf) < n:
+        chunk = os.read(0, n - len(buf))
+        if not chunk:
+            sys.exit(0)
+        buf += chunk
+    return buf
+
+while True:
+    size = struct.unpack(">I", read_exact(4))[0]
+    read_exact(size)
+    out = np.zeros((20, 6), np.float32)
+    out[0] = [1, 0.9, size, 0, 0, 0]
+    data = out.tobytes()
+    os.write(1, struct.pack(">I", len(data)) + data)
+"""
+
+
+@unittest.skipUnless(PLUGIN_PATH.exists(), "ncnn plugin source not available")
+class TestNcnnWorkerPayload(unittest.TestCase):
+    """What the plugin sends to its inference worker."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.plugin = _load_plugin()
+
+    def _detector(self, rust_worker: bool = True, size: int = 4):
+        det = object.__new__(self.plugin.ONNXDetector)
+        det.model_input_size = size
+        det._use_worker = True
+        det._worker_accepts_uint8 = rust_worker
+        return det
+
+    def test_rust_worker_takes_the_raw_frame(self):
+        det = self._detector()
+        self.assertTrue(det.accepts_uint8_nhwc)
+        frame = np.arange(48, dtype=np.uint8).reshape(1, 4, 4, 3)
+        self.assertIs(det._worker_payload(frame), frame)
+
+    def test_python_worker_gets_the_normalised_fp16_tensor(self):
+        det = self._detector(rust_worker=False)
+        self.assertFalse(det.accepts_uint8_nhwc)
+        frame = np.arange(48, dtype=np.uint8).reshape(1, 4, 4, 3)
+        payload = det._worker_payload(frame)
+        want = (
+            np.transpose(frame, (0, 3, 1, 2)).astype(np.float32) * np.float32(1 / 255)
+        ).astype(np.float16)
+        np.testing.assert_array_equal(payload, want)
+        self.assertTrue(payload.flags.c_contiguous)
+
+    def test_in_process_backends_do_not_take_raw_frames(self):
+        det = self._detector()
+        det._use_worker = False
+        self.assertFalse(det.accepts_uint8_nhwc)
+
+    def test_frame_of_another_size_is_not_sent_raw(self):
+        frame = np.zeros((1, 8, 8, 3), np.uint8)  # the model is 4x4
+        payload = self._detector()._worker_payload(frame)
+        self.assertEqual((payload.dtype, payload.shape), (np.float16, (1, 3, 8, 8)))
+
+    def test_float_tensor_bytes_are_what_was_sent_before(self):
+        # before: tensor.astype(np.float16).tobytes(), which is C order even
+        # for the transposed view Frigate's Python path produces
+        nhwc = np.random.default_rng(1).random((1, 4, 4, 3), dtype=np.float32)
+        tensor = np.transpose(nhwc, (0, 3, 1, 2))
+        payload = self._detector()._worker_payload(tensor)
+        self.assertEqual(payload.tobytes(), tensor.astype(np.float16).tobytes())
+        memoryview(payload).cast("B")  # writable as one buffer
+
+    def test_write_all_survives_partial_writes(self):
+        sink = bytearray()
+
+        def short_write(fd, data):
+            chunk = bytes(data[:7])
+            sink.extend(chunk)
+            return len(chunk)
+
+        with patch.object(self.plugin.os, "write", side_effect=short_write):
+            self.plugin.ONNXDetector._write_all(5, np.arange(100, dtype=np.uint8))
+        self.assertEqual(bytes(sink), bytes(range(100)))
+
+    def test_round_trip_through_a_worker(self):
+        det = self._detector(size=4)
+        det._worker = subprocess.Popen(
+            [sys.executable, "-c", FAKE_WORKER],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+        )
+
+        def stop():
+            det._worker.stdin.close()
+            det._worker.wait(timeout=5)
+            det._worker.stdout.close()
+
+        self.addCleanup(stop)
+
+        # x1 comes back in column 3, divided by the model size
+        raw = det._detect_worker(np.zeros((1, 4, 4, 3), np.uint8))
+        self.assertAlmostEqual(float(raw[0][3]) * 4, 3 * 4 * 4)
+        tensor = det._detect_worker(np.zeros((1, 3, 4, 4), np.float32))
+        self.assertAlmostEqual(float(tensor[0][3]) * 4, 2 * 3 * 4 * 4)
