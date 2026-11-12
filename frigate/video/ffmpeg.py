@@ -78,7 +78,8 @@ def capture_frames(
         return config.enabled
 
     # Throttle cross-process shared-value writes to 1 Hz — watchdogs poll
-    # at 1 Hz so per-frame updates waste kernel lock acquisitions.
+    # at 1 Hz so per-frame updates waste kernel lock acquisitions. Only the
+    # shared values are throttled: every frame still gets its own timestamp.
     _last_metrics_update = 0.0
 
     try:
@@ -159,7 +160,10 @@ def capture_frames(
             # don't lock the queue to check, just try since it should rarely be full
             try:
                 # add to the queue
-                frame_queue.put((frame_name, current_frame.value), False)
+                # the frame's own time, not the throttled shared value: that
+                # only advances once a second, which gave every frame captured
+                # in the same second an identical timestamp
+                frame_queue.put((frame_name, now_ts), False)
                 frame_manager.close(frame_name)
             except queue.Full:
                 # if the queue is full, skip this frame
