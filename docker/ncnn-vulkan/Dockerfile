@@ -97,5 +97,18 @@ COPY docker/ncnn-vulkan/onnx.py /opt/frigate/frigate/detectors/plugins/onnx.py
 # Copy prebuilt web assets
 COPY --from=web-builder /work/dist/ /opt/frigate/web/
 
+# The base image's nginx config sets $go2rtc_stream_proxy only inside the go2rtc
+# stream locations, but the /auth subrequest of every request reads it. nginx
+# then logs "using uninitialized variable" once per request (about two thirds
+# of all log lines on a 9-camera system). Give it an empty default at server
+# level; the stream locations still override it with 1, and an empty value
+# sends no header, exactly as before. Skipped if the base image stops using
+# the variable or already initializes it.
+RUN conf=/usr/local/nginx/conf/auth_location.conf; \
+    if grep -q 'go2rtc_stream_proxy' "$conf" \
+        && ! grep -q '^set \$go2rtc_stream_proxy' "$conf"; then \
+        sed -i '1i set $go2rtc_stream_proxy "";' "$conf"; \
+    fi
+
 RUN find /opt/frigate -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
     find /opt/frigate -name "*.pyc" -delete 2>/dev/null

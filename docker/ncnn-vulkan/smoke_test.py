@@ -16,6 +16,9 @@ shipped:
 * The Rust libraries failing to load (missing file, bad glibc symbol
   versions, wrong exports), in which case Frigate silently falls back to
   the slower Python paths and nothing else notices.
+* The base image's nginx reading ``$go2rtc_stream_proxy`` in every auth
+  subrequest while only the stream locations set it, which logged a warning
+  for each request.
 """
 
 import ctypes
@@ -109,6 +112,20 @@ def detector_binary_runs() -> bool:
     return proc.returncode == 1 and "Usage" in proc.stderr
 
 
+def nginx_stream_proxy_var_initialized() -> bool:
+    """Every request logs a warning if /auth reads the variable unset."""
+    conf_dir = "/usr/local/nginx/conf"
+    with open(os.path.join(conf_dir, "auth_location.conf")) as f:
+        auth = f.read()
+
+    if "$go2rtc_stream_proxy" not in auth:
+        return True  # the base image no longer uses it
+
+    return any(
+        line.strip() == 'set $go2rtc_stream_proxy "";' for line in auth.splitlines()
+    )
+
+
 def frigate_app_imports() -> None:
     import frigate.app  # noqa: F401
 
@@ -140,6 +157,10 @@ def main() -> int:
     check("libfrigate_yolo_rs.so loads", yolo_rs_loads)
     check("libfrigate_stats_rs.so collects", stats_rs_collects)
     check("frigate-detector-rs executes", detector_binary_runs)
+    check(
+        "nginx $go2rtc_stream_proxy has a default (no per-request warning)",
+        nginx_stream_proxy_var_initialized,
+    )
     check("frigate.app imports", frigate_app_imports)
 
     print("\nRust-path integration tests:")
