@@ -81,6 +81,7 @@ def get_npu_service_stats(
         "embeddings_per_s": raw.get("embeddings_per_s"),
         "mean_latency_ms": raw.get("mean_latency_ms"),
         "clock_mhz": raw.get("h_clock_mhz"),
+        "state": raw.get("runtime_pm"),
     }
 
 

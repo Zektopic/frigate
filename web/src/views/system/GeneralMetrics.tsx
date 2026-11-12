@@ -536,7 +536,9 @@ export default function GeneralMetrics({
           series[key] = { name: key, data: [] };
         }
 
-        if (stats?.npu) {
+        // 0 is a valid reading: an idle NPU must still plot, and skipping
+        // it would also shift every later point of the series
+        if (typeof stats?.npu === "number") {
           hasValidNpu = true;
           series[key].data.push({ x: statsIdx + 1, y: stats.npu });
         }

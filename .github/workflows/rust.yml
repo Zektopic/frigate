@@ -22,6 +22,8 @@ on:
       - "frigate/detectors/**"
       - "frigate/data_processing/common/face/**"
       - "frigate/video/**"
+      - "frigate/stats/**"
+      - "frigate/util/services.py"
       - ".github/workflows/rust.yml"
   push:
     branches:
@@ -55,6 +57,7 @@ jobs:
           - frigate-motion-rs
           - frigate-yolo-rs
           - frigate-detector-rs
+          - frigate-stats-rs
     defaults:
       run:
         working-directory: ${{ matrix.crate }}
