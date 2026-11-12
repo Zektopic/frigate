@@ -85,6 +85,46 @@ fn lib_candidates() -> Vec<String> {
     v
 }
 
+/// How a request's frame is encoded. The two sizes differ, so the size of
+/// the request tells them apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameFormat {
+    /// fp16 values, NCHW, already normalised to 0..1: 6 bytes per pixel.
+    F16Nchw,
+    /// Frigate's raw detector frame: u8, NHWC, 3 bytes per pixel. Normalised
+    /// and transposed here, in one pass.
+    U8Nhwc,
+}
+
+impl FrameFormat {
+    pub fn from_len(len: usize, model_size: usize) -> Option<Self> {
+        let values = 3 * model_size * model_size;
+        if len == 2 * values {
+            Some(FrameFormat::F16Nchw)
+        } else if len == values {
+            Some(FrameFormat::U8Nhwc)
+        } else {
+            None
+        }
+    }
+}
+
+/// u8 NHWC pixels to f32 NCHW planes scaled to 0..1, with the same
+/// arithmetic as `transform_detect_input` in frigate-frame-rs (`v * (1/255)`
+/// in f32), so both paths feed the model identical values.
+pub fn u8_nhwc_to_f32_nchw(src: &[u8], dst: &mut [f32]) {
+    let hw = dst.len() / 3;
+    debug_assert_eq!(src.len(), 3 * hw);
+    let inv255: f32 = 1.0 / 255.0;
+    let (r, rest) = dst.split_at_mut(hw);
+    let (g, b) = rest.split_at_mut(hw);
+    for (((px, r), g), b) in src.as_chunks::<3>().0.iter().zip(r).zip(g).zip(b) {
+        *r = px[0] as f32 * inv255;
+        *g = px[1] as f32 * inv255;
+        *b = px[2] as f32 * inv255;
+    }
+}
+
 impl NcnnFfi {
     pub fn new(param: &str, bin: &str, in_name: &str, out_name: &str, ms: u32) -> io::Result<Self> {
         let lib = lib_candidates()
@@ -233,18 +273,27 @@ impl NcnnFfi {
         })
     }
 
-    /// Forward pass: fp16 NCHW frame bytes in, raw f32 output blob out.
-    /// Same contract as the Python worker's pipe protocol body.
-    pub fn forward(&mut self, frame_f16: &[u8]) -> io::Result<Vec<f32>> {
-        let n = frame_f16.len() / 2;
-        if n != self.f32_buf.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("expected {} fp16 values, got {n}", self.f32_buf.len()),
-            ));
-        }
-        for (dst, bytes) in self.f32_buf.iter_mut().zip(frame_f16.as_chunks::<2>().0) {
-            *dst = f16_to_f32(u16::from_le_bytes(*bytes));
+    /// Forward pass: frame bytes in (see [`FrameFormat`]), raw f32 output
+    /// blob out.
+    pub fn forward(&mut self, frame: &[u8]) -> io::Result<Vec<f32>> {
+        match FrameFormat::from_len(frame.len(), self.model_size) {
+            Some(FrameFormat::F16Nchw) => {
+                for (dst, bytes) in self.f32_buf.iter_mut().zip(frame.as_chunks::<2>().0) {
+                    *dst = f16_to_f32(u16::from_le_bytes(*bytes));
+                }
+            }
+            Some(FrameFormat::U8Nhwc) => u8_nhwc_to_f32_nchw(frame, &mut self.f32_buf),
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "expected {} (fp16 NCHW) or {} (u8 NHWC) frame bytes, got {}",
+                        2 * self.f32_buf.len(),
+                        self.f32_buf.len(),
+                        frame.len()
+                    ),
+                ));
+            }
         }
 
         let ms = self.model_size as c_int;
@@ -322,6 +371,63 @@ fn f16_to_f32(bits: u16) -> f32 {
         _ => (sign << 16) | ((exp + 127 - 15) << 23) | (frac << 13),
     };
     f32::from_bits(f)
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::{u8_nhwc_to_f32_nchw, FrameFormat};
+
+    #[test]
+    fn frame_format_follows_the_request_size() {
+        assert_eq!(
+            FrameFormat::from_len(2 * 3 * 640 * 640, 640),
+            Some(FrameFormat::F16Nchw)
+        );
+        assert_eq!(
+            FrameFormat::from_len(3 * 640 * 640, 640),
+            Some(FrameFormat::U8Nhwc)
+        );
+        assert_eq!(FrameFormat::from_len(3 * 320 * 320, 640), None);
+        assert_eq!(FrameFormat::from_len(0, 640), None);
+        // the two encodings of one model size can never be confused
+        assert_eq!(
+            FrameFormat::from_len(3 * 320 * 320 * 2, 320),
+            Some(FrameFormat::F16Nchw)
+        );
+    }
+
+    #[test]
+    fn u8_frame_is_transposed_into_planes() {
+        // 2x2 image, pixels (r, g, b) = (10p, 10p + 1, 10p + 2)
+        let src: Vec<u8> = (0..4u8)
+            .flat_map(|p| [10 * p, 10 * p + 1, 10 * p + 2])
+            .collect();
+        let mut dst = vec![0.0f32; 12];
+        u8_nhwc_to_f32_nchw(&src, &mut dst);
+        let inv = 1.0f32 / 255.0;
+        let want: Vec<f32> = [0u8, 10, 20, 30, 1, 11, 21, 31, 2, 12, 22, 32]
+            .iter()
+            .map(|&v| v as f32 * inv)
+            .collect();
+        assert_eq!(dst, want);
+    }
+
+    #[test]
+    fn every_u8_value_matches_the_frame_rs_formula_bit_for_bit() {
+        // frigate-frame-rs transform_detect_input: `v as f32 * (1.0 / 255.0)`
+        let inv255: f32 = 1.0 / 255.0;
+        let src: Vec<u8> = (0..=255u8).flat_map(|v| [v, v, v]).collect();
+        let mut dst = vec![0.0f32; src.len()];
+        u8_nhwc_to_f32_nchw(&src, &mut dst);
+        for v in 0..=255u8 {
+            let want = (v as f32 * inv255).to_bits();
+            for plane in 0..3 {
+                assert_eq!(dst[plane * 256 + v as usize].to_bits(), want, "value {v}");
+            }
+        }
+        assert_eq!(dst[0], 0.0);
+        assert_eq!(dst[255], 1.0);
+    }
 }
 
 #[cfg(test)]
