@@ -154,10 +154,11 @@ describe("convertLocalDateToTimestamp", () => {
     const formatToParts = vi.fn().mockReturnValue(partsMap[type]);
     vi.spyOn(Intl, "DateTimeFormat").mockImplementation(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      () =>
-        ({
+      function () {
+        return {
           formatToParts,
-        }) as unknown as Intl.DateTimeFormat,
+        } as unknown as Intl.DateTimeFormat;
+      },
     );
   };
 
@@ -201,10 +202,11 @@ describe("convertLocalDateToTimestamp", () => {
     ]);
     vi.spyOn(Intl, "DateTimeFormat").mockImplementation(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      () =>
-        ({
+      function () {
+        return {
           formatToParts,
-        }) as unknown as Intl.DateTimeFormat,
+        } as unknown as Intl.DateTimeFormat;
+      },
     );
 
     expect(convertLocalDateToTimestamp("10102023")).toBe(0);
