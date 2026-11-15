@@ -81,7 +81,7 @@ export default function Step1NameCamera({
       username: z.string().optional(),
       password: z.string().optional(),
       brandTemplate: z.enum(CAMERA_BRAND_VALUES).optional(),
-      onvifPort: z.coerce.number().int().min(1).max(65535).optional(),
+      onvifPort: z.coerce.number<number>().int().min(1).max(65535).optional(),
       useDigestAuth: z.boolean().optional(),
       customUrl: z
         .string()
@@ -107,7 +107,11 @@ export default function Step1NameCamera({
       },
     );
 
-  const form = useForm<z.infer<typeof step1FormData>>({
+  const form = useForm<
+    z.input<typeof step1FormData>,
+    unknown,
+    z.output<typeof step1FormData>
+  >({
     resolver: zodResolver(step1FormData),
     defaultValues: {
       cameraName: wizardData.cameraName || "",

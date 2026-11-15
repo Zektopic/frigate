@@ -16,7 +16,7 @@ pathvalidate == 3.3.*
 # it and break the ReDoS mitigation in frigate/db/sqlitevecq.py.
 regex == 2026.2.*
 markupsafe == 3.0.*
-python-multipart == 0.0.26
+python-multipart == 0.0.33
 # Classification Model Training
 tensorflow == 2.19.* ; platform_machine == 'aarch64'
 tensorflow-cpu == 2.19.* ; platform_machine == 'x86_64'
