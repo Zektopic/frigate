@@ -13,9 +13,16 @@ from frigate.app import FrigateApp
 from frigate.config import FrigateConfig
 from frigate.log import setup_logging
 from frigate.util.config import find_config_file
+from frigate.util.services import set_file_limit
 
 
 def main() -> None:
+    # Raise the open file limit before mp.Manager() starts the forkserver:
+    # every Frigate process is forked from it and inherits its limit, so a
+    # raise done later (FrigateApp.start) only reached the main process and
+    # the rest kept containerd's default soft limit of 1024.
+    set_file_limit()
+
     manager = mp.Manager()
     faulthandler.enable()
 
