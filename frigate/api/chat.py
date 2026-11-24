@@ -44,6 +44,7 @@ from frigate.genai.prompts import (
 )
 from frigate.genai.utils import build_assistant_message_for_conversation
 from frigate.jobs.vlm_watch import (
+    VLMWatchJob,
     get_vlm_watch_job,
     start_vlm_watch_job,
     stop_vlm_watch_job,
@@ -745,7 +746,7 @@ async def _execute_tool_internal(
     elif tool_name == "start_camera_watch":
         return await _execute_start_camera_watch(request, arguments)
     elif tool_name == "stop_camera_watch":
-        return _execute_stop_camera_watch()
+        return _execute_stop_camera_watch(request)
     elif tool_name == "get_profile_status":
         return _execute_get_profile_status(request)
     elif tool_name == "get_recap":
@@ -799,6 +800,7 @@ async def _execute_start_camera_watch(
             dispatcher=request.app.dispatcher,
             labels=labels,
             zones=zones,
+            username=request.headers.get("remote-user", ""),
         )
     except RuntimeError as e:
         logger.error("Failed to start VLM watch job: %s", e, exc_info=True)
@@ -814,7 +816,18 @@ async def _execute_start_camera_watch(
     }
 
 
-def _execute_stop_camera_watch() -> dict[str, Any]:
+def _can_cancel_watch_job(request: Request, job: VLMWatchJob) -> bool:
+    """Admins can cancel any watch job; other users only jobs they started."""
+    role = request.headers.get("remote-role", "viewer")
+    username = request.headers.get("remote-user", "")
+    return role == "admin" or username == job.username
+
+
+def _execute_stop_camera_watch(request: Request) -> dict[str, Any]:
+    job = get_vlm_watch_job()
+    if job is not None and not _can_cancel_watch_job(request, job):
+        return {"success": False, "message": "Not authorized to cancel this watch job."}
+
     cancelled = stop_vlm_watch_job()
     if cancelled:
         return {"success": True, "message": "Watch job cancelled."}
@@ -1536,11 +1549,7 @@ async def cancel_vlm_monitor(request: Request) -> JSONResponse:
             status_code=404,
         )
 
-    role = request.headers.get("remote-role", "viewer")
-    username = request.headers.get("remote-user", "")
-
-    # Admin can cancel any job; other users can only cancel jobs they started.
-    if role != "admin" and username != job.username:
+    if not _can_cancel_watch_job(request, job):
         return JSONResponse(
             content={
                 "success": False,
