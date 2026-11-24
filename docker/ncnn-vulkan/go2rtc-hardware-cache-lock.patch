@@ -1,0 +1,34 @@
+diff --git a/internal/ffmpeg/hardware/hardware.go b/internal/ffmpeg/hardware/hardware.go
+index 8016689..f0f07cc 100644
+--- a/internal/ffmpeg/hardware/hardware.go
++++ b/internal/ffmpeg/hardware/hardware.go
+@@ -4,6 +4,7 @@ import (
+ 	"net/http"
+ 	"os/exec"
+ 	"strings"
++	"sync"
+ 
+ 	"github.com/AlexxIT/go2rtc/internal/api"
+ 	"github.com/AlexxIT/go2rtc/pkg/ffmpeg"
+@@ -47,10 +48,13 @@ func MakeHardware(args *ffmpeg.Args, engine string, defaults map[string]string)
+ 
+ 		// temporary disable probe for H265
+ 		if engine == "" && name != "h265" {
++			// streams start concurrently; probe once and share the result
++			cacheMu.Lock()
+ 			if engine = cache[name]; engine == "" {
+ 				engine = ProbeHardware(args.Bin, name)
+ 				cache[name] = engine
+ 			}
++			cacheMu.Unlock()
+ 		}
+ 
+ 		switch engine {
+@@ -160,6 +164,7 @@ func MakeHardware(args *ffmpeg.Args, engine string, defaults map[string]string)
+ }
+ 
+ var cache = map[string]string{}
++var cacheMu sync.Mutex
+ 
+ func run(bin string, args string) bool {
+ 	err := exec.Command(bin, strings.Split(args, " ")...).Run()

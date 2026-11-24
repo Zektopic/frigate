@@ -81,8 +81,13 @@ ARG GO2RTC_VERSION=v1.9.15
 ARG TEMPIO_VERSION=2026.07.0
 ARG YQ_VERSION=v4.54.3
 ENV CGO_ENABLED=0 GOOS=linux GOFLAGS=-trimpath
+# go2rtc's hardware-probe cache is an unlocked map; streams with #hardware start
+# concurrently and can kill go2rtc with "concurrent map writes" (same code in
+# 1.9.14, 1.9.15 and master), so guard it with a mutex.
+COPY docker/ncnn-vulkan/go2rtc-hardware-cache-lock.patch /tmp/go2rtc-hardware-cache-lock.patch
 RUN git clone --depth 1 --branch "$GO2RTC_VERSION" https://github.com/AlexxIT/go2rtc /src/go2rtc \
-    && cd /src/go2rtc && GOARCH="$TARGETARCH" go build -ldflags "-s -w" -o /out/go2rtc .
+    && cd /src/go2rtc && git apply /tmp/go2rtc-hardware-cache-lock.patch \
+    && GOARCH="$TARGETARCH" go build -ldflags "-s -w" -o /out/go2rtc .
 # tempio 2026.07.0 still pins golang.org/x/crypto v0.31.0 (via sprig)
 RUN git clone --depth 1 --branch "$TEMPIO_VERSION" https://github.com/home-assistant/tempio /src/tempio \
     && cd /src/tempio && go get golang.org/x/crypto@v0.59.0 && go mod tidy \
