@@ -86,6 +86,11 @@ class CameraTracker(FrigateProcess):
 
     def run(self) -> None:
         self.pre_run_setup(self.log_config)
+
+        # OpenCV only sees small images here, and its default per-core thread
+        # pool burns ~5x the CPU of running them inline
+        cv2.setNumThreads(1)
+
         frame_queue = self.camera_metrics.frame_queue
         frame_shape = self.config.frame_shape
 
@@ -548,7 +553,6 @@ def process_frames(
             )
         # add to the queue if not full
         if detected_objects_queue.full():
-            frame_manager.close(frame_name)
             continue
         else:
             fps_tracker.update()
@@ -564,7 +568,6 @@ def process_frames(
                 )
             )
             camera_metrics.detection_fps.value = object_detector.fps.eps()
-            frame_manager.close(frame_name)
 
     motion_detector.stop()
     requestor.stop()

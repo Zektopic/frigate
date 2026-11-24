@@ -10,6 +10,7 @@ from json.decoder import JSONDecodeError
 from multiprocessing.synchronize import Event as MpEvent
 from typing import Any, Union
 
+import cv2
 import regex
 from pathvalidate import ValidationError, sanitize_filename
 
@@ -48,6 +49,11 @@ class EmbeddingProcess(FrigateProcess):
 
     def run(self) -> None:
         self.pre_run_setup(self.config.logger)
+
+        # frame conversions and crops here are one-off calls, and OpenCV's
+        # per-core thread pool burns ~8x the CPU of running them inline
+        cv2.setNumThreads(1)
+
         maintainer = EmbeddingMaintainer(
             self.config,
             self.metrics,

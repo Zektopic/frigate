@@ -485,7 +485,7 @@ class ReviewSegmentMaintainer(threading.Thread):
                 try:
                     if should_update_image:
                         yuv_frame = self.frame_manager.get(
-                            frame_name, camera_config.frame_shape_yuv
+                            frame_name, camera_config.frame_shape_yuv, frame_time
                         )
 
                         if yuv_frame is None:
@@ -501,7 +501,6 @@ class ReviewSegmentMaintainer(threading.Thread):
                         activity.get_all_objects(),
                         prev_data,
                     )
-                    self.frame_manager.close(frame_name)
                 except FileNotFoundError:
                     return
 
@@ -509,7 +508,7 @@ class ReviewSegmentMaintainer(threading.Thread):
             if not segment.has_frame:
                 try:
                     yuv_frame = self.frame_manager.get(
-                        frame_name, camera_config.frame_shape_yuv
+                        frame_name, camera_config.frame_shape_yuv, frame_time
                     )
 
                     if yuv_frame is None:
@@ -517,7 +516,6 @@ class ReviewSegmentMaintainer(threading.Thread):
                         return
 
                     segment.save_full_frame(camera_config, yuv_frame)
-                    self.frame_manager.close(frame_name)
                     self._publish_segment_update(
                         segment, camera_config, None, [], prev_data
                     )
@@ -624,7 +622,7 @@ class ReviewSegmentMaintainer(threading.Thread):
 
                 try:
                     yuv_frame = self.frame_manager.get(
-                        frame_name, camera_config.frame_shape_yuv
+                        frame_name, camera_config.frame_shape_yuv, frame_time
                     )
 
                     if yuv_frame is None:
@@ -634,7 +632,6 @@ class ReviewSegmentMaintainer(threading.Thread):
                     new_segment.update_frame(
                         camera_config, yuv_frame, activity.get_all_objects()
                     )
-                    self.frame_manager.close(frame_name)
                     self._publish_segment_start(new_segment)
                 except FileNotFoundError:
                     return
@@ -651,6 +648,10 @@ class ReviewSegmentMaintainer(threading.Thread):
             if "enabled" in updated_topics:
                 for camera in updated_topics["enabled"]:
                     self.forcibly_end_segment(camera)
+
+            if "remove" in updated_topics:
+                for camera in updated_topics["remove"]:
+                    self.frame_manager.close_camera(camera)
 
             result = self.detection_subscriber.check_for_update(timeout=1)
 

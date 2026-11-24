@@ -284,7 +284,11 @@ class EmbeddingMaintainer(threading.Thread):
     def run(self) -> None:
         """Maintain a SQLite-vec database for semantic search."""
         while not self.stop_event.is_set():
-            self.config_updater.check_for_updates()
+            updated_topics = self.config_updater.check_for_updates()
+
+            for camera in updated_topics.get("remove", []):
+                self.frame_manager.close_camera(camera)
+
             self._check_enrichment_config_updates()
             self._process_requests()
             self._process_updates()
@@ -459,7 +463,7 @@ class EmbeddingMaintainer(threading.Thread):
         if update is None:
             return
 
-        source_type, event_type, camera, frame_name, data = update
+        source_type, event_type, camera, frame_name, data, frame_time = update
 
         logger.debug(
             f"Received update - source_type: {source_type}, camera: {camera}, data label: {data.get('label') if data else 'None'}"
@@ -488,7 +492,7 @@ class EmbeddingMaintainer(threading.Thread):
         # Create our own thumbnail based on the bounding box and the frame time
         try:
             yuv_frame = self.frame_manager.get(
-                frame_name, camera_config.frame_shape_yuv
+                frame_name, camera_config.frame_shape_yuv, frame_time
             )
         except FileNotFoundError:
             logger.debug(f"Frame {frame_name} not found for camera {camera}")
@@ -524,8 +528,6 @@ class EmbeddingMaintainer(threading.Thread):
                     },
                     PostProcessDataEnum.tracked_object,
                 )
-
-        self.frame_manager.close(frame_name)
 
     def _process_finalized(self) -> None:
         """Process the end of an event."""
@@ -701,7 +703,7 @@ class EmbeddingMaintainer(threading.Thread):
         if topic is None:
             return
 
-        camera, frame_name, _, _, motion_boxes, _ = data
+        camera, frame_name, frame_time, _, motion_boxes, _ = data
 
         if not camera or camera not in self.config.cameras:
             return
@@ -725,7 +727,7 @@ class EmbeddingMaintainer(threading.Thread):
 
         try:
             yuv_frame = self.frame_manager.get(
-                frame_name, camera_config.frame_shape_yuv
+                frame_name, camera_config.frame_shape_yuv, frame_time
             )
         except FileNotFoundError:
             pass
@@ -748,8 +750,6 @@ class EmbeddingMaintainer(threading.Thread):
                 processor.process_frame(
                     {"camera": camera, "motion": motion_boxes}, yuv_frame
                 )
-
-        self.frame_manager.close(frame_name)
 
     def _process_deferred_results(self) -> None:
         """Drain results from deferred processors and perform IPC side-effects."""

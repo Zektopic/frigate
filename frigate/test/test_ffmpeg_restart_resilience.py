@@ -555,5 +555,59 @@ class TestCaptureReadFailures(unittest.TestCase):
         self.assertTrue(any("is not running" in m for m in logs.output))
 
 
+class TestCaptureFrameTimes(unittest.TestCase):
+    def test_every_frame_gets_its_own_timestamp(self) -> None:
+        """Frames captured within one second must not share a frame time."""
+        stop_event = threading.Event()
+        queued: list[tuple[str, float]] = []
+
+        class FrameQueue:
+            def put(self, item, block=True):
+                queued.append(item)
+
+                if len(queued) == 6:
+                    stop_event.set()
+
+        process = MagicMock()
+        process.stdout.read.return_value = bytes(4)
+        process.stdout.readinto.return_value = 4
+        process.poll.return_value = None
+        config = SimpleNamespace(name="front", enabled=True)
+        frame_manager = MagicMock()
+        frame_manager.write.return_value = bytearray(4)
+        current_frame = SimpleNamespace(value=0.0)
+        # 5 fps: 100.0, 100.2, ... 101.0
+        times = [100.0 + 0.2 * i for i in range(6)]
+
+        with (
+            patch.object(video_ffmpeg, "CameraConfigUpdateSubscriber"),
+            patch("frigate.util.frame_rs.frame_rs_available", return_value=False),
+            patch.object(video_ffmpeg, "datetime") as mock_datetime,
+        ):
+            mock_datetime.now.return_value.timestamp.side_effect = times + [200.0] * 5
+            capture_frames(
+                process,
+                config,
+                10,
+                0,
+                (2, 2),
+                frame_manager,
+                FrameQueue(),
+                SimpleNamespace(value=0.0),
+                SimpleNamespace(value=0.0),
+                current_frame,
+                stop_event,
+            )
+
+        frame_times = [t for _, t in queued]
+        self.assertEqual(frame_times, times)
+        self.assertEqual(len(set(frame_times)), 6)
+        # the shared value the watchdog polls is still only written once a second
+        self.assertEqual(current_frame.value, 101.0)
+        self.assertEqual(
+            [name for name, _ in queued], [f"front_frame{i}" for i in range(6)]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

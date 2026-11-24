@@ -116,7 +116,9 @@ class TrackedObjectProcessor(threading.Thread):
     def create_camera_state(self, camera: str) -> None:
         """Creates a new camera state."""
 
-        def start(camera: str, obj: TrackedObject, frame_name: str) -> None:
+        def start(
+            camera: str, obj: TrackedObject, frame_name: str, frame_time: float
+        ) -> None:
             self.event_sender.publish(
                 (
                     EventTypeEnum.tracked_object,
@@ -124,10 +126,13 @@ class TrackedObjectProcessor(threading.Thread):
                     camera,
                     frame_name,
                     obj.to_dict(),
+                    frame_time,
                 )
             )
 
-        def update(camera: str, obj: TrackedObject, frame_name: str) -> None:
+        def update(
+            camera: str, obj: TrackedObject, frame_name: str, frame_time: float
+        ) -> None:
             obj.has_snapshot = self.should_save_snapshot(camera, obj)
             obj.has_clip = self.should_retain_recording(camera, obj)
             after = obj.to_dict()
@@ -145,13 +150,18 @@ class TrackedObjectProcessor(threading.Thread):
                     camera,
                     frame_name,
                     obj.to_dict(),
+                    frame_time,
                 )
             )
 
-        def autotrack(camera: str, obj: TrackedObject, frame_name: str) -> None:
+        def autotrack(
+            camera: str, obj: TrackedObject, frame_name: str, frame_time: float
+        ) -> None:
             self.ptz_autotracker_thread.ptz_autotracker.autotrack_object(camera, obj)
 
-        def end(camera: str, obj: TrackedObject, frame_name: str) -> None:
+        def end(
+            camera: str, obj: TrackedObject, frame_name: str, frame_time: float
+        ) -> None:
             # populate has_snapshot
             obj.has_snapshot = self.should_save_snapshot(camera, obj)
             obj.has_clip = self.should_retain_recording(camera, obj)
@@ -180,6 +190,7 @@ class TrackedObjectProcessor(threading.Thread):
                     camera,
                     frame_name,
                     obj.to_dict(),
+                    frame_time,
                 )
             )
 
@@ -556,6 +567,7 @@ class TrackedObjectProcessor(threading.Thread):
                     "type": source_type,
                     "draw": draw,
                 },
+                None,
             )
         )
 
@@ -615,6 +627,7 @@ class TrackedObjectProcessor(threading.Thread):
                     "recognized_license_plate": plate,
                     "recognized_license_plate_score": score,
                 },
+                None,
             )
         )
 
@@ -643,6 +656,7 @@ class TrackedObjectProcessor(threading.Thread):
                 None,
                 "",
                 {"id": event_id, "end_time": end_time},
+                None,
             )
         )
 
@@ -664,13 +678,14 @@ class TrackedObjectProcessor(threading.Thread):
     def force_end_all_events(self, camera: str, camera_state: CameraState) -> None:
         """Ends all active events on camera when disabling."""
         last_frame_name = camera_state.previous_frame_id
+        last_frame_time = camera_state.current_frame_time
         for obj_id, obj in list(camera_state.tracked_objects.items()):
             if "end_time" not in obj.obj_data:
                 logger.debug(f"Camera {camera} disabled, ending active event {obj_id}")
                 obj.obj_data["end_time"] = datetime.datetime.now().timestamp()
                 # end callbacks
                 for callback in camera_state.callbacks["end"]:
-                    callback(camera, obj, last_frame_name)
+                    callback(camera, obj, last_frame_name, last_frame_time)
 
                 # camera activity callbacks
                 for callback in camera_state.callbacks["camera_activity"]:
@@ -709,6 +724,7 @@ class TrackedObjectProcessor(threading.Thread):
                         continue
 
                     camera_state.shutdown()
+                    self.frame_manager.close_camera(camera)
                     self.camera_states.pop(camera)
                     self.camera_activity.pop(camera, None)
                     self.last_motion_detected.pop(camera, None)

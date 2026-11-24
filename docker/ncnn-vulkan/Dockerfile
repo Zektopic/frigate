@@ -70,8 +70,37 @@ RUN npm ci
 COPY web/ ./
 RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
+# The base image ships go2rtc built with go1.25.6 and golang.org/x/crypto
+# v0.47.0, tempio from 2021 (go1.17.1) and yq built with go1.25.4, which
+# together carry 9 critical Go stdlib/x-module CVEs. Rebuild pinned upstream
+# tags with the current Go release instead. The go2rtc release binary is
+# UPX-packed, so building from source also keeps it visible to image scanners.
+FROM --platform=$BUILDPLATFORM golang:1.27.4-bookworm AS go-tools-builder
+ARG TARGETARCH
+ARG GO2RTC_VERSION=v1.9.15
+ARG TEMPIO_VERSION=2026.07.0
+ARG YQ_VERSION=v4.54.3
+ENV CGO_ENABLED=0 GOOS=linux GOFLAGS=-trimpath
+RUN git clone --depth 1 --branch "$GO2RTC_VERSION" https://github.com/AlexxIT/go2rtc /src/go2rtc \
+    && cd /src/go2rtc && GOARCH="$TARGETARCH" go build -ldflags "-s -w" -o /out/go2rtc .
+# tempio 2026.07.0 still pins golang.org/x/crypto v0.31.0 (via sprig)
+RUN git clone --depth 1 --branch "$TEMPIO_VERSION" https://github.com/home-assistant/tempio /src/tempio \
+    && cd /src/tempio && go get golang.org/x/crypto@v0.59.0 && go mod tidy \
+    && GOARCH="$TARGETARCH" go build -ldflags "-s -w" -o /out/tempio .
+RUN git clone --depth 1 --branch "$YQ_VERSION" https://github.com/mikefarah/yq /src/yq \
+    && cd /src/yq && GOARCH="$TARGETARCH" go build -ldflags "-s -w" -o /out/yq .
+
 # Final stage
 FROM ghcr.io/blakeblackshear/frigate:stable
+# Pick up Debian bookworm security updates published after the base image
+# was built (curl, OpenSSL, krb5, glib, libxml2, ...). Plain upgrade only:
+# no new packages and no removals.
+RUN apt-get update \
+    && apt-get -y --no-install-recommends upgrade \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=go-tools-builder /out/go2rtc /usr/local/go2rtc/bin/go2rtc
+COPY --from=go-tools-builder /out/tempio /usr/local/tempio/bin/tempio
+COPY --from=go-tools-builder /out/yq /usr/local/bin/yq
 # Pinned: --no-deps skips resolver checks, so an unpinned upgrade could
 # silently pull an incompatible or compromised release into the image
 RUN pip install --break-system-packages --no-deps \
@@ -91,11 +120,30 @@ COPY migrations/ /opt/frigate/migrations/
 # Copy the entire frigate python codebase
 COPY frigate/ /opt/frigate/frigate/
 
+# The base image's go2rtc config generator tracks upstream's Python: since
+# 0.18.3 it imports helpers (is_valid_ffmpeg_path, apply_go2rtc_ffmpeg_config)
+# that this fork's frigate/ does not have, so go2rtc never got a config. Ship
+# the fork's own copy, which is kept in step with frigate/ above.
+COPY docker/main/rootfs/usr/local/go2rtc/create_config.py /usr/local/go2rtc/create_config.py
+
 # Copy custom ncnn-vulkan plugin
 COPY docker/ncnn-vulkan/onnx.py /opt/frigate/frigate/detectors/plugins/onnx.py
 
 # Copy prebuilt web assets
 COPY --from=web-builder /work/dist/ /opt/frigate/web/
+
+# The base image's nginx config sets $go2rtc_stream_proxy only inside the go2rtc
+# stream locations, but the /auth subrequest of every request reads it. nginx
+# then logs "using uninitialized variable" once per request (about two thirds
+# of all log lines on a 9-camera system). Give it an empty default at server
+# level; the stream locations still override it with 1, and an empty value
+# sends no header, exactly as before. Skipped if the base image stops using
+# the variable or already initializes it.
+RUN conf=/usr/local/nginx/conf/auth_location.conf; \
+    if grep -q 'go2rtc_stream_proxy' "$conf" \
+        && ! grep -q '^set \$go2rtc_stream_proxy' "$conf"; then \
+        sed -i '1i set $go2rtc_stream_proxy "";' "$conf"; \
+    fi
 
 RUN find /opt/frigate -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
     find /opt/frigate -name "*.pyc" -delete 2>/dev/null

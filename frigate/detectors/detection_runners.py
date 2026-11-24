@@ -25,25 +25,47 @@ def is_arm64_platform() -> bool:
     return machine in ("aarch64", "arm64", "armv8", "armv7l")
 
 
+def is_cpu_enrichment_session(model_type: str | None, providers: list[str]) -> bool:
+    """Whether a session runs an enrichment model on the CPU execution provider."""
+    # Import here to avoid circular imports
+    from frigate.embeddings.types import EnrichmentModelTypeEnum
+
+    return (
+        bool(providers)
+        and providers[0] == "CPUExecutionProvider"
+        and model_type in {m.value for m in EnrichmentModelTypeEnum}
+    )
+
+
 def get_ort_session_options(
     is_complex_model: bool = False,
+    disable_spinning: bool = False,
 ) -> ort.SessionOptions | None:
     """Get ONNX Runtime session options with appropriate settings.
 
     Args:
         is_complex_model: Whether the model needs basic optimization to avoid graph fusion issues.
+        disable_spinning: Whether idle intra-op threads should sleep instead of spin.
 
     Returns:
-        SessionOptions with appropriate optimization level, or None for default settings.
+        SessionOptions with the requested settings, or None for default settings.
     """
+    if not is_complex_model and not disable_spinning:
+        return None
+
+    sess_options = ort.SessionOptions()
+
+    if disable_spinning:
+        # idle intra-op threads otherwise spin for ~1s after every run, keeping
+        # most cores busy while an enrichment runs even once a second
+        sess_options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+
     if is_complex_model:
-        sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = (
             ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
         )
-        return sess_options
 
-    return None
+    return sess_options
 
 
 # Import OpenVINO only when needed to avoid circular dependencies
@@ -637,7 +659,8 @@ def get_optimized_runner(
         ort.InferenceSession(
             model_path,
             sess_options=get_ort_session_options(
-                ONNXModelRunner.is_cpu_complex_model(model_type)
+                ONNXModelRunner.is_cpu_complex_model(model_type),
+                disable_spinning=is_cpu_enrichment_session(model_type, providers),
             ),
             providers=providers,
             provider_options=options,

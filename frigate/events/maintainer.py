@@ -113,7 +113,7 @@ class EventProcessor(threading.Thread):
                 self.flush_external_end_updates()
                 continue
 
-            source_type, event_type, camera, _, event_data = update  # type: ignore[misc]
+            source_type, event_type, camera, _, event_data, _ = update  # type: ignore[misc]
 
             logger.debug(
                 f"Event received: {source_type} {event_type} {camera} {event_data['id']}"
