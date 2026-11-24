@@ -19,10 +19,16 @@ shipped:
 * The base image's nginx reading ``$go2rtc_stream_proxy`` in every auth
   subrequest while only the stream locations set it, which logged a warning
   for each request.
+* The base image's startup scripts importing ``frigate`` names that this
+  fork's Python does not have (upstream 0.18.3's go2rtc ``create_config.py``
+  needs ``is_valid_ffmpeg_path``), so go2rtc never gets a config.
 """
 
+import ast
 import ctypes
+import importlib
 import os
+import pathlib
 import subprocess
 import sys
 import unittest
@@ -130,6 +136,32 @@ def frigate_app_imports() -> None:
     import frigate.app  # noqa: F401
 
 
+STARTUP_SCRIPT_DIRS = ["/usr/local/go2rtc", "/usr/local/nginx", "/etc/s6-overlay"]
+
+
+def startup_script_imports_resolve() -> None:
+    """Every ``from frigate... import name`` in the base image's startup
+    scripts must resolve against the frigate package shipped in the image."""
+    missing = []
+    for root in STARTUP_SCRIPT_DIRS:
+        for path in pathlib.Path(root).rglob("*.py"):
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module
+                    and node.module.split(".")[0] == "frigate"
+                ):
+                    continue
+                module = importlib.import_module(node.module)
+                missing += [
+                    f"{path}: {node.module}.{alias.name}"
+                    for alias in node.names
+                    if not hasattr(module, alias.name)
+                ]
+    if missing:
+        raise ImportError("missing " + ", ".join(missing))
+
+
 INTEGRATION_TESTS = [
     "frigate.test.test_video",
     "frigate.test.test_stationary_classifier",
@@ -162,6 +194,10 @@ def main() -> int:
         nginx_stream_proxy_var_initialized,
     )
     check("frigate.app imports", frigate_app_imports)
+    check(
+        "base image startup scripts' frigate imports resolve",
+        startup_script_imports_resolve,
+    )
 
     print("\nRust-path integration tests:")
     suite = unittest.defaultTestLoader.loadTestsFromNames(INTEGRATION_TESTS)
