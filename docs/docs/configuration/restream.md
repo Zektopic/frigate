@@ -219,6 +219,8 @@ In this configuration:
 
 For security reasons, the `echo:`, `expr:`, and `exec:` stream sources are disabled by default in go2rtc. These sources allow arbitrary command execution and can pose security risks if misconfigured.
 
+go2rtc's `${VAR:default}` variable syntax is also disabled by default in stream sources, since its default can name one of those sources. Use Frigate's [`{FRIGATE_*}` substitution](./config.md#environment-variable-substitution) instead.
+
 If you attempt to use these sources in your configuration, the streams will be removed and an error message will be printed in the logs.
 
 To enable these sources, you must set the environment variable `GO2RTC_ALLOW_ARBITRARY_EXEC=true`. This can be done in your Docker Compose file or container environment:
