@@ -32,3 +32,11 @@ docs/src/components/DockerComposeGenerator/config/ports.ts
 
 # coverage database
 .coverage
+
+# agent working files (status logs, chat histories, plans, test logs) belong
+# in the PR description, not in the repo; see AGENTS.md
+/Jules/
+/plan.md
+/all_tests.log
+/.zektopic/status.md
+/.zektopic/chat_history.md
