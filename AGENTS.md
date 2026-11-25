@@ -447,3 +447,26 @@ Always conform new and refactored code to the existing coding style in the proje
 - Documentation: https://docs.frigate.video
 - Main Repository: https://github.com/blakeblackshear/frigate
 - Home Assistant Integration: https://github.com/blakeblackshear/frigate-hass-integration
+
+## This fork (Zektopic/frigate)
+
+These rules apply to every agent working in this repository (Claude, Codex, Jules, Copilot, Gemini) and take precedence over the generic guidance above.
+
+### Keep agent working files out of the repo
+
+- Do not commit status logs, chat histories, plans, audit/test reports or test logs (the former `Jules/` folder, `.zektopic/status.md`, `plan.md`, `all_tests.log`). Put test results, findings and follow-ups in the pull request description.
+- Do not open "docs:" pull requests that only append status notes. A PR title must describe the actual change, and code or migration changes must never be hidden under a "docs:" title.
+- `.zektopic/` is for maintained fork documentation only (build guide, GPU detector, Rust migration, troubleshooting). Update the index in `.zektopic/README.md` when adding a document there.
+
+### Branches and migrations
+
+- `dev` is the default branch. Never push to `test/upstream-0.18-rust-integration` (PR #244); it is the protected upstream-sync branch.
+- Never edit a migration in `migrations/` that has already been merged; add a new one.
+
+### Testing
+
+- Run the backend suite in an image built from the branch, not with a mocked harness: build `docker/ncnn-vulkan/Dockerfile`, copy the repo (without `web/`, `target/`, `.git/`) into a container of that image, then run `python3 -u -m unittest`, `python3 -u -m mypy --config-file frigate/mypy.ini frigate` and `python3 generate_api_auth_spec.py --check`. The Rust libraries load from `/opt/frigate`, so a Rust change needs an image built from the branch.
+- Known baseline on `dev`: `frigate.test.test_frame_rs_bounds` fails to import, `test_sqlite_wal_queue.test_wal_pragmas_applied` is flaky (fails about half the runs), and mypy reports 37 errors. Compare against a `dev` run in the same image rather than treating these as new.
+- Rust crates (`frigate-*-rs`): `cargo fmt --check`, `cargo clippy --release --locked --all-targets` and `cargo test --release --locked` on current stable.
+- Web: running `npm run test` from `web/` also picks up the Playwright specs in `web/e2e/`; run unit tests with `npm run test src/` and e2e with `npm run e2e:build && npm run e2e`.
+- `docker/ncnn-vulkan/smoke_test.py` must pass in the built image before a release.
